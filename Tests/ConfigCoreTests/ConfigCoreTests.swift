@@ -156,6 +156,11 @@ func analyticsOnRealData() async {
     #expect(AgentFiles.isMatch("/Users/x/app/AGENTS.md"))
     #expect(!AgentFiles.isMatch("/Users/x/app/node_modules/pkg/AGENTS.md"))
     #expect(!AgentFiles.isMatch("/Users/x/app/README.md"))
+    #expect(AgentFiles.isMatch("/Users/x/app/CLAUDE.md.bak-20261016"))
+    #expect(!AgentFiles.isMatch("/Users/x/app/CLAUDE.mdx"))
+    #expect(AgentFiles.suffix("CLAUDE.local.md.bak-20261016") == ".bak")
+    #expect(AgentFiles.suffix("AGENTS.md~") == "~")
+    #expect(AgentFiles.suffix("CLAUDE.md") == "")
 }
 
 @Test func aiPromptCarriesIssueAndFix() {

@@ -9,11 +9,12 @@ struct AgentFilesView: View {
     @State private var selection: AgentFile.ID?
     @State private var search = ""
     @State private var agent = "All"
+    @State private var ext = "All"
     @State private var sort = [KeyPathComparator(\AgentFile.url.path)]
 
     var body: some View {
         let shown = files.filter {
-            (agent == "All" || $0.agent == agent) && (search.isEmpty || $0.url.path.localizedCaseInsensitiveContains(search))
+            (agent == "All" || $0.agent == agent) && (ext == "All" || $0.suffix == ext) && (search.isEmpty || $0.url.path.localizedCaseInsensitiveContains(search))
         }.sorted(using: sort)
         HStack(spacing: 0) {
             Table(shown, selection: $selection, sortOrder: $sort) {
@@ -38,13 +39,17 @@ struct AgentFilesView: View {
                 Text("All").tag("All")
                 ForEach(Set(AgentFiles.names.values).sorted(), id: \.self) { Text($0).tag($0) }
             }
+            Picker("Extension", selection: $ext) {
+                Text("All").tag("All")
+                ForEach(Set(files.map(\.suffix)).sorted(), id: \.self) { Text($0.isEmpty ? "Live file" : $0).tag($0) }
+            }
             Text("\(shown.count) files").foregroundStyle(.secondary)
             Button("Search again", systemImage: "doc.text.magnifyingglass") { Task { await load() } }
         }
         .task { await load() }
         .onChange(of: selection) {
             guard let f = files.first(where: { $0.id == selection }) else { return }
-            let isLocal = f.url.lastPathComponent == "CLAUDE.local.md"
+            let isLocal = AgentFiles.baseName(f.url.lastPathComponent) == "CLAUDE.local.md"
             model.info = InfoItem(f.url.lastPathComponent, term: isLocal ? .claudeLocalMD : .claudeMD, facts: [
                 ("Path", shortPath(f.url)), ("Read by", f.agent), ("Size", formatBytes(f.size)),
                 ("Context", formatTokens(estimateTokens(readText(f.url) ?? ""))),
