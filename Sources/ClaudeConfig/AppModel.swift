@@ -1,3 +1,4 @@
+import UniformTypeIdentifiers
 import AppKit
 import ConfigCore
 import SwiftUI
@@ -141,7 +142,11 @@ extension View {
 }
 
 func reveal(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-func openFile(_ url: URL) { NSWorkspace.shared.open(url) }
+/// Always opens in the plain-text editor, so a symlinked or misnamed file can't launch an app or script.
+func openFile(_ url: URL) {
+    guard let editor = NSWorkspace.shared.urlForApplication(toOpen: .plainText) else { return }
+    NSWorkspace.shared.open([url.resolvingSymlinksInPath()], withApplicationAt: editor, configuration: NSWorkspace.OpenConfiguration())
+}
 
 func relative(_ date: Date?) -> String {
     guard let date else { return "—" }

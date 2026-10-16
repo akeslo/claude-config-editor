@@ -314,7 +314,8 @@ public enum Scanner {
         guard exists(repo.appending(path: ".git")) else { return true }  // not a repo: nothing to commit it to
         let p = Process()
         p.executableURL = URL(filePath: "/usr/bin/git")
-        p.arguments = ["-C", repo.path, "check-ignore", "-q", file.path]
+        // Project repos are untrusted: disable config that can run commands.
+        p.arguments = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-C", repo.path, "check-ignore", "-q", file.path]
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice
         guard (try? p.run()) != nil else { return true }
