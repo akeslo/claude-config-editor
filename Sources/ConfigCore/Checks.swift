@@ -3,7 +3,7 @@ import Foundation
 public enum AppSection: String, CaseIterable, Identifiable, Sendable {
     case health = "Health", context = "Context Budget", analytics = "Analytics", storage = "Storage", projects = "Projects & History"
     case permissions = "Permissions", mcp = "MCP Servers", skills = "Skills & Agents", plugins = "Plugins"
-    case hooks = "Hooks", instructions = "Instructions & Memory", settings = "Settings", discover = "Discover"
+    case hooks = "Hooks", instructions = "Instructions & Memory", agentFiles = "CLAUDE.md Browser", settings = "Settings", discover = "Discover"
     public var id: String { rawValue }
 
     public var symbol: String {
@@ -19,6 +19,7 @@ public enum AppSection: String, CaseIterable, Identifiable, Sendable {
         case .plugins: "puzzlepiece.extension"
         case .hooks: "arrow.triangle.branch"
         case .instructions: "doc.text"
+        case .agentFiles: "doc.text.magnifyingglass"
         case .settings: "gearshape"
         case .discover: "sparkle.magnifyingglass"
         }
@@ -35,7 +36,7 @@ public enum AppSection: String, CaseIterable, Identifiable, Sendable {
         case .skills: .skill
         case .plugins, .discover: .plugin
         case .hooks: .hook
-        case .instructions: .claudeMD
+        case .instructions, .agentFiles: .claudeMD
         case .settings: .settings
         }
     }

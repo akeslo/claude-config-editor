@@ -69,6 +69,7 @@ struct RootView: View {
         case .plugins: PluginsView()
         case .hooks: HooksView()
         case .instructions: InstructionsView()
+        case .agentFiles: AgentFilesView()
         case .settings: SettingsView()
         case .discover: DiscoverView()
         }

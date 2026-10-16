@@ -150,3 +150,10 @@ func analyticsOnRealData() async {
     let r = await Analytics.load()
     print("ANALYTICS sessions \(r.sessions.count) tokens \(r.totalTokens) cache \(r.cacheHitRate) compactions \(r.compactions) in \(Date().timeIntervalSince(start))s; tools \(r.topTools(3))")
 }
+
+@Test func agentFileMatching() {
+    #expect(AgentFiles.isMatch("/Users/x/app/CLAUDE.local.md"))
+    #expect(AgentFiles.isMatch("/Users/x/app/AGENTS.md"))
+    #expect(!AgentFiles.isMatch("/Users/x/app/node_modules/pkg/AGENTS.md"))
+    #expect(!AgentFiles.isMatch("/Users/x/app/README.md"))
+}
