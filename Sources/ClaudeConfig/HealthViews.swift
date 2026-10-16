@@ -4,6 +4,7 @@ import SwiftUI
 struct HealthView: View {
     @Environment(AppModel.self) private var model
     @State private var selection: Issue.ID?
+    @State private var checked: Set<Issue.ID> = []
 
     var body: some View {
         let issues = model.issues
@@ -18,6 +19,21 @@ struct HealthView: View {
             }
             .padding()
             Divider()
+            if !issues.isEmpty {
+                let picked = issues.filter { checked.contains($0.id) }
+                HStack {
+                    Button(checked.count == issues.count ? "Uncheck All" : "Check All") {
+                        checked = checked.count == issues.count ? [] : Set(issues.map(\.id))
+                    }
+                    Text(picked.isEmpty ? "Check issues to fix them together" : "\(picked.count) checked").foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Copy Prompt for Checked", systemImage: "doc.on.clipboard") { copy(Issue.aiPrompt(for: picked)) }
+                        .disabled(picked.isEmpty)
+                        .help("Copy one prompt asking Claude Code to fix every checked issue")
+                }
+                .padding(.horizontal).padding(.vertical, 6)
+            }
+            Divider()
             if issues.isEmpty && !model.loading {
                 ContentUnavailableView("Nothing to fix", systemImage: "checkmark.circle", description: Text("Every check passed."))
             } else {
@@ -26,13 +42,19 @@ struct HealthView: View {
                         let group = issues.filter { $0.severity == sev }
                         if !group.isEmpty {
                             SwiftUI.Section(sev == .problem ? "Problems" : sev == .warning ? "Warnings" : "Suggestions") {
-                                ForEach(group) { IssueRow(issue: $0).tag($0.id) }
+                                ForEach(group) { issue in
+                                    IssueRow(issue: issue, checked: Binding(
+                                        get: { checked.contains(issue.id) },
+                                        set: { if $0 { checked.insert(issue.id) } else { checked.remove(issue.id) } }
+                                    )).tag(issue.id)
+                                }
                             }
                         }
                     }
                 }
             }
         }
+        .onChange(of: issues.map(\.id)) { checked.formIntersection($1) }
         .onChange(of: selection) {
             guard let issue = issues.first(where: { $0.id == selection }) else { return }
             model.info = InfoItem(issue.title, term: issue.term,
@@ -60,9 +82,12 @@ struct Metric: View {
 struct IssueRow: View {
     @Environment(AppModel.self) private var model
     let issue: Issue
+    @Binding var checked: Bool
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Toggle("Include in bulk prompt", isOn: $checked).toggleStyle(.checkbox).labelsHidden()
+                .help("Check to include this issue in one combined prompt")
             Image(systemName: issue.severity == .problem ? "exclamationmark.octagon.fill" : issue.severity == .warning ? "exclamationmark.triangle.fill" : "lightbulb")
                 .foregroundStyle(issue.severity == .problem ? .red : issue.severity == .warning ? .orange : .secondary)
                 .accessibilityLabel(issue.severity == .problem ? "Problem" : issue.severity == .warning ? "Warning" : "Suggestion")
