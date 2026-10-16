@@ -39,3 +39,7 @@ env/
 # Test files
 test_*.json
 *.backup
+
+# Swift
+.build/
+build/
