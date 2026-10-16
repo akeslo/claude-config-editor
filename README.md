@@ -22,6 +22,18 @@ Hover over anything for a short explanation; the right-hand panel explains what 
 | Settings | Every settings key by scope, keybindings, and `claude doctor` |
 | Discover | Plugins from your marketplaces, by install count |
 
+## Keyboard (Health)
+
+| Key | Action |
+|---|---|
+| ↑ ↓ | Move between issues |
+| Space | Check or uncheck the selected issue |
+| ⌘A | Check or uncheck all |
+| ⌘C | Copy the selected issue's AI prompt |
+| ⇧⌘C | Copy one AI prompt for every checked issue |
+| Return | Fix or open the selected issue |
+| ⌘R | Rescan |
+
 ## Build and install
 
 Requires macOS 15 and Xcode (Swift 6).

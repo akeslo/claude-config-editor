@@ -25,9 +25,12 @@ struct HealthView: View {
                     Button(checked.count == issues.count ? "Uncheck All" : "Check All") {
                         checked = checked.count == issues.count ? [] : Set(issues.map(\.id))
                     }
+                    .keyboardShortcut("a")
+                    .help("⌘A. Space checks the selected issue, ⌘C copies its prompt, Return fixes or opens it")
                     Text(picked.isEmpty ? "Check issues to fix them together" : "\(picked.count) checked").foregroundStyle(.secondary)
                     Spacer()
                     Button("Copy Prompt for Checked", systemImage: "doc.on.clipboard") { copy(Issue.aiPrompt(for: picked)) }
+                        .keyboardShortcut("c", modifiers: [.command, .shift])
                         .disabled(picked.isEmpty)
                         .help("Copy one prompt asking Claude Code to fix every checked issue")
                 }
@@ -51,6 +54,20 @@ struct HealthView: View {
                             }
                         }
                     }
+                }
+                .onKeyPress(.space) {
+                    guard let id = selection else { return .ignored }
+                    if checked.remove(id) == nil { checked.insert(id) }
+                    return .handled
+                }
+                .onKeyPress(.return) {
+                    guard let issue = issues.first(where: { $0.id == selection }) else { return .ignored }
+                    if let fix = issue.fix { model.propose(issue.title, fix) } else if let file = issue.file { openFile(file) } else { return .ignored }
+                    return .handled
+                }
+                .onCopyCommand {
+                    guard let issue = issues.first(where: { $0.id == selection }) else { return [] }
+                    return [NSItemProvider(object: issue.aiPrompt as NSString)]
                 }
             }
         }
