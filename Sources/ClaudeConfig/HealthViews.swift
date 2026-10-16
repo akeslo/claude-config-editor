@@ -44,12 +44,23 @@ struct HealthView: View {
                     ForEach([Issue.Severity.problem, .warning, .info], id: \.self) { sev in
                         let group = issues.filter { $0.severity == sev }
                         if !group.isEmpty {
-                            SwiftUI.Section(sev == .problem ? "Problems" : sev == .warning ? "Warnings" : "Suggestions") {
+                            let ids = Set(group.map(\.id))
+                            let all = ids.isSubset(of: checked)
+                            SwiftUI.Section {
                                 ForEach(group) { issue in
                                     IssueRow(issue: issue, checked: Binding(
                                         get: { checked.contains(issue.id) },
                                         set: { if $0 { checked.insert(issue.id) } else { checked.remove(issue.id) } }
                                     )).tag(issue.id)
+                                }
+                            } header: {
+                                HStack {
+                                    Text(sev == .problem ? "Problems" : sev == .warning ? "Warnings" : "Suggestions")
+                                    Spacer()
+                                    Button(all ? "Uncheck All" : "Check All") {
+                                        if all { checked.subtract(ids) } else { checked.formUnion(ids) }
+                                    }
+                                    .buttonStyle(.link).font(.caption)
                                 }
                             }
                         }
