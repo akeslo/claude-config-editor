@@ -38,6 +38,7 @@ struct HealthView: View {
             model.info = InfoItem(issue.title, term: issue.term,
                                   facts: [("Item", issue.subject), ("Section", issue.section.rawValue)] + (issue.tokens > 0 ? [("Context", formatTokens(issue.tokens))] : []) + (issue.bytes > 0 ? [("Disk", formatBytes(issue.bytes))] : []),
                                   file: issue.file, text: issue.detail)
+            model.info?.prompt = issue.aiPrompt
         }
     }
 }
@@ -73,6 +74,8 @@ struct IssueRow: View {
             Spacer()
             if issue.tokens > 0 { Text(formatTokens(issue.tokens)).font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
             if issue.bytes > 0 { Text(formatBytes(issue.bytes)).font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
+            Button("Copy AI Prompt", systemImage: "doc.on.clipboard") { copy(issue.aiPrompt) }
+                .labelStyle(.iconOnly).help("Copy a prompt that asks Claude Code to fix this")
             if let fix = issue.fix {
                 Button("Fix…") { model.propose(issue.title, fix) }.help(fix.summary)
             } else if let file = issue.file {
@@ -81,6 +84,7 @@ struct IssueRow: View {
         }
         .padding(.vertical, 3)
         .help(issue.term.tooltip)
+        .contextMenu { Button("Copy AI Prompt") { copy(issue.aiPrompt) } }
     }
 }
 

@@ -77,6 +77,23 @@ public struct Issue: Identifiable, Sendable {
     /// Rough cost so the list can rank by impact: tokens per session, or bytes on disk.
     public var tokens = 0
     public var bytes: Int64 = 0
+
+    /// A self-contained prompt to paste into Claude Code so it can fix this issue. Never includes secret values.
+    public var aiPrompt: String {
+        var lines = ["Fix this Claude Code configuration issue found by Claude Config.", "",
+                     "Issue: \(title)", "Where: \(subject)", "Details: \(detail)"]
+        if let file { lines.append("File: \(file.path)") }
+        if let fix { lines.append("Suggested fix: \(fix.summary)") }
+        lines += ["Background: \(term.detail)", "Docs: \(term.docURL.absoluteString)", "",
+                  "Read the files involved first, explain what you'll change, and make the smallest change that fixes it. Back up any file before editing it. Don't print secret values."]
+        return lines.joined(separator: "\n")
+    }
+
+    /// One prompt covering several issues, for fixing them in a single session.
+    public static func aiPrompt(for issues: [Issue]) -> String {
+        "Fix these \(issues.count) Claude Code configuration issues, one at a time, most severe first. Ask me before deleting anything.\n\n"
+            + issues.enumerated().map { "## \($0.offset + 1)\n" + $0.element.aiPrompt.split(separator: "\n", omittingEmptySubsequences: false).dropFirst(2).joined(separator: "\n") }.joined(separator: "\n\n")
+    }
 }
 
 public enum Checks {

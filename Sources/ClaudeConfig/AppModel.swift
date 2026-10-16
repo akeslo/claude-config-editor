@@ -10,6 +10,7 @@ struct InfoItem: Equatable {
     var facts: [Fact] = []
     var file: URL?
     var text: String?
+    var prompt: String?
 
     struct Fact: Equatable, Identifiable {
         var id: String { label }
@@ -151,4 +152,9 @@ func openFile(_ url: URL) {
 func relative(_ date: Date?) -> String {
     guard let date else { return "—" }
     return date.formatted(.relative(presentation: .named))
+}
+
+func copy(_ text: String) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(text, forType: .string)
 }

@@ -40,6 +40,11 @@ struct RootView: View {
                 .navigationTitle(model.section.rawValue)
                 .toolbar {
                     ToolbarItemGroup {
+                        let issues = model.issues.filter { model.section == .health || $0.section == model.section }
+                        if !issues.isEmpty {
+                            Button { copy(Issue.aiPrompt(for: issues)) } label: { Label("Copy AI Prompt", systemImage: "doc.on.clipboard") }
+                                .help("Copy one prompt asking Claude Code to fix the \(issues.count) issue\(issues.count == 1 ? "" : "s") \(model.section == .health ? "listed in Health" : "in this section")")
+                        }
                         if model.loading || model.measuringStorage { ProgressView().controlSize(.small).help("Scanning…") }
                         Button { Task { await model.refresh() } } label: { Label("Rescan", systemImage: "arrow.clockwise") }
                             .help("Read all config files again (⌘R)")
@@ -113,6 +118,10 @@ struct InfoPanel: View {
                 Text("How it fits into Claude Code").font(.headline)
                 Text(item.term.detail).fixedSize(horizontal: false, vertical: true)
                 Link("Read the docs", destination: item.term.docURL)
+                if let prompt = item.prompt {
+                    Button("Copy AI Prompt", systemImage: "doc.on.clipboard") { copy(prompt) }
+                        .help("Copy a prompt that asks Claude Code to fix this")
+                }
                 if let text = item.text {
                     Divider()
                     Text(text).font(.system(.caption, design: .monospaced)).textSelection(.enabled)

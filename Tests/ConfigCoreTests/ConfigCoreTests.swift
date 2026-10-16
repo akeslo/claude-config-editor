@@ -157,3 +157,13 @@ func analyticsOnRealData() async {
     #expect(!AgentFiles.isMatch("/Users/x/app/node_modules/pkg/AGENTS.md"))
     #expect(!AgentFiles.isMatch("/Users/x/app/README.md"))
 }
+
+@Test func aiPromptCarriesIssueAndFix() {
+    let file = URL(filePath: "/tmp/x/settings.json")
+    var issue = Issue(severity: .warning, section: .settings, title: "Short cleanup", subject: "settings.json", detail: "cleanupPeriodDays is 7", term: .cleanupPeriod, file: file)
+    issue.fix = .settingsKey(file: file, path: ["cleanupPeriodDays"], value: nil)
+    #expect(issue.aiPrompt.contains("Issue: Short cleanup"))
+    #expect(issue.aiPrompt.contains("Suggested fix: Set cleanupPeriodDays"))
+    let all = Issue.aiPrompt(for: [issue, issue])
+    #expect(all.contains("## 2") && !all.contains("found by Claude Config"))
+}
