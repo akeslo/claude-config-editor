@@ -32,7 +32,7 @@ struct HealthView: View {
                     Button("Copy Prompt for Checked", systemImage: "doc.on.clipboard") { copy(Issue.aiPrompt(for: picked)) }
                         .keyboardShortcut("c", modifiers: [.command, .shift])
                         .disabled(picked.isEmpty)
-                        .help("Copy one prompt asking Claude Code to fix every checked issue")
+                        .help(picked.isEmpty ? "Check issues to copy one prompt for them" : promptHelp(Issue.aiPrompt(for: picked)))
                 }
                 .padding(.horizontal).padding(.vertical, 6)
             }
@@ -128,7 +128,7 @@ struct IssueRow: View {
             if issue.tokens > 0 { Text(formatTokens(issue.tokens)).font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
             if issue.bytes > 0 { Text(formatBytes(issue.bytes)).font(.caption.monospacedDigit()).foregroundStyle(.secondary) }
             Button("Copy AI Prompt", systemImage: "doc.on.clipboard") { copy(issue.aiPrompt) }
-                .labelStyle(.iconOnly).help("Copy a prompt that asks Claude Code to fix this")
+                .labelStyle(.iconOnly).help(promptHelp(issue.aiPrompt))
             if let fix = issue.fix {
                 Button("Fix…") { model.propose(issue.title, fix) }.help(fix.summary)
             } else if let file = issue.file {

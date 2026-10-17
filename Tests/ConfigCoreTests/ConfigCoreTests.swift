@@ -178,3 +178,16 @@ func analyticsOnRealData() async {
     #expect(!issue.aiPrompt.contains("evil\n"))
     #expect(issue.aiPrompt.components(separatedBy: "```").count == 3)
 }
+
+struct RepoURLTests {
+    @Test func manifestThenMarketplace() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let known: JSON = ["mp": ["source": ["source": "github", "repo": "o/r"]]]
+        #expect(Scanner.repoURL(pluginRoot: root, marketplace: "mp", known: known)?.absoluteString == "https://github.com/o/r")
+        #expect(Scanner.repoURL(pluginRoot: root, marketplace: "nope", known: known) == nil)
+        try FileManager.default.createDirectory(at: root.appending(path: ".claude-plugin"), withIntermediateDirectories: true)
+        try Data(#"{"repository":{"url":"git+https://github.com/a/b.git"},"homepage":"https://x.dev"}"#.utf8)
+            .write(to: root.appending(path: ".claude-plugin/plugin.json"))
+        #expect(Scanner.repoURL(pluginRoot: root, marketplace: "mp", known: known)?.absoluteString == "https://github.com/a/b.git")
+    }
+}

@@ -80,6 +80,7 @@ public struct Plugin: Identifiable, Sendable {
     public var usageCount = 0
     public var lastUsed: Date?
     public var alwaysOnTokens: Int?     // from `claude plugin details`, filled in lazily
+    public var repoURL: URL?            // plugin.json repository/homepage, else its marketplace's GitHub repo
     public var marketplace: String { id.split(separator: "@").last.map(String.init) ?? "" }
 }
 
@@ -90,6 +91,7 @@ public struct AvailablePlugin: Identifiable, Sendable {
     public let marketplace: String
     public let installCount: Int
     public let installed: Bool
+    public var repoURL: URL?
 }
 
 public struct Hook: Identifiable, Sendable {

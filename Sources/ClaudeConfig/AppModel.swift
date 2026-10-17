@@ -11,6 +11,7 @@ struct InfoItem: Equatable {
     var file: URL?
     var text: String?
     var prompt: String?
+    var link: URL?
 
     struct Fact: Equatable, Identifiable {
         var id: String { label }
@@ -18,11 +19,12 @@ struct InfoItem: Equatable {
         let value: String
     }
 
-    init(_ title: String, term: Term, facts: [(String, String)] = [], file: URL? = nil, text: String? = nil) {
+    init(_ title: String, term: Term, facts: [(String, String)] = [], file: URL? = nil, link: URL? = nil, text: String? = nil) {
         self.title = title
         self.term = term
         self.facts = facts.map { Fact(label: $0.0, value: $0.1) }
         self.file = file
+        self.link = link
         self.text = text
     }
 }
@@ -140,6 +142,13 @@ final class AppModel {
 extension View {
     /// Tooltip on hover, from the glossary.
     func explains(_ term: Term) -> some View { help(term.tooltip) }
+    /// Tooltip: what this kind of thing is, then what this one does.
+    func explains(_ term: Term, _ about: String) -> some View { help(term.tooltip + (about.isEmpty ? "" : "\n\n" + about)) }
+}
+
+/// Hover text showing the exact prompt a Copy button puts on the clipboard.
+func promptHelp(_ prompt: String) -> String {
+    "Copies this prompt:\n\n" + (prompt.count > 1500 ? prompt.prefix(1500) + "…" : prompt)
 }
 
 func reveal(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }

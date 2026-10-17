@@ -34,7 +34,7 @@ struct MCPView: View {
     var body: some View {
         let servers = model.snapshot.mcpServers
         Table(servers, selection: $selection) {
-            TableColumn("Name") { Text($0.name).fontWeight(.medium) }
+            TableColumn("Name") { m in Text(m.name).fontWeight(.medium).explains(.mcpServer, "Runs: \(m.command) (\(m.transport))\nFrom: \(m.scope.rawValue)") }
             TableColumn("Scope") { m in Text(m.scope.rawValue).help(Term.mcpScope.tooltip) }.width(110)
             TableColumn("Where") { m in Text(m.project.map { ($0 as NSString).lastPathComponent } ?? "everywhere").help(m.project ?? "") }.width(140)
             TableColumn("Type") { Text($0.transport) }.width(60)
@@ -108,7 +108,7 @@ struct ComponentsView: View {
                     Text(r.name).fontWeight(.medium)
                     Text(r.c.description).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
-                .help(r.c.description)
+                .explains(r.c.kind.term, "\(r.c.description)\n\nFrom: \(r.c.owner ?? r.c.scope.rawValue)")
             }
             TableColumn("Type") { Text($0.c.kind.rawValue) }.width(80)
             TableColumn("Scope") { r in Text(r.c.scope.rawValue).help(r.c.owner ?? "") }.width(70)
@@ -141,12 +141,13 @@ struct ComponentsView: View {
         }
         .onChange(of: selection) {
             guard let c = selected else { return }
-            model.info = InfoItem(c.name, term: c.kind == .skill ? .skill : c.kind == .subagent ? .subagent : c.kind == .command ? .command : .outputStyle, facts: [
+            model.info = InfoItem(c.name, term: c.kind.term, facts: [
                 ("Scope", c.scope.rawValue), ("From", c.owner ?? "personal"),
                 ("Always listed", c.listingTokens > 0 ? "Yes, \(formatTokens(c.listingTokens))" : "No"),
                 ("Override", c.override ?? "none"), ("Uses", "\(c.usageCount)"), ("Last used", relative(c.lastUsed)),
                 ("Lines", "\(c.lineCount)"), ("Frontmatter", c.frontmatterKeys.joined(separator: ", ")),
             ], file: c.file, text: c.description)
+            model.info?.link = model.snapshot.plugins.first { $0.id == c.owner }?.repoURL
         }
     }
 
@@ -165,6 +166,7 @@ struct PluginsView: View {
                     Image(systemName: p.enabled ? "checkmark.circle.fill" : "circle").foregroundStyle(p.enabled ? .green : .secondary)
                         .help(p.enabled ? "Enabled" : "Disabled: costs no context")
                     Text(p.id).fontWeight(.medium)
+                        .explains(.plugin, "From marketplace: \(p.marketplace)" + (p.repoURL.map { "\nSource: \($0.absoluteString)" } ?? ""))
                     if !p.notes.isEmpty { Image(systemName: "exclamationmark.bubble").foregroundStyle(.orange).help(p.notes.joined(separator: "\n")) }
                 }
             }
@@ -191,7 +193,7 @@ struct PluginsView: View {
             model.info = InfoItem(p.id, term: .plugin, facts: [
                 ("Enabled", p.enabled ? "Yes" : "No"), ("Version", p.version), ("Scope", p.scope), ("Marketplace", p.marketplace),
                 ("Always-on", model.pluginTokens[p.id].map(formatTokens) ?? "—"), ("Uses", "\(p.usageCount)"),
-            ], file: p.installPath, text: (parts.isEmpty ? "" : "Contains:\n" + parts.map { "\($0.kind.rawValue): \($0.name)" }.joined(separator: "\n")) + (p.notes.isEmpty ? "" : "\n\nNotes:\n" + p.notes.joined(separator: "\n")))
+            ], file: p.installPath, link: p.repoURL, text: (parts.isEmpty ? "" : "Contains:\n" + parts.map { "\($0.kind.rawValue): \($0.name)" }.joined(separator: "\n")) + (p.notes.isEmpty ? "" : "\n\nNotes:\n" + p.notes.joined(separator: "\n")))
         }
     }
 }
@@ -203,7 +205,7 @@ struct HooksView: View {
     var body: some View {
         let hooks = model.snapshot.hooks
         Table(hooks, selection: $selection) {
-            TableColumn("Event") { h in Text(h.event).fontWeight(.medium).help(eventHelp(h.event)) }.width(140)
+            TableColumn("Event") { h in Text(h.event).fontWeight(.medium).explains(.hook, "\(eventHelp(h.event))\nRuns: \(h.command)\nFrom: \(h.source)") }.width(140)
             TableColumn("Matcher") { h in
                 Text(h.matcherIsValid ? (h.matcher ?? "all").ifEmpty("all") : "invalid").foregroundStyle(h.matcherIsValid ? .primary : Color.red)
             }.width(110)
@@ -221,8 +223,12 @@ struct HooksView: View {
             model.info = InfoItem("\(h.event) hook", term: .hook, facts: [
                 ("Event", h.event), ("Matcher", h.matcher ?? "all"), ("Source", h.source), ("Async", h.async ? "Yes" : "No"),
                 ("Adds to context", ["SessionStart", "UserPromptSubmit"].contains(h.event) ? "Can (its output)" : "No"),
-            ], file: h.sourceURL, text: h.command)
+            ], file: h.sourceURL, link: hookPlugin(h)?.repoURL, text: h.command)
         }
+    }
+
+    private func hookPlugin(_ h: Hook) -> Plugin? {
+        model.snapshot.plugins.first { h.source == "Plugin · \($0.id)" }
     }
 
     private func eventHelp(_ e: String) -> String {
@@ -379,7 +385,7 @@ struct DiscoverView: View {
                             Text(p.name).fontWeight(.medium)
                             Text(p.description).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                         }
-                        .help(p.description)
+                        .explains(.plugin, p.description)
                     }
                     TableColumn("Marketplace") { p in Text(p.marketplace).help(Term.marketplace.tooltip) }.width(170)
                     TableColumn("Installs") { Text($0.installCount.formatted()).monospacedDigit() }.width(80)
@@ -398,7 +404,11 @@ struct DiscoverView: View {
         .task { await model.loadAvailable() }
         .onChange(of: selection) {
             guard let p = list.first(where: { $0.id == selection }) else { return }
-            model.info = InfoItem(p.name, term: .marketplace, facts: [("ID", p.id), ("Marketplace", p.marketplace), ("Installs", p.installCount.formatted())], text: p.description)
+            model.info = InfoItem(p.name, term: .marketplace, facts: [("ID", p.id), ("Marketplace", p.marketplace), ("Installs", p.installCount.formatted())], link: p.repoURL, text: p.description)
         }
     }
+}
+
+extension ComponentKind {
+    var term: Term { switch self { case .skill: .skill; case .subagent: .subagent; case .command: .command; case .outputStyle: .outputStyle } }
 }

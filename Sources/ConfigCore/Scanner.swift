@@ -22,6 +22,10 @@ public enum Scanner {
             if seen.insert(p.id).inserted { snap.plugins.append(p) } else { snap.duplicatePlugins.append(p) }
         }
         snap.plugins.sort { $0.id < $1.id }
+        let known = readJSON(Paths.claudeDir.appending(path: "plugins/known_marketplaces.json"))
+        for i in snap.plugins.indices {
+            snap.plugins[i].repoURL = repoURL(pluginRoot: snap.plugins[i].installPath, marketplace: snap.plugins[i].marketplace, known: known)
+        }
         let enabledPlugins = snap.plugins.filter(\.enabled)
 
         snap.mcpServers = mcpServers(claudeJSON: claudeJSON, projectPaths: projectPaths, plugins: enabledPlugins)
@@ -95,15 +99,34 @@ public enum Scanner {
         }.sorted { $0.id < $1.id }
     }
 
+    /// Where a plugin's source lives: its plugin.json repository/homepage, else the marketplace it came from.
+    public static func repoURL(pluginRoot: URL, marketplace: String, known: JSON?) -> URL? {
+        let manifest = readJSON(pluginRoot.appending(path: ".claude-plugin/plugin.json"))
+        let repo = manifest?["repository"]
+        for s in [repo as? String, (repo as? JSON)?["url"] as? String, manifest?["homepage"] as? String].compactMap({ $0 }) {
+            if let u = URL(string: s.replacingOccurrences(of: "git+", with: "")), ["http", "https"].contains(u.scheme) { return u }
+        }
+        return marketplaceRepo(marketplace, known: known)
+    }
+
+    public static func marketplaceRepo(_ name: String, known: JSON?) -> URL? {
+        let source = (known?[name] as? JSON)?["source"] as? JSON
+        if let repo = source?["repo"] as? String { return URL(string: "https://github.com/\(repo)") }
+        if let url = source?["url"] as? String, let u = URL(string: url), ["http", "https"].contains(u.scheme) { return u }
+        return nil
+    }
+
     public static func available() async -> [AvailablePlugin] {
         let json = await ClaudeCLI.json(["plugin", "list", "--json", "--available"]) as? JSON ?? [:]
+        let known = readJSON(Paths.claudeDir.appending(path: "plugins/known_marketplaces.json"))
         let installedIDs = Set((json["installed"] as? [JSON] ?? []).compactMap { $0["id"] as? String })
         return (json["available"] as? [JSON] ?? []).compactMap { p in
             guard let id = p["pluginId"] as? String else { return nil }
             return AvailablePlugin(
                 id: id, name: p["name"] as? String ?? id, description: p["description"] as? String ?? "",
                 marketplace: p["marketplaceName"] as? String ?? "", installCount: p["installCount"] as? Int ?? 0,
-                installed: installedIDs.contains(id))
+                installed: installedIDs.contains(id),
+                repoURL: marketplaceRepo(p["marketplaceName"] as? String ?? "", known: known))
         }.sorted { $0.installCount > $1.installCount }
     }
 
