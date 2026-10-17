@@ -287,7 +287,11 @@ struct HooksView: View {
                 HStack(spacing: 4) { ProgressView().controlSize(.mini); Text("Asking Claude…") }.font(.caption).foregroundStyle(.secondary)
             } else if let p = purpose(h) {
                 Text(p).font(.caption).foregroundStyle(.secondary).lineLimit(3)
-            } else {
+            }
+            // Shown beside the hook's own description, never in place of it: a script can try to steer the model.
+            if let guess = model.hookExplanations[model.explanationKey(h)] {
+                Label("AI guess, not verified: \(guess)", systemImage: "sparkles").font(.caption).foregroundStyle(.secondary).lineLimit(3)
+            } else if purpose(h) == nil, !model.explaining.contains(model.explanationKey(h)) {
                 HStack(spacing: 6) {
                     Text("No description.").font(.caption).foregroundStyle(.secondary)
                     Button("Explain with Claude") { Task { await model.explain(h) } }.controlSize(.mini)
@@ -328,8 +332,6 @@ struct HooksView: View {
 
     /// What the hook is for: the script's opening comment, else its plugin's description.
     private func purpose(_ h: Hook) -> String? {
-        // Asked for explicitly, so it wins over a comment header.
-        if let d = model.hookExplanations[model.explanationKey(h)] { return d + " (Claude's summary)" }
         if let s = h.scriptPath, let text = try? String(contentsOf: s, encoding: .utf8) {
             let comment = text.split(separator: "\n").prefix(20).map { $0.trimmingCharacters(in: .whitespaces) }
                 .drop { $0.hasPrefix("#!") || $0.isEmpty }
