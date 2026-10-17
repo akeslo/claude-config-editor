@@ -317,7 +317,12 @@ struct HooksView: View {
             if !comment.isEmpty { return comment.joined(separator: " ") }
         }
         if let d = hookPlugin(h)?.description, !d.isEmpty { return d }
-        if let app = h.command.range(of: #"[^/"]+\.app/"#, options: .regularExpression) { return "Part of \(h.command[app].dropLast())." }
+        // Only the program being run counts, and only when it exists, so text elsewhere in the command can't claim an app.
+        let cmd = h.command.trimmingCharacters(in: .whitespaces)
+        let exe = cmd.hasPrefix("\"") ? String(cmd.dropFirst().prefix { $0 != "\"" }) : String(cmd.prefix { $0 != " " })
+        if exe.hasPrefix("/"), exists(URL(filePath: exe)), let app = exe.range(of: #"^/(?:[^/]+/)*?([^/]+\.app)/"#, options: .regularExpression) {
+            return "Part of \(URL(filePath: String(exe[app])).lastPathComponent)."
+        }
         return nil
     }
 
