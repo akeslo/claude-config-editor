@@ -229,13 +229,19 @@ struct HooksView: View {
             ForEach(groups, id: \.key) { source, items in
                 Section(source.hasPrefix("Plugin · ") ? "From plugin \(source.dropFirst(9))" : "Added by you · \(source)") {
                     ForEach(items) { h in
-                        HStack(alignment: .top) {
-                            if let s = h.scriptPath, !exists(s) { Image(systemName: "xmark.octagon").foregroundStyle(.red).help("Script not found: \(shortPath(s))") }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("\(when(h)), runs \(h.scriptPath?.lastPathComponent ?? h.command)").lineLimit(1).truncationMode(.middle)
-                                Text(eventHelp(h.event)).font(.caption).foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("\(when(h)), runs \(h.scriptPath?.lastPathComponent ?? h.command)").fontWeight(.medium).lineLimit(1).truncationMode(.middle)
+                            Text(purpose(h) ?? "No description: open the script to see what it does.")
+                                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                            HStack(spacing: 6) {
+                                let reach = whereRuns(h)
+                                badge(reach.text, reach.everywhere ? "globe" : "folder", reach.everywhere ? .blue : .secondary)
+                                if ["SessionStart", "UserPromptSubmit"].contains(h.event) { badge("Adds text to context", "text.bubble", .orange) }
+                                if h.event == "PreToolUse" { badge("Can block tools", "hand.raised", .purple) }
+                                if let s = h.scriptPath, !exists(s) { badge("Broken: script missing", "xmark.octagon", .red) }
                             }
                         }
+                        .padding(.vertical, 2)
                         .tag(h.id)
                     }
                 }
@@ -269,6 +275,31 @@ struct HooksView: View {
 
     private func hookPlugin(_ h: Hook) -> Plugin? {
         model.snapshot.plugins.first { h.source == "Plugin · \($0.id)" }
+    }
+
+    private func badge(_ text: String, _ icon: String, _ color: Color) -> some View {
+        Label(text, systemImage: icon).font(.caption2).foregroundStyle(color)
+            .padding(.horizontal, 6).padding(.vertical, 1).background(color.opacity(0.12), in: Capsule())
+    }
+
+    /// Which sessions this hook fires in.
+    private func whereRuns(_ h: Hook) -> (text: String, everywhere: Bool) {
+        if let p = hookPlugin(h) { return p.scope == "user" ? ("Every project", true) : ("Only where \(p.id.split(separator: "@").first ?? "") is installed", false) }
+        if h.source.hasPrefix("User") || h.source.hasPrefix("Managed") { return ("Every project", true) }
+        let project = h.source.components(separatedBy: " · ").last ?? h.source
+        return ("Only in \(project)", false)
+    }
+
+    /// What the hook is for: the script's opening comment, else its plugin's description.
+    private func purpose(_ h: Hook) -> String? {
+        if let s = h.scriptPath, let text = try? String(contentsOf: s, encoding: .utf8) {
+            let comment = text.split(separator: "\n").prefix(20).map { $0.trimmingCharacters(in: .whitespaces) }
+                .drop { $0.hasPrefix("#!") || $0.isEmpty }
+                .prefix { $0.hasPrefix("#") || $0.hasPrefix("//") }
+                .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "#/ ")) }.filter { !$0.isEmpty }
+            if !comment.isEmpty { return comment.joined(separator: " ") }
+        }
+        return hookPlugin(h).map(\.description).flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// Plain-English trigger, e.g. "Before Claude uses Bash".
