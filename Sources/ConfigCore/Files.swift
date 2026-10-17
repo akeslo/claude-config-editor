@@ -100,6 +100,34 @@ public func updateSettingsKey(_ url: URL, path: [String], value: Any?, backupDir
     return try safeWrite(data, to: url, expectedModified: loadedAt, backupDir: backupDir)
 }
 
+/// One hook entry in a settings file: its event and command.
+public struct HookRef: Sendable, Hashable {
+    public let file: URL, event: String, command: String
+    public init(file: URL, event: String, command: String) { self.file = file; self.event = event; self.command = command }
+}
+
+/// Removes the given hooks from one settings file, dropping matcher groups and events left empty. Returns the backup.
+public func removeHooks(_ url: URL, _ refs: [HookRef], backupDir: URL = Paths.appBackups) throws -> URL? {
+    let loadedAt = modificationDate(url)
+    var root = readJSON(url) ?? [:]
+    var hooks = root["hooks"] as? JSON ?? [:]
+    for (event, groups) in hooks {
+        let gone = Set(refs.filter { $0.event == event }.map(\.command))
+        guard !gone.isEmpty else { continue }
+        let kept: [JSON] = (groups as? [JSON] ?? []).compactMap { g in
+            var g = g
+            let hs = (g["hooks"] as? [JSON] ?? []).filter { !gone.contains($0["command"] as? String ?? $0["url"] as? String ?? $0["prompt"] as? String ?? "") }
+            if hs.isEmpty { return nil }
+            g["hooks"] = hs
+            return g
+        }
+        hooks[event] = kept.isEmpty ? nil : kept
+    }
+    root["hooks"] = hooks.isEmpty ? nil : hooks
+    let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+    return try safeWrite(data, to: url, expectedModified: loadedAt, backupDir: backupDir)
+}
+
 // MARK: - Folder sizes
 
 public func directorySize(_ url: URL) -> Int64 {

@@ -242,6 +242,19 @@ struct HooksView: View {
             }
         }
         .contextMenu(forSelectionType: Hook.ID.self) { ids in
+            let picked = hooks.filter { ids.contains($0.id) }
+            if let h = picked.first {
+                Button("Open Settings File") { openFile(h.sourceURL) }
+                Button("Reveal in Finder") { reveal(h.scriptPath.flatMap { exists($0) ? $0 : nil } ?? h.sourceURL) }
+                Button("Copy Command") { copy(picked.map(\.command).joined(separator: "\n")) }
+            }
+            // Plugin hooks live in the plugin; turning the plugin off is how to stop them.
+            let removable = picked.filter { !$0.source.hasPrefix("Plugin") }
+            if !removable.isEmpty {
+                Button(removable.count == 1 ? "Remove Hook…" : "Remove \(removable.count) Hooks…") {
+                    model.propose("Remove \(removable.count) hook\(removable.count == 1 ? "" : "s")", .removeHooks(removable.map { HookRef(file: $0.sourceURL, event: $0.event, command: $0.command) }))
+                }
+            }
             TrashButton(urls: hooks.filter { ids.contains($0.id) }.compactMap(\.scriptPath).filter(exists), label: "Move Script to Trash…")
         }
         .onChange(of: selection) {

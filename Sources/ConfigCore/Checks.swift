@@ -60,11 +60,18 @@ public enum Fix: Sendable {
     case trash([URL])
     /// Sets (or removes, when nil) one key in a settings file.
     case settingsKey(file: URL, path: [String], value: String?)
+    /// Removes hook entries from settings files.
+    case removeHooks([HookRef])
+
+    public var editsSettings: Bool {
+        switch self { case .settingsKey, .removeHooks: true; default: false }
+    }
 
     public var summary: String {
         switch self {
         case .cli(let args, _, _): "claude " + args.map { $0.contains(" ") ? "\"\($0)\"" : $0 }.joined(separator: " ")
         case .trash(let urls): "Move \(urls.count) item\(urls.count == 1 ? "" : "s") to the Trash"
+        case .removeHooks(let refs): "Remove \(refs.count) hook\(refs.count == 1 ? "" : "s") from " + Set(refs.map { $0.file.path.replacingOccurrences(of: Paths.home.path, with: "~") }).sorted().joined(separator: ", ")
         case .settingsKey(let file, let path, let value): "Set \(path.joined(separator: ".")) = \(value.map { "\"\($0)\"" } ?? "(removed)") in \(file.path.replacingOccurrences(of: Paths.home.path, with: "~"))"
         }
     }

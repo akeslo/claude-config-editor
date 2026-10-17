@@ -38,6 +38,17 @@ struct SafeWriteTests {
         _ = try updateSettingsKey(file, path: ["enabledPlugins", "a@b"], value: nil, backupDir: dir)
         #expect((readJSON(file)?["enabledPlugins"] as? JSON)?.keys.sorted() == ["c@d"])
     }
+
+    @Test func removesHooks() throws {
+        let file = dir.appending(path: "h.json")
+        try Data(#"{"model":"x","hooks":{"Stop":[{"hooks":[{"type":"command","command":"a"},{"type":"command","command":"b"}]}],"SessionStart":[{"hooks":[{"type":"command","command":"a"}]}]}}"#.utf8).write(to: file)
+        _ = try removeHooks(file, [HookRef(file: file, event: "Stop", command: "a"), HookRef(file: file, event: "SessionStart", command: "a")], backupDir: dir)
+        let json = try #require(readJSON(file))
+        #expect(json["model"] as? String == "x")
+        let hooks = try #require(json["hooks"] as? JSON)
+        #expect(hooks.keys.sorted() == ["Stop"])  // emptied event dropped
+        #expect(((hooks["Stop"] as? [JSON])?.first?["hooks"] as? [JSON])?.map { $0["command"] as? String } == ["b"])
+    }
 }
 
 struct ParsingTests {

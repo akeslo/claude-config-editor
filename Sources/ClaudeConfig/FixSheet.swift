@@ -27,7 +27,7 @@ struct FixSheet: View {
             }
             .background(.background.secondary, in: .rect(cornerRadius: 6))
             .frame(minHeight: 160, maxHeight: 360)
-            if case .settingsKey = pending.fix, result == nil {
+            if pending.fix.editsSettings, result == nil {
                 Text("The file is backed up first, and the change is refused if Claude wrote the file after it was read.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -56,6 +56,8 @@ struct FixSheet: View {
             return "Dry run (claude \(dryRun.joined(separator: " "))):\n\n" + r.output
         case .trash(let urls):
             return "These go to the Trash (recoverable from Finder):\n\n" + urls.map { "  \(shortPath($0))  " + (trashRefusal($0).map { "SKIPPED (\($0))" } ?? formatBytes(exists($0) ? directorySize($0) : 0)) }.joined(separator: "\n")
+        case .removeHooks(let refs):
+            return "Will remove from settings:\n" + refs.map { "  \($0.event): \($0.command)\n    in \(shortPath($0.file))" }.joined(separator: "\n")
         case .settingsKey(let file, let path, let value):
             var node: Any? = readJSON(file)
             for key in path { node = (node as? JSON)?[key] }
@@ -77,6 +79,10 @@ struct FixSheet: View {
                 let allowed = urls.filter { trashRefusal($0) == nil }
                 for url in allowed where exists(url) { try FileManager.default.trashItem(at: url, resultingItemURL: nil) }
                 result = "Moved \(allowed.count) item(s) to the Trash." + (allowed.count < urls.count ? " Skipped \(urls.count - allowed.count) protected item(s)." : "")
+            case .removeHooks(let refs):
+                var backups: [URL] = []
+                for (file, rs) in Dictionary(grouping: refs, by: \.file) { if let b = try removeHooks(file, rs) { backups.append(b) } }
+                result = "Removed \(refs.count) hook(s)." + backups.map { "\nBackup: \(shortPath($0))" }.joined()
             case .settingsKey(let file, let path, let value):
                 let backup = try updateSettingsKey(file, path: path, value: value)
                 result = "Saved." + (backup.map { "\nBackup: \(shortPath($0))" } ?? "")
