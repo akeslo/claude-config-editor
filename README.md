@@ -2,13 +2,17 @@
 
 A native macOS app for keeping a Claude Code setup lean: what fills your context window, what takes disk space, and what breaks best practice, with a preview before every fix.
 
-Hover over anything for a short explanation; the right-hand panel explains what the selected item is, where it lives, when it loads into context, and links to the official docs.
+Hover over anything for a short explanation. Skills, subagents, commands, hooks, MCP servers and plugins show a plain-English description of what that kind of thing is, what this one does, and where it came from. The right-hand panel explains what the selected item is, where it lives and when it loads into context. It links to the official docs and, for anything from a plugin, to the owner's repo (**View Source**).
+
+Every issue has a copyable AI prompt that asks Claude Code to fix it, and you can check several issues to copy one combined prompt. Hover a Copy button to see the exact prompt first. Config text inside prompts is fenced and sanitized.
+
+Forked from [gagarinyury/claude-config-editor](https://github.com/gagarinyury/claude-config-editor), which started as a web editor and is now a native macOS app.
 
 ## Sections
 
 | Section | What it shows |
 |---|---|
-| Health | Ranked problems, warnings and suggestions, each with a doc-backed reason and a **Fix…** button |
+| Health | Ranked problems, warnings and suggestions, each with a doc-backed reason, a **Fix…** button and a copyable AI prompt |
 | Context Budget | Estimated tokens loaded before your first message, every session and per project |
 | Analytics | Past sessions from transcripts: tokens per day, peak context, compactions, cache use, tools, models |
 | Storage | Scratch folders, transcripts, plugins, jobs, caches, backups: size, age, safety, auto-cleanup |
@@ -19,6 +23,7 @@ Hover over anything for a short explanation; the right-hand panel explains what 
 | Plugins | Installed plugins with always-on token cost (`claude plugin details`) |
 | Hooks | Every hook by event and source; missing scripts and bad matchers |
 | Instructions & Memory | CLAUDE.md, CLAUDE.local.md, rules, and MEMORY.md files with problems |
+| CLAUDE.md Browser | Instruction files for Claude and other agents anywhere on disk, including backups, filterable by extension |
 | Settings | Every settings key by scope, keybindings, and `claude doctor` |
 | Discover | Plugins from your marketplaces, by install count |
 
