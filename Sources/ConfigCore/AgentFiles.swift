@@ -36,7 +36,7 @@ public enum AgentFiles {
     }
 
     /// Spotlight finds them across the disk fast; it skips hidden folders, so `~/.claude`, `~/.codex` and `~/.gemini` are added directly.
-    public static func find() async -> [AgentFile] {
+    public static func find(extra: [URL] = []) async -> [AgentFile] {
         await Task.detached(priority: .utility) {
             let query = names.keys.map { "kMDItemFSName == \"\($0)*\"c" }.joined(separator: " || ")
             let p = Process(), pipe = Pipe()
@@ -53,10 +53,12 @@ public enum AgentFiles {
             for dir in [".claude", ".codex", ".gemini", ".github"] {
                 for f in children(Paths.home.appending(path: dir)) { paths.insert(f.path) }
             }
-            return paths.filter(isMatch).map { path in
+            let found = paths.filter(isMatch).map { path in
                 let url = URL(filePath: path)
                 return AgentFile(url: url, agent: names[baseName(url.lastPathComponent)!]!, size: fileSize(url), modified: modificationDate(url))
-            }.sorted { $0.url.path < $1.url.path }
+            }
+            let more = extra.filter { !paths.contains($0.path) }.map { AgentFile(url: $0, agent: "Claude", size: fileSize($0), modified: modificationDate($0)) }
+            return (found + more).sorted { $0.url.path < $1.url.path }
         }.value
     }
 }

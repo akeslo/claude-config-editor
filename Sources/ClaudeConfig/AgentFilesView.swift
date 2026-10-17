@@ -6,7 +6,7 @@ struct AgentFilesView: View {
     @Environment(AppModel.self) private var model
     @State private var files: [AgentFile] = []
     @State private var loading = true
-    @State private var selection: AgentFile.ID?
+    @State private var selection = Set<AgentFile.ID>()
     @State private var search = ""
     @State private var agent = "All"
     @State private var ext = "All"
@@ -16,20 +16,30 @@ struct AgentFilesView: View {
         let shown = files.filter {
             (agent == "All" || $0.agent == agent) && (ext == "All" || $0.suffix == ext) && (search.isEmpty || $0.url.path.localizedCaseInsensitiveContains(search))
         }.sorted(using: sort)
+        // Files Claude loads, with their context cost and any problems found by the scan.
+        let loaded = Dictionary(model.snapshot.instructions.map { ($0.url.path, $0) }, uniquingKeysWith: { a, _ in a })
         HStack(spacing: 0) {
             Table(shown, selection: $selection, sortOrder: $sort) {
                 TableColumn("File", value: \.url.path) { f in
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(f.url.deletingLastPathComponent().lastPathComponent + "/" + f.url.lastPathComponent).lineLimit(1)
+                        HStack(spacing: 4) {
+                            if let p = loaded[f.url.path]?.problems, !p.isEmpty { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).help(p.joined(separator: "\n")) }
+                            Text(f.url.deletingLastPathComponent().lastPathComponent + "/" + f.url.lastPathComponent).lineLimit(1)
+                        }
                         Text(shortPath(f.url.deletingLastPathComponent())).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
                     }.help(f.url.path)
                 }
                 TableColumn("Agent", value: \.agent) { Text($0.agent) }.width(110)
+                TableColumn("In context") { f in
+                    Text(loaded[f.url.path].map { $0.pathScoped ? "when matching files open" : formatTokens($0.tokens) } ?? "—")
+                        .foregroundStyle(loaded[f.url.path] == nil ? .secondary : .primary)
+                        .help(loaded[f.url.path] == nil ? "Claude doesn't load this file in any project it has run in." : "Tokens this file adds to every session in its project.")
+                }.width(120)
                 TableColumn("Size", value: \.size) { Text(formatBytes($0.size)).monospacedDigit() }.width(70)
                 TableColumn("Modified") { f in Text(f.modified.map { $0.formatted(.relative(presentation: .named)) } ?? "") }.width(110)
             }
             .contextMenu(forSelectionType: AgentFile.ID.self) { ids in
-                if let f = files.first(where: { ids.contains($0.id) }) { TrashButton(url: f.url) }
+                TrashButton(urls: files.filter { ids.contains($0.id) }.map(\.url))
             }
             .overlay { if loading { ProgressView("Searching with Spotlight…") } else if shown.isEmpty { ContentUnavailableView.search } }
             .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
@@ -49,9 +59,9 @@ struct AgentFilesView: View {
             Text("\(shown.count) files").foregroundStyle(.secondary)
             Button("Search again", systemImage: "doc.text.magnifyingglass") { Task { await load() } }
         }
-        .task { await load() }
+        .task(id: model.snapshot.scannedAt) { await load() }  // re-run once a rescan finds the rule and memory files
         .onChange(of: selection) {
-            guard let f = files.first(where: { $0.id == selection }) else { return }
+            guard let f = files.first(where: { selection.contains($0.id) }) else { return }
             let isLocal = AgentFiles.baseName(f.url.lastPathComponent) == "CLAUDE.local.md"
             model.info = InfoItem(f.url.lastPathComponent, term: isLocal ? .claudeLocalMD : .claudeMD, facts: [
                 ("Path", shortPath(f.url)), ("Read by", f.agent), ("Size", formatBytes(f.size)),
@@ -61,7 +71,7 @@ struct AgentFilesView: View {
     }
 
     @ViewBuilder private var preview: some View {
-        if let f = files.first(where: { $0.id == selection }) {
+        if let f = files.first(where: { selection.contains($0.id) }) {
             ScrollView {
                 Text(readText(f.url) ?? "Can't read this file.")
                     .font(.system(.callout, design: .monospaced))
@@ -76,7 +86,7 @@ struct AgentFilesView: View {
 
     private func load() async {
         loading = true
-        files = await AgentFiles.find()
+        files = await AgentFiles.find(extra: model.snapshot.instructions.map(\.url))
         loading = false
     }
 }

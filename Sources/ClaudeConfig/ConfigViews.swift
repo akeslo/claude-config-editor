@@ -88,7 +88,7 @@ struct MCPView: View {
 
 struct ComponentsView: View {
     @Environment(AppModel.self) private var model
-    @State private var selection: Component.ID?
+    @State private var selection = Set<Component.ID>()
     @State private var kind: ComponentKind? = .skill
     @State private var search = ""
     @State private var sort = [KeyPathComparator(\Row.tokens, order: .reverse)]
@@ -127,7 +127,7 @@ struct ComponentsView: View {
             TableColumn("Lines", value: \.lines) { r in Text("\(r.lines)").monospacedDigit().foregroundStyle(r.lines > 500 ? .orange : .primary) }.width(50)
         }
         .contextMenu(forSelectionType: Component.ID.self) { ids in
-            if let c = model.snapshot.components.first(where: { ids.contains($0.id) }) { TrashButton(url: trashURL(c)) }
+            TrashButton(urls: model.snapshot.components.filter { ids.contains($0.id) }.map(trashURL))
         }
         .searchable(text: $search, prompt: "Filter by name or description")
         .toolbar {
@@ -161,14 +161,14 @@ struct ComponentsView: View {
         }
     }
 
-    private var selected: Component? { model.snapshot.components.first { $0.id == selection } }
+    private var selected: Component? { model.snapshot.components.first { selection.contains($0.id) } }
     /// A skill is its whole folder; agents and commands are single files.
     private func trashURL(_ c: Component) -> URL { c.kind == .skill && c.file.lastPathComponent == "SKILL.md" ? c.file.deletingLastPathComponent() : c.file }
 }
 
 struct PluginsView: View {
     @Environment(AppModel.self) private var model
-    @State private var selection: Plugin.ID?
+    @State private var selection = Set<Plugin.ID>()
 
     var body: some View {
         let plugins = model.snapshot.plugins
@@ -194,11 +194,11 @@ struct PluginsView: View {
             TableColumn("Last used") { Text(relative($0.lastUsed)) }.width(110)
         }
         .contextMenu(forSelectionType: Plugin.ID.self) { ids in
-            if let p = plugins.first(where: { ids.contains($0.id) }) { TrashButton(url: p.installPath) }
+            TrashButton(urls: plugins.filter { ids.contains($0.id) }.map(\.installPath))
         }
         .toolbar {
-            if let p = plugins.first(where: { $0.id == selection }) { TrashButton(url: p.installPath) }
-            if let p = plugins.first(where: { $0.id == selection }) {
+            if let p = plugins.first(where: { selection.contains($0.id) }) { TrashButton(url: p.installPath) }
+            if let p = plugins.first(where: { selection.contains($0.id) }) {
                 Button(p.enabled ? "Disable…" : "Enable…") {
                     model.propose("\(p.enabled ? "Disable" : "Enable") \(p.id)", .cli(args: ["plugin", p.enabled ? "disable" : "enable", p.id], dryRun: nil, cwd: nil))
                 }
@@ -207,7 +207,7 @@ struct PluginsView: View {
             }
         }
         .onChange(of: selection) {
-            guard let p = plugins.first(where: { $0.id == selection }) else { return }
+            guard let p = plugins.first(where: { selection.contains($0.id) }) else { return }
             let parts = model.snapshot.components.filter { $0.owner == p.id }
             model.info = InfoItem(p.id, term: .plugin, facts: [
                 ("Enabled", p.enabled ? "Yes" : "No"), ("Version", p.version), ("Scope", p.scope), ("Marketplace", p.marketplace),
@@ -219,29 +219,33 @@ struct PluginsView: View {
 
 struct HooksView: View {
     @Environment(AppModel.self) private var model
-    @State private var selection: Hook.ID?
+    @State private var selection = Set<Hook.ID>()
 
     var body: some View {
         let hooks = model.snapshot.hooks
-        Table(hooks, selection: $selection) {
-            TableColumn("Event") { h in Text(h.event).fontWeight(.medium).explains(.hook, "\(eventHelp(h.event))\nRuns: \(h.command)\nFrom: \(h.source)") }.width(140)
-            TableColumn("Matcher") { h in
-                Text(h.matcherIsValid ? (h.matcher ?? "all").ifEmpty("all") : "invalid").foregroundStyle(h.matcherIsValid ? .primary : Color.red)
-            }.width(110)
-            TableColumn("Command") { h in
-                HStack {
-                    if let s = h.scriptPath, !exists(s) { Image(systemName: "xmark.octagon").foregroundStyle(.red).help("Script not found: \(shortPath(s))") }
-                    Text(h.command).font(.system(.caption, design: .monospaced)).lineLimit(1).truncationMode(.middle)
+        // Group by who added the hook: you (settings files) or a plugin.
+        let groups = Dictionary(grouping: hooks, by: \.source).sorted { ($0.key.hasPrefix("Plugin") ? 1 : 0, $0.key) < ($1.key.hasPrefix("Plugin") ? 1 : 0, $1.key) }
+        List(selection: $selection) {
+            ForEach(groups, id: \.key) { source, items in
+                Section(source.hasPrefix("Plugin · ") ? "From plugin \(source.dropFirst(9))" : "Added by you · \(source)") {
+                    ForEach(items) { h in
+                        HStack(alignment: .top) {
+                            if let s = h.scriptPath, !exists(s) { Image(systemName: "xmark.octagon").foregroundStyle(.red).help("Script not found: \(shortPath(s))") }
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(when(h)), runs \(h.scriptPath?.lastPathComponent ?? h.command)").lineLimit(1).truncationMode(.middle)
+                                Text(eventHelp(h.event)).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        .tag(h.id)
+                    }
                 }
             }
-            TableColumn("Runs") { h in Text(h.async ? "async" : h.timeout.map { "\($0)s timeout" } ?? "waits") }.width(90)
-            TableColumn("Source") { Text($0.source).lineLimit(1) }.width(200)
         }
         .contextMenu(forSelectionType: Hook.ID.self) { ids in
-            if let s = hooks.first(where: { ids.contains($0.id) })?.scriptPath, exists(s) { TrashButton(url: s, label: "Move Script to Trash…") }
+            TrashButton(urls: hooks.filter { ids.contains($0.id) }.compactMap(\.scriptPath).filter(exists), label: "Move Script to Trash…")
         }
         .onChange(of: selection) {
-            guard let h = hooks.first(where: { $0.id == selection }) else { return }
+            guard let h = hooks.first(where: { selection.contains($0.id) }) else { return }
             model.info = InfoItem("\(h.event) hook", term: .hook, facts: [
                 ("Event", h.event), ("Matcher", h.matcher ?? "all"), ("Source", h.source), ("Async", h.async ? "Yes" : "No"),
                 ("Adds to context", ["SessionStart", "UserPromptSubmit"].contains(h.event) ? "Can (its output)" : "No"),
@@ -254,6 +258,20 @@ struct HooksView: View {
         model.snapshot.plugins.first { h.source == "Plugin · \($0.id)" }
     }
 
+    /// Plain-English trigger, e.g. "Before Claude uses Bash".
+    private func when(_ h: Hook) -> String {
+        let tool = (h.matcher ?? "").ifEmpty("*") == "*" ? "any tool" : h.matcher!
+        return switch h.event {
+        case "SessionStart": "When a session starts"
+        case "UserPromptSubmit": "Every time you send a prompt"
+        case "PreToolUse": "Before Claude uses \(tool)"
+        case "PostToolUse": "After Claude uses \(tool)"
+        case "Stop": "When Claude finishes replying"
+        case "Notification": "When Claude needs your attention"
+        default: "On \(h.event)"
+        }
+    }
+
     private func eventHelp(_ e: String) -> String {
         switch e {
         case "SessionStart": "Runs when a session starts or resumes. Its output is added to the context."
@@ -263,48 +281,6 @@ struct HooksView: View {
         case "Stop": "Runs when Claude finishes replying."
         case "Notification": "Runs when Claude needs your attention."
         default: Term.hook.tooltip
-        }
-    }
-}
-
-struct InstructionsView: View {
-    @Environment(AppModel.self) private var model
-    @State private var selection: InstructionFile.ID?
-    @State private var problemsOnly = false
-
-    var body: some View {
-        let files = model.snapshot.instructions.filter { !problemsOnly || !$0.problems.isEmpty }
-        Table(files, selection: $selection) {
-            TableColumn("File") { f in
-                HStack {
-                    if !f.problems.isEmpty { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).help(f.problems.joined(separator: "\n")) }
-                    Text(shortPath(f.url)).lineLimit(1).truncationMode(.head)
-                }
-            }
-            TableColumn("Type") { f in Text(f.kind.rawValue).help(term(f).tooltip) }.width(110)
-            TableColumn("Loads") { f in Text(f.pathScoped ? "with matching files" : f.project == nil ? "every session" : "in project").help(f.pathScoped ? "Has paths: frontmatter" : "") }.width(130)
-            TableColumn("Lines") { f in Text("\(f.lines)").monospacedDigit().foregroundStyle(f.lines > 200 ? .orange : .primary) }.width(60)
-            TableColumn("Context") { Text(formatTokens($0.tokens)).monospacedDigit() }.width(90)
-        }
-        .contextMenu(forSelectionType: InstructionFile.ID.self) { ids in
-            if let f = files.first(where: { ids.contains($0.id) }) { TrashButton(url: f.url) }
-        }
-        .toolbar { Toggle("Only with problems", isOn: $problemsOnly) }
-        .onChange(of: selection) {
-            guard let f = files.first(where: { $0.id == selection }) else { return }
-            model.info = InfoItem(f.url.lastPathComponent, term: term(f), facts: [
-                ("Path", shortPath(f.url)), ("Project", f.project.map { shortPath(URL(filePath: $0)) } ?? "all"),
-                ("Lines", "\(f.lines)"), ("Context", formatTokens(f.tokens)),
-            ], file: f.url, text: f.problems.isEmpty ? nil : f.problems.joined(separator: "\n"))
-        }
-    }
-
-    private func term(_ f: InstructionFile) -> Term {
-        switch f.kind {
-        case .claudeMD: .claudeMD
-        case .localMD: .claudeLocalMD
-        case .rule: .rules
-        case .memoryIndex: .autoMemory
         }
     }
 }

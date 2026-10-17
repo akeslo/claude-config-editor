@@ -29,11 +29,17 @@ struct RootView: View {
     var body: some View {
         @Bindable var model = model
         NavigationSplitView {
-            List(AppSection.allCases, selection: $model.section) { s in
-                Label(s.rawValue, systemImage: s.symbol)
-                    .badge(badge(for: s))
-                    .help(s.term.tooltip)
-                    .tag(s)
+            List(selection: $model.section) {
+                ForEach(["Overview", "What Claude Can Do", "What Claude Knows", "Housekeeping"], id: \.self) { g in
+                    Section(g) {
+                        ForEach(AppSection.allCases.filter { $0.group == g }) { s in
+                            Label(s.rawValue, systemImage: s.symbol)
+                                .badge(badge(for: s))
+                                .help(s.term.tooltip)
+                                .tag(s)
+                        }
+                    }
+                }
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)
         } detail: {
@@ -74,8 +80,7 @@ struct RootView: View {
         case .skills: ComponentsView()
         case .plugins: PluginsView()
         case .hooks: HooksView()
-        case .instructions: InstructionsView()
-        case .agentFiles: AgentFilesView()
+        case .instructions: AgentFilesView()
         case .settings: SettingsView()
         case .discover: DiscoverView()
         }

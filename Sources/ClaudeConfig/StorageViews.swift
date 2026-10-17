@@ -140,7 +140,7 @@ struct ProjectsView: View {
             if let path = ids.first {
                 Button("Reveal transcripts") { reveal(Paths.projectDataDir(for: path)) }
                 Button("Purge…") { purge(ids) }.disabled(ids.count != 1)
-                if ids.count == 1 { TrashButton(url: Paths.projectDataDir(for: path), label: "Move Transcripts to Trash…") }
+                TrashButton(urls: ids.map { Paths.projectDataDir(for: $0) }, label: "Move Transcripts to Trash…")
             }
         }
         .toolbar {

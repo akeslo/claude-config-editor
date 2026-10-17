@@ -129,7 +129,9 @@ final class AppModel {
     }
 
     func propose(_ title: String, _ fix: Fix) { pendingFix = PendingFix(title: title, fix: fix) }
-    func proposeTrash(_ url: URL) { propose("Move \(url.lastPathComponent) to the Trash", .trash([url])) }
+    func proposeTrash(_ urls: [URL]) {
+        propose(urls.count == 1 ? "Move \(urls[0].lastPathComponent) to the Trash" : "Move \(urls.count) items to the Trash", .trash(urls))
+    }
 
     // MARK: Totals
 
@@ -169,10 +171,13 @@ func promptHelp(_ prompt: String) -> String {
 /// Opens the shared confirm sheet to trash `url`; hidden for anything the refuse-list protects.
 struct TrashButton: View {
     @Environment(AppModel.self) private var model
-    let url: URL
+    let urls: [URL]
     var label = "Move to Trash…"
+    init(url: URL, label: String = "Move to Trash…") { urls = [url]; self.label = label }
+    init(urls: [URL], label: String = "Move to Trash…") { self.urls = urls; self.label = urls.count > 1 ? label.replacingOccurrences(of: "to Trash", with: "\(urls.count) Items to Trash") : label }
     var body: some View {
-        if trashRefusal(url) == nil { Button(label) { model.proposeTrash(url) } }
+        let ok = urls.filter { trashRefusal($0) == nil }
+        if !ok.isEmpty { Button(label) { model.proposeTrash(ok) } }
     }
 }
 

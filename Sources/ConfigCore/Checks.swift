@@ -1,10 +1,21 @@
 import Foundation
 
 public enum AppSection: String, CaseIterable, Identifiable, Sendable {
-    case health = "Health", context = "Context Budget", analytics = "Analytics", storage = "Storage", projects = "Projects & History"
-    case permissions = "Permissions", mcp = "MCP Servers", skills = "Skills & Agents", plugins = "Plugins"
-    case hooks = "Hooks", instructions = "Instructions & Memory", agentFiles = "CLAUDE.md Browser", settings = "Settings", discover = "Discover"
+    case health = "Health", context = "Context Budget", analytics = "Analytics"
+    case plugins = "Plugins", skills = "Skills & Agents", mcp = "MCP Servers", hooks = "Hooks"
+    case instructions = "Instructions & Memory", settings = "Settings", permissions = "Permissions"
+    case storage = "Storage", projects = "Projects & History", discover = "Discover"
     public var id: String { rawValue }
+
+    /// Sidebar heading this page sits under.
+    public var group: String {
+        switch self {
+        case .health, .context, .analytics: "Overview"
+        case .plugins, .skills, .mcp, .hooks: "What Claude Can Do"
+        case .instructions, .settings, .permissions: "What Claude Knows"
+        case .storage, .projects, .discover: "Housekeeping"
+        }
+    }
 
     public var symbol: String {
         switch self {
@@ -19,7 +30,6 @@ public enum AppSection: String, CaseIterable, Identifiable, Sendable {
         case .plugins: "puzzlepiece.extension"
         case .hooks: "arrow.triangle.branch"
         case .instructions: "doc.text"
-        case .agentFiles: "doc.text.magnifyingglass"
         case .settings: "gearshape"
         case .discover: "sparkle.magnifyingglass"
         }
@@ -36,7 +46,7 @@ public enum AppSection: String, CaseIterable, Identifiable, Sendable {
         case .skills: .skill
         case .plugins, .discover: .plugin
         case .hooks: .hook
-        case .instructions, .agentFiles: .claudeMD
+        case .instructions: .claudeMD
         case .settings: .settings
         }
     }

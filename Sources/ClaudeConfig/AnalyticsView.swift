@@ -4,7 +4,7 @@ import SwiftUI
 
 struct AnalyticsView: View {
     @Environment(AppModel.self) private var model
-    @State private var selection: SessionStats.ID?
+    @State private var selection = Set<SessionStats.ID>()
     @State private var sort = [KeyPathComparator(\SessionStats.start, order: .reverse)]
     @State private var search = ""
     @State private var agent = "all"
@@ -95,13 +95,13 @@ struct AnalyticsView: View {
                 TableColumn("Tokens", value: \.totalTokens) { Text(compact($0.totalTokens)).monospacedDigit() }.width(70)
             }
             .contextMenu(forSelectionType: SessionStats.ID.self) { ids in
-                if let s = r.sessions.first(where: { ids.contains($0.id) }) { TrashButton(url: URL(filePath: s.file)) }
+                TrashButton(urls: r.sessions.filter { ids.contains($0.id) }.map { URL(filePath: $0.file) })
             }
             .searchable(text: $search, prompt: "Filter sessions by title or folder")
             .frame(minHeight: 200)
         }
         .onChange(of: selection) {
-            guard let s = r.sessions.first(where: { $0.id == selection }) else { return }
+            guard let s = r.sessions.first(where: { selection.contains($0.id) }) else { return }
             model.info = InfoItem(s.title ?? s.id, term: .transcripts, facts: [
                 ("Folder", shortPath(URL(filePath: s.project))), ("Model", s.mainModel),
                 ("Requests", "\(s.requests)"), ("Prompts", "\(s.userPrompts)"),

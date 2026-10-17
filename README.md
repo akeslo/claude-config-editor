@@ -28,8 +28,7 @@ Forked from [gagarinyury/claude-config-editor](https://github.com/gagarinyury/cl
 | Skills & Agents | Skills, subagents, commands, output styles: listing cost, usage, overrides |
 | Plugins | Installed plugins with always-on token cost (`claude plugin details`) |
 | Hooks | Every hook by event and source; missing scripts and bad matchers |
-| Instructions & Memory | CLAUDE.md, CLAUDE.local.md, rules, and MEMORY.md files with problems |
-| CLAUDE.md Browser | Instruction files for Claude and other agents anywhere on disk, including backups, filterable by extension |
+| Instructions & Memory | CLAUDE.md, CLAUDE.local.md, rules, MEMORY.md and other agents' instruction files anywhere on disk (including backups), with context cost, problems and a preview |
 | Settings | Every settings key by scope, keybindings, and `claude doctor` |
 | Discover | Plugins from your marketplaces, by install count |
 
