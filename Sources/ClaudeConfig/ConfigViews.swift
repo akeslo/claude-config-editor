@@ -228,40 +228,30 @@ struct HooksView: View {
         List(selection: $selection) {
             ForEach(groups, id: \.key) { source, items in
                 Section(source.hasPrefix("Plugin · ") ? "From plugin \(source.dropFirst(9))" : "Added by you · \(source)") {
-                    ForEach(items) { h in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("\(when(h)), runs \(h.scriptPath?.lastPathComponent ?? h.command)").fontWeight(.medium).lineLimit(1).truncationMode(.middle)
-                            Text(purpose(h) ?? "No description: open the script to see what it does.")
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                            HStack(spacing: 6) {
-                                let reach = whereRuns(h)
-                                badge(reach.text, reach.everywhere ? "globe" : "folder", reach.everywhere ? .blue : .secondary)
-                                if ["SessionStart", "UserPromptSubmit"].contains(h.event) { badge("Adds text to context", "text.bubble", .orange) }
-                                if h.event == "PreToolUse" { badge("Can block tools", "hand.raised", .purple) }
-                                if let s = h.scriptPath, !exists(s) { badge("Broken: script missing", "xmark.octagon", .red) }
-                            }
-                        }
-                        .padding(.vertical, 2)
-                        .tag(h.id)
+                    // One row per program: the same command on several events is one tool reporting several moments.
+                    ForEach(Dictionary(grouping: items, by: \.command).values.sorted { $0[0].command < $1[0].command }, id: \.[0].id) { same in
+                        row(same)
                     }
                 }
             }
         }
         .contextMenu(forSelectionType: Hook.ID.self) { ids in
-            let picked = hooks.filter { ids.contains($0.id) }
+            // A row's tag is its first hook; act on every event that row stands for.
+            let rowCommands = Set(hooks.filter { ids.contains($0.id) }.map { $0.source + "\u{0}" + $0.command })
+            let picked = hooks.filter { rowCommands.contains($0.source + "\u{0}" + $0.command) }
             if let h = picked.first {
                 Button("Open Settings File") { openFile(h.sourceURL) }
                 Button("Reveal in Finder") { reveal(h.scriptPath.flatMap { exists($0) ? $0 : nil } ?? h.sourceURL) }
-                Button("Copy Command") { copy(picked.map(\.command).joined(separator: "\n")) }
+                Button("Copy Command") { copy(Set(picked.map(\.command)).sorted().joined(separator: "\n")) }
             }
             // Plugin hooks live in the plugin; turning the plugin off is how to stop them.
             let removable = picked.filter { !$0.source.hasPrefix("Plugin") }
             if !removable.isEmpty {
-                Button(removable.count == 1 ? "Remove Hook…" : "Remove \(removable.count) Hooks…") {
-                    model.propose("Remove \(removable.count) hook\(removable.count == 1 ? "" : "s")", .removeHooks(removable.map { HookRef(file: $0.sourceURL, event: $0.event, command: $0.command) }))
+                Button(rowCommands.count == 1 ? "Remove Hook…" : "Remove \(rowCommands.count) Hooks…") {
+                    model.propose("Remove \(removable.count) hook entr\(removable.count == 1 ? "y" : "ies")", .removeHooks(removable.map { HookRef(file: $0.sourceURL, event: $0.event, command: $0.command) }))
                 }
             }
-            TrashButton(urls: hooks.filter { ids.contains($0.id) }.compactMap(\.scriptPath).filter(exists), label: "Move Script to Trash…")
+            TrashButton(urls: Array(Set(picked.compactMap(\.scriptPath).filter(exists))), label: "Move Script to Trash…")
         }
         .onChange(of: selection) {
             guard let h = hooks.first(where: { selection.contains($0.id) }) else { return }
@@ -275,6 +265,33 @@ struct HooksView: View {
 
     private func hookPlugin(_ h: Hook) -> Plugin? {
         model.snapshot.plugins.first { h.source == "Plugin · \($0.id)" }
+    }
+
+    private func row(_ same: [Hook]) -> some View {
+        let h = same[0]
+        let waits = same.filter { !$0.async }  // background hooks can't block or add context
+        return VStack(alignment: .leading, spacing: 3) {
+            Text(h.scriptPath?.lastPathComponent ?? h.command).fontWeight(.medium).lineLimit(1).truncationMode(.middle)
+            Text("Runs: " + same.map { when($0).lowercased() }.joined(separator: " · ")).font(.caption).lineLimit(2)
+            Text(purpose(h) ?? "Hook settings have no description field, and this program has no comment header to read.")
+                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            HStack(spacing: 6) {
+                let reach = whereRuns(h)
+                badge(reach.text, reach.everywhere ? "globe" : "folder", reach.everywhere ? .blue : .secondary)
+                if same.allSatisfy(\.async) { badge("In the background", "moon", .secondary) }
+                if waits.contains(where: { ["SessionStart", "UserPromptSubmit"].contains($0.event) }) {
+                    badge("May add text to context", "text.bubble", .orange)
+                        .help("This event lets a hook add its output to Claude's context. Whether this one does depends on what it prints.")
+                }
+                if waits.contains(where: { $0.event == "PreToolUse" }) {
+                    badge("May block tools", "hand.raised", .purple)
+                        .help("This event lets a hook stop a tool call. Whether this one does depends on what it returns.")
+                }
+                if let s = h.scriptPath, !exists(s) { badge("Broken: script missing", "xmark.octagon", .red) }
+            }
+        }
+        .padding(.vertical, 2)
+        .tag(h.id)
     }
 
     private func badge(_ text: String, _ icon: String, _ color: Color) -> some View {
@@ -299,7 +316,9 @@ struct HooksView: View {
                 .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "#/ ")) }.filter { !$0.isEmpty }
             if !comment.isEmpty { return comment.joined(separator: " ") }
         }
-        return hookPlugin(h).map(\.description).flatMap { $0.isEmpty ? nil : $0 }
+        if let d = hookPlugin(h)?.description, !d.isEmpty { return d }
+        if let app = h.command.range(of: #"[^/"]+\.app/"#, options: .regularExpression) { return "Part of \(h.command[app].dropLast())." }
+        return nil
     }
 
     /// Plain-English trigger, e.g. "Before Claude uses Bash".
