@@ -19,6 +19,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>1.0</string>
   <key>CFBundleVersion</key><string>$(git rev-list --count HEAD)</string>
+  <key>ClaudeConfigCommit</key><string>$(git rev-parse HEAD)</string>
+  <key>ClaudeConfigBranch</key><string>$(git rev-parse --abbrev-ref HEAD)</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>NSHighResolutionCapable</key><true/>

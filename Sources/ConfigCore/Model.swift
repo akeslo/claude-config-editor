@@ -84,6 +84,7 @@ public struct Plugin: Identifiable, Sendable {
     public var alwaysOnTokens: Int?     // from `claude plugin details`, filled in lazily
     public var repoURL: URL?            // plugin.json repository/homepage, else its marketplace's GitHub repo
     public var description = ""         // plugin.json description
+    public var latestVersion: String?   // newer version in its marketplace's local copy, when there is one
     public var marketplace: String { id.split(separator: "@").last.map(String.init) ?? "" }
 }
 

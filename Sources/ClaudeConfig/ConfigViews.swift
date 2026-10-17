@@ -185,7 +185,12 @@ struct PluginsView: View {
                     if !p.notes.isEmpty { Image(systemName: "exclamationmark.bubble").foregroundStyle(.orange).help(p.notes.joined(separator: "\n")) }
                 }
             }
-            TableColumn("Version") { Text($0.version).lineLimit(1) }.width(90)
+            TableColumn("Version") { p in
+                if let v = p.latestVersion {
+                    Label("\(p.version.prefix(12)) → \(v)", systemImage: "arrow.up.circle.fill").foregroundStyle(.blue).lineLimit(1)
+                        .help("Update available: select it and press Update…")
+                } else { Text(p.version).lineLimit(1) }
+            }.width(150)
             TableColumn("Always-on") { p in
                 Text(p.enabled ? model.pluginTokens[p.id].map(formatTokens) ?? "…" : "—").monospacedDigit()
                     .help("Context added to every session, from claude plugin details")
@@ -194,6 +199,10 @@ struct PluginsView: View {
             TableColumn("Last used") { Text(relative($0.lastUsed)) }.width(110)
         }
         .contextMenu(forSelectionType: Plugin.ID.self) { ids in
+            let outdated = plugins.filter { ids.contains($0.id) && $0.latestVersion != nil }
+            if outdated.count == 1, let p = outdated.first {
+                Button("Update to \(p.latestVersion!)…") { model.propose("Update \(p.id)", .cli(args: ["plugin", "update", p.id], dryRun: nil, cwd: nil)) }
+            }
             TrashButton(urls: plugins.filter { ids.contains($0.id) }.map(\.installPath))
         }
         .toolbar {
@@ -243,6 +252,7 @@ struct HooksView: View {
                 Button("Open Settings File") { openFile(h.sourceURL) }
                 Button("Reveal in Finder") { reveal(h.scriptPath.flatMap { exists($0) ? $0 : nil } ?? h.sourceURL) }
                 Button("Copy Command") { copy(Set(picked.map(\.command)).sorted().joined(separator: "\n")) }
+                Button("Explain with Claude") { Task { await model.explain(h) } }
             }
             // Plugin hooks live in the plugin; turning the plugin off is how to stop them.
             let removable = picked.filter { !$0.source.hasPrefix("Plugin") }
@@ -273,8 +283,17 @@ struct HooksView: View {
         return VStack(alignment: .leading, spacing: 3) {
             Text(h.scriptPath?.lastPathComponent ?? h.command).fontWeight(.medium).lineLimit(1).truncationMode(.middle)
             Text("Runs: " + same.map { when($0).lowercased() }.joined(separator: " · ")).font(.caption).lineLimit(2)
-            Text(purpose(h) ?? "Hook settings have no description field, and this program has no comment header to read.")
-                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            if model.explaining.contains(model.explanationKey(h)) {
+                HStack(spacing: 4) { ProgressView().controlSize(.mini); Text("Asking Claude…") }.font(.caption).foregroundStyle(.secondary)
+            } else if let p = purpose(h) {
+                Text(p).font(.caption).foregroundStyle(.secondary).lineLimit(3)
+            } else {
+                HStack(spacing: 6) {
+                    Text("No description.").font(.caption).foregroundStyle(.secondary)
+                    Button("Explain with Claude") { Task { await model.explain(h) } }.controlSize(.mini)
+                        .help("Sends this hook's command and script to Claude (Haiku) for a one-sentence summary. Saved, so it runs once.")
+                }
+            }
             HStack(spacing: 6) {
                 let reach = whereRuns(h)
                 badge(reach.text, reach.everywhere ? "globe" : "folder", reach.everywhere ? .blue : .secondary)
@@ -309,6 +328,8 @@ struct HooksView: View {
 
     /// What the hook is for: the script's opening comment, else its plugin's description.
     private func purpose(_ h: Hook) -> String? {
+        // Asked for explicitly, so it wins over a comment header.
+        if let d = model.hookExplanations[model.explanationKey(h)] { return d + " (Claude's summary)" }
         if let s = h.scriptPath, let text = try? String(contentsOf: s, encoding: .utf8) {
             let comment = text.split(separator: "\n").prefix(20).map { $0.trimmingCharacters(in: .whitespaces) }
                 .drop { $0.hasPrefix("#!") || $0.isEmpty }

@@ -117,6 +117,48 @@ final class AppModel {
     }
 
     /// ⌘R and the Rescan button: config files, plus ccusage if it was already loaded.
+    /// One-line summaries from Claude, keyed by command plus script date, so a changed script is explained again.
+    var hookExplanations: [String: String] = UserDefaults.standard.dictionary(forKey: "hookExplanations") as? [String: String] ?? [:]
+    var explaining: Set<String> = []
+
+    func explanationKey(_ h: Hook) -> String {
+        h.command + "|" + (h.scriptPath.flatMap(modificationDate).map { "\($0.timeIntervalSince1970)" } ?? "")
+    }
+
+    /// Sends the hook's command and script to `claude -p` (hooks and tools off) for a one-sentence summary.
+    func explain(_ h: Hook) async {
+        let key = explanationKey(h)
+        guard !explaining.contains(key) else { return }
+        explaining.insert(key); defer { explaining.remove(key) }
+        let script = h.scriptPath.flatMap { try? String(contentsOf: $0, encoding: .utf8) }.map { "\n\nScript \($0.count > 8000 ? "(first 8000 characters)" : ""):\n" + $0.prefix(8000) } ?? ""
+        let prompt = "In one plain sentence for a non-programmer, say what this Claude Code \(h.event) hook does. Reply with only that sentence.\n\nCommand: \(h.command)" + script
+        let r = await ClaudeCLI.run(["-p", prompt, "--model", "haiku", "--settings", #"{"disableAllHooks":true}"#, "--tools", "", "--no-session-persistence"])
+        let text = r.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard r.ok, !text.isEmpty else { return }
+        hookExplanations[key] = text
+        UserDefaults.standard.set(hookExplanations, forKey: "hookExplanations")
+    }
+
+    /// Commits on GitHub newer than this build, and where to see them. Checked at most once a day.
+    var appUpdate: (count: Int, url: URL)?
+
+    func checkForAppUpdate() async {
+        let d = UserDefaults.standard, info = Bundle.main.infoDictionary
+        guard let sha = info?["ClaudeConfigCommit"] as? String, let branch = info?["ClaudeConfigBranch"] as? String else { return }  // dev build
+        // Reuse today's answer for this build instead of asking GitHub again.
+        if let last = d.object(forKey: "updateCheckedAt") as? Date, Date().timeIntervalSince(last) < 86_400, d.string(forKey: "updateCheckedSHA") == sha {
+            let n = d.integer(forKey: "updateAhead")
+            if n > 0, let u = d.url(forKey: "updateURL") { appUpdate = (n, u) }
+            return
+        }
+        guard let api = URL(string: "https://api.github.com/repos/akeslo/claude-config-editor/compare/\(sha)...\(branch)"),
+              let (data, resp) = try? await URLSession.shared.data(from: api), (resp as? HTTPURLResponse)?.statusCode == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let ahead = json["ahead_by"] as? Int, let page = (json["html_url"] as? String).flatMap(URL.init(string:)) else { return }
+        d.set(Date(), forKey: "updateCheckedAt"); d.set(sha, forKey: "updateCheckedSHA"); d.set(ahead, forKey: "updateAhead"); d.set(page, forKey: "updateURL")
+        appUpdate = ahead > 0 ? (ahead, page) : nil
+    }
+
     func rescan() async {
         if usage != nil { Task { await loadUsage(force: true) } }
         await refresh()

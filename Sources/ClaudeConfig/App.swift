@@ -12,6 +12,7 @@ struct ClaudeConfigApp: App {
                 .tint(.brand)
                 .frame(minWidth: 980, minHeight: 600)
                 .task { await model.refresh() }
+                .task { await model.checkForAppUpdate() }
         }
         .defaultSize(width: 1440, height: 900)
         .commands {
@@ -39,6 +40,15 @@ struct RootView: View {
                                 .tag(s)
                         }
                     }
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                if let u = model.appUpdate {
+                    Link(destination: u.url) {
+                        Label("Update available: \(u.count) new change\(u.count == 1 ? "" : "s")", systemImage: "arrow.down.circle.fill").font(.caption)
+                    }
+                    .help("See what changed on GitHub. To install, pull and run ./build.sh in the source folder.")
+                    .padding(8)
                 }
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)

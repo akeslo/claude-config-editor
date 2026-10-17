@@ -39,6 +39,21 @@ struct SafeWriteTests {
         #expect((readJSON(file)?["enabledPlugins"] as? JSON)?.keys.sorted() == ["c@d"])
     }
 
+    @Test func pluginUpdates() throws {
+        let m = dir.appending(path: "mkt")
+        try FileManager.default.createDirectory(at: m.appending(path: ".claude-plugin"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: m.appending(path: "p/b/.claude-plugin"), withIntermediateDirectories: true)
+        try Data(#"{"plugins":[{"name":"a","version":"2.0.0"},{"name":"b","source":"./p/b"},{"name":"c","source":{"sha":"bbbbbbbbbbbbbbbb"}},{"name":"d","source":"./nope"}]}"#.utf8)
+            .write(to: m.appending(path: ".claude-plugin/marketplace.json"))
+        try Data(#"{"version":"1.1"}"#.utf8).write(to: m.appending(path: "p/b/.claude-plugin/plugin.json"))
+        #expect(Scanner.newerVersion(plugin: "a@m", version: "1.0.0", sha: nil, marketplaceDir: m) == "2.0.0")
+        #expect(Scanner.newerVersion(plugin: "a@m", version: "2.0.0", sha: nil, marketplaceDir: m) == nil)
+        #expect(Scanner.newerVersion(plugin: "b@m", version: "1.0", sha: nil, marketplaceDir: m) == "1.1")
+        #expect(Scanner.newerVersion(plugin: "c@m", version: "aaaa", sha: "aaaaaaaaaaaaaaaa", marketplaceDir: m) == "bbbbbbbbbbbb")
+        #expect(Scanner.newerVersion(plugin: "c@m", version: "bbbb", sha: "bbbbbbbbbbbbbbbb", marketplaceDir: m) == nil)
+        #expect(Scanner.newerVersion(plugin: "d@m", version: "1", sha: nil, marketplaceDir: m) == nil)  // unknown, not "update"
+    }
+
     @Test func removesHooks() throws {
         let file = dir.appending(path: "h.json")
         try Data(#"{"model":"x","hooks":{"Stop":[{"hooks":[{"type":"command","command":"a"},{"type":"command","command":"b"}]}],"SessionStart":[{"hooks":[{"type":"command","command":"a"}]}]}}"#.utf8).write(to: file)

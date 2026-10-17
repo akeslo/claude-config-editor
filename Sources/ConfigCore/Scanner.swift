@@ -29,6 +29,13 @@ public enum Scanner {
             snap.plugins[i].description = readJSON(root.appending(path: ".claude-plugin/plugin.json"))?["description"] as? String
                 ?? readmeSummary(root.appending(path: "README.md")) ?? ""
         }
+        let shas = (readJSON(Paths.claudeDir.appending(path: "plugins/installed_plugins.json"))?["plugins"] as? JSON ?? [:])
+            .compactMapValues { (($0 as? [JSON])?.first?["gitCommitSha"]) as? String }
+        for i in snap.plugins.indices {
+            let p = snap.plugins[i]
+            snap.plugins[i].latestVersion = newerVersion(plugin: p.id, version: p.version, sha: shas[p.id],
+                                                         marketplaceDir: Paths.claudeDir.appending(path: "plugins/marketplaces/\(p.marketplace)"))
+        }
         let enabledPlugins = snap.plugins.filter(\.enabled)
 
         snap.mcpServers = mcpServers(claudeJSON: claudeJSON, projectPaths: projectPaths, plugins: enabledPlugins)
@@ -179,6 +186,23 @@ public enum Scanner {
         }
         add(readJSON(Paths.desktopConfig)?["mcpServers"], .desktop, nil, Paths.desktopConfig)
         return out.sorted { ($0.name, $0.scope.rawValue) < ($1.name, $1.scope.rawValue) }
+    }
+
+    /// The marketplace's version of a plugin when it differs from the installed one. Offline: Claude Code refreshes
+    /// marketplaces itself at startup. Plugins pinned by neither a version nor a commit give nil (unknown).
+    static func newerVersion(plugin id: String, version: String, sha: String?, marketplaceDir: URL) -> String? {
+        let name = String(id.split(separator: "@").first ?? "")
+        guard let entry = (readJSON(marketplaceDir.appending(path: ".claude-plugin/marketplace.json"))?["plugins"] as? [JSON])?
+            .first(where: { $0["name"] as? String == name }) else { return nil }
+        if let v = entry["version"] as? String ?? (entry["source"] as? String).flatMap({
+            readJSON(marketplaceDir.appending(path: $0).appending(path: ".claude-plugin/plugin.json"))?["version"] as? String
+        }) {
+            return v == version ? nil : v
+        }
+        if let latest = (entry["source"] as? JSON)?["sha"] as? String, let sha {
+            return latest == sha ? nil : String(latest.prefix(12))
+        }
+        return nil
     }
 
     /// First prose line of a README, skipping headings, badges and blank lines.
