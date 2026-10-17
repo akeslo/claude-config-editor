@@ -34,7 +34,13 @@ struct MCPView: View {
     var body: some View {
         let servers = model.snapshot.mcpServers
         Table(servers, selection: $selection) {
-            TableColumn("Name") { m in Text(m.name).fontWeight(.medium).explains(.mcpServer, "Runs: \(m.command) (\(m.transport))\nFrom: \(m.scope.rawValue)") }
+            TableColumn("Name") { m in
+                VStack(alignment: .leading) {
+                    Text(m.name).fontWeight(.medium)
+                    if !m.description.isEmpty { Text(m.description).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                }
+                .explains(.mcpServer, "\(m.description.isEmpty ? "" : m.description + "\n\n")Runs: \(m.command) (\(m.transport))\nFrom: \(m.scope.rawValue)")
+            }
             TableColumn("Scope") { m in Text(m.scope.rawValue).help(Term.mcpScope.tooltip) }.width(110)
             TableColumn("Where") { m in Text(m.project.map { ($0 as NSString).lastPathComponent } ?? "everywhere").help(m.project ?? "") }.width(140)
             TableColumn("Type") { Text($0.transport) }.width(60)
@@ -52,7 +58,7 @@ struct MCPView: View {
                 ("Scope", m.scope.rawValue), ("Project", m.project ?? "—"), ("Type", m.transport),
                 ("Defined in", shortPath(m.source)),
                 ("Env keys", m.env.keys.sorted().joined(separator: ", ").ifEmpty("none")),
-            ], file: m.source, text: redacted(m.raw))
+            ], file: m.source, text: (m.description.isEmpty ? "" : m.description + "\n\n") + redacted(m.raw))
         }
     }
 
@@ -150,7 +156,7 @@ struct ComponentsView: View {
                 ("Always listed", c.listingTokens > 0 ? "Yes, \(formatTokens(c.listingTokens))" : "No"),
                 ("Override", c.override ?? "none"), ("Uses", "\(c.usageCount)"), ("Last used", relative(c.lastUsed)),
                 ("Lines", "\(c.lineCount)"), ("Frontmatter", c.frontmatterKeys.joined(separator: ", ")),
-            ], file: c.file, text: c.description)
+            ], file: c.file, text: fileText(c.file) ?? c.description)
             model.info?.link = model.snapshot.plugins.first { $0.id == c.owner }?.repoURL
         }
     }
@@ -171,8 +177,11 @@ struct PluginsView: View {
                 HStack {
                     Image(systemName: p.enabled ? "checkmark.circle.fill" : "circle").foregroundStyle(p.enabled ? .green : .secondary)
                         .help(p.enabled ? "Enabled" : "Disabled: costs no context")
-                    Text(p.id).fontWeight(.medium)
-                        .explains(.plugin, "From marketplace: \(p.marketplace)" + (p.repoURL.map { "\nSource: \($0.absoluteString)" } ?? ""))
+                    VStack(alignment: .leading) {
+                        Text(p.id).fontWeight(.medium)
+                        if !p.description.isEmpty { Text(p.description).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                    }
+                        .explains(.plugin, (p.description.isEmpty ? "" : p.description + "\n\n") + "From marketplace: \(p.marketplace)" + (p.repoURL.map { "\nSource: \($0.absoluteString)" } ?? ""))
                     if !p.notes.isEmpty { Image(systemName: "exclamationmark.bubble").foregroundStyle(.orange).help(p.notes.joined(separator: "\n")) }
                 }
             }
@@ -203,7 +212,7 @@ struct PluginsView: View {
             model.info = InfoItem(p.id, term: .plugin, facts: [
                 ("Enabled", p.enabled ? "Yes" : "No"), ("Version", p.version), ("Scope", p.scope), ("Marketplace", p.marketplace),
                 ("Always-on", model.pluginTokens[p.id].map(formatTokens) ?? "—"), ("Uses", "\(p.usageCount)"),
-            ], file: p.installPath, link: p.repoURL, text: (parts.isEmpty ? "" : "Contains:\n" + parts.map { "\($0.kind.rawValue): \($0.name)" }.joined(separator: "\n")) + (p.notes.isEmpty ? "" : "\n\nNotes:\n" + p.notes.joined(separator: "\n")))
+            ], file: p.installPath, link: p.repoURL, text: (p.description.isEmpty ? "" : p.description + "\n\n") + (parts.isEmpty ? "" : "Contains:\n" + parts.map { "\($0.kind.rawValue): \($0.name)" }.joined(separator: "\n")) + (p.notes.isEmpty ? "" : "\n\nNotes:\n" + p.notes.joined(separator: "\n")))
         }
     }
 }
@@ -236,7 +245,8 @@ struct HooksView: View {
             model.info = InfoItem("\(h.event) hook", term: .hook, facts: [
                 ("Event", h.event), ("Matcher", h.matcher ?? "all"), ("Source", h.source), ("Async", h.async ? "Yes" : "No"),
                 ("Adds to context", ["SessionStart", "UserPromptSubmit"].contains(h.event) ? "Can (its output)" : "No"),
-            ], file: h.sourceURL, link: hookPlugin(h)?.repoURL, text: h.command)
+            ], file: h.sourceURL, link: hookPlugin(h)?.repoURL,
+               text: h.command + (h.scriptPath.flatMap(fileText).map { "\n\n── \(shortPath(h.scriptPath!)) ──\n" + $0 } ?? ""))
         }
     }
 
@@ -427,4 +437,10 @@ struct DiscoverView: View {
 
 extension ComponentKind {
     var term: Term { switch self { case .skill: .skill; case .subagent: .subagent; case .command: .command; case .outputStyle: .outputStyle } }
+}
+
+/// A definition file's text for the side panel, capped so huge files stay responsive.
+func fileText(_ url: URL) -> String? {
+    guard let t = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+    return t.count > 20_000 ? String(t.prefix(20_000)) + "\n…" : t
 }

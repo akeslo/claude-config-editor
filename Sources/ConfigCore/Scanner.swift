@@ -25,10 +25,17 @@ public enum Scanner {
         let known = readJSON(Paths.claudeDir.appending(path: "plugins/known_marketplaces.json"))
         for i in snap.plugins.indices {
             snap.plugins[i].repoURL = repoURL(pluginRoot: snap.plugins[i].installPath, marketplace: snap.plugins[i].marketplace, known: known)
+            let root = snap.plugins[i].installPath
+            snap.plugins[i].description = readJSON(root.appending(path: ".claude-plugin/plugin.json"))?["description"] as? String
+                ?? readmeSummary(root.appending(path: "README.md")) ?? ""
         }
         let enabledPlugins = snap.plugins.filter(\.enabled)
 
         snap.mcpServers = mcpServers(claudeJSON: claudeJSON, projectPaths: projectPaths, plugins: enabledPlugins)
+        for i in snap.mcpServers.indices {
+            let m = snap.mcpServers[i]
+            snap.mcpServers[i].description = (m.scope == .plugin ? snap.plugins.first { $0.id == m.project }?.description : nil) ?? npmDescription(m.command) ?? ""
+        }
         snap.components = components(projectPaths: repoPaths, plugins: enabledPlugins, usage: claudeJSON["skillUsage"] as? JSON ?? [:])
         let overrides = snap.setting("skillOverrides")?.value as? [String: String] ?? [:]
         for i in snap.components.indices { snap.components[i].override = overrides[snap.components[i].name] }
@@ -172,6 +179,27 @@ public enum Scanner {
         }
         add(readJSON(Paths.desktopConfig)?["mcpServers"], .desktop, nil, Paths.desktopConfig)
         return out.sorted { ($0.name, $0.scope.rawValue) < ($1.name, $1.scope.rawValue) }
+    }
+
+    /// First prose line of a README, skipping headings, badges and blank lines.
+    static func readmeSummary(_ url: URL) -> String? {
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+            .first { !$0.isEmpty && !"#![<`|-".contains($0.first!) }
+    }
+
+    /// Offline lookup: the package's package.json in ~/.npm/_npx, if npx has fetched it before.
+    static func npmDescription(_ command: String) -> String? {
+        let words = command.split(separator: " ").map(String.init)
+        guard words.first.map({ ["npx", "bunx", "pnpx"].contains(($0 as NSString).lastPathComponent) }) == true,
+              let spec = words.dropFirst().first(where: { !$0.hasPrefix("-") }) else { return nil }
+        // Strip a version: "pkg@1.2", "@scope/pkg@latest".
+        let name = spec.hasPrefix("@") ? spec.split(separator: "@").first.map { "@" + $0 } ?? spec : String(spec.split(separator: "@").first ?? "")
+        let cache = Paths.home.appending(path: ".npm/_npx")
+        for dir in children(cache) {
+            if let d = readJSON(dir.appending(path: "node_modules/\(name)/package.json"))?["description"] as? String { return d }
+        }
+        return nil
     }
 
     // MARK: Skills, agents, commands, output styles

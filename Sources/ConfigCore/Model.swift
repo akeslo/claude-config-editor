@@ -43,6 +43,8 @@ public struct MCPServer: Identifiable, Sendable {
     public let env: [String: String]
     public let headers: [String: String]
     public let raw: String
+    /// From its plugin, or the npm package description for npx servers already in the npx cache.
+    public var description = ""
 }
 
 public enum ComponentKind: String, CaseIterable, Sendable {
@@ -81,6 +83,7 @@ public struct Plugin: Identifiable, Sendable {
     public var lastUsed: Date?
     public var alwaysOnTokens: Int?     // from `claude plugin details`, filled in lazily
     public var repoURL: URL?            // plugin.json repository/homepage, else its marketplace's GitHub repo
+    public var description = ""         // plugin.json description
     public var marketplace: String { id.split(separator: "@").last.map(String.init) ?? "" }
 }
 
