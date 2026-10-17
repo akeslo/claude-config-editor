@@ -191,3 +191,16 @@ struct RepoURLTests {
         #expect(Scanner.repoURL(pluginRoot: root, marketplace: "mp", known: known)?.absoluteString == "https://github.com/a/b.git")
     }
 }
+
+struct UsageTests {
+    @Test func decodesCCUsageDaily() throws {
+        let url = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "Fixtures/ccusage-daily.json")
+        let r = try UsageReport.decode(Data(contentsOf: url))
+        #expect(r.rows.count == 4)
+        #expect(r.agents == ["claude"])
+        #expect(Set(r.rows.map(\.day)) == ["2026-10-16"])
+        let opus = try #require(r.rows.first { $0.model == "claude-opus-5-5" })
+        #expect(opus.input == 6079 && opus.output == 1745130 && opus.cacheCreate == 9580674 && opus.cacheRead == 472496017)
+        #expect(abs(r.rows.reduce(0) { $0 + $1.cost } - 379.6658544499991) < 0.001)
+    }
+}

@@ -9,15 +9,19 @@ struct HealthView: View {
     var body: some View {
         let issues = model.issues
         VStack(spacing: 0) {
-            HStack(spacing: 28) {
-                Metric(value: formatTokens(model.startupTokens), label: "startup context (user-wide)", term: .contextWindow)
-                Metric(value: model.storage.isEmpty ? "…" : formatBytes(model.diskBytes), label: "used on disk", term: .scratch)
-                Metric(value: "\(issues.filter { $0.severity == .problem }.count)", label: "problems", term: .contextWindow)
-                Metric(value: "\(issues.filter { $0.severity == .warning }.count)", label: "warnings", term: .contextWindow)
-                Spacer()
-                if let v = model.snapshot.claudeVersion { Text(v).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+            HStack(spacing: Space.m) {
+                Card { Metric(value: formatTokens(model.startupTokens), label: "startup context (user-wide)", term: .contextWindow) }
+                Card { Metric(value: model.storage.isEmpty ? "…" : formatBytes(model.diskBytes), label: "used on disk", term: .scratch) }
+                Card { Metric(value: "\(issues.filter { $0.severity == .problem }.count)", label: "problems", term: .contextWindow, tint: issues.contains { $0.severity == .problem } ? .red : nil) }
+                Card { Metric(value: "\(issues.filter { $0.severity == .warning }.count)", label: "warnings", term: .contextWindow) }
             }
-            .padding()
+            .padding(.horizontal, Space.l).padding(.top, Space.l)
+            HStack {
+                if let v = model.snapshot.claudeVersion { Text(v).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                Spacer()
+                SourceTag("config files")
+            }
+            .padding(.horizontal, Space.l).padding(.vertical, Space.s)
             Divider()
             if !issues.isEmpty {
                 let picked = issues.filter { checked.contains($0.id) }
@@ -34,7 +38,7 @@ struct HealthView: View {
                         .disabled(picked.isEmpty)
                         .help(picked.isEmpty ? "Check issues to copy one prompt for them" : promptHelp(Issue.aiPrompt(for: picked)))
                 }
-                .padding(.horizontal).padding(.vertical, 6)
+                .padding(.horizontal, Space.l).padding(.vertical, Space.s)
             }
             Divider()
             if issues.isEmpty && !model.loading {
@@ -97,10 +101,11 @@ struct Metric: View {
     let value: String
     let label: String
     let term: Term
+    var tint: Color?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(value).font(.title.weight(.semibold).monospacedDigit()).lineLimit(1).fixedSize()
+        VStack(alignment: .leading, spacing: Space.xs) {
+            Text(value).font(.metric).foregroundStyle(tint ?? .primary).lineLimit(1).fixedSize()
             Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(1).fixedSize()
         }
         .explains(term)
@@ -135,7 +140,7 @@ struct IssueRow: View {
                 Button("Open") { openFile(file) }.help("Open \(shortPath(file))")
             }
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, Space.xs)
         .help(issue.term.tooltip)
         .contextMenu { Button("Copy AI Prompt") { copy(issue.aiPrompt) } }
     }
@@ -150,29 +155,35 @@ struct ContextView: View {
         let projectRows = projectBudget
         let total = budget.reduce(0) { $0 + $1.tokens } + projectRows.reduce(0) { $0 + $1.tokens }
         let maxTokens = max(1, (budget.map(\.tokens) + projectRows.map(\.tokens)).max() ?? 1)
-        Form {
-            SwiftUI.Section {
-                LabeledContent("Estimated before your first message", value: formatTokens(total))
-                    .explains(.contextWindow)
-                Text("Estimates use about 4 characters per token, plus the system prompt and tools, which are not counted here. Run /context inside Claude for exact numbers.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            SwiftUI.Section("Every session") {
-                ForEach(budget, id: \.label) { row in
-                    BudgetRow(label: row.label, note: row.note, tokens: row.tokens, max: maxTokens, term: row.term)
+        ScrollView {
+            VStack(alignment: .leading, spacing: Space.l) {
+                Card(source: "config files, ≈4 chars per token") {
+                    Metric(value: formatTokens(total), label: "estimated before your first message", term: .contextWindow, tint: .brand)
+                    Text("Estimates use about 4 characters per token, plus the system prompt and tools, which are not counted here. Run /context inside Claude for exact numbers.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                HStack(alignment: .top, spacing: Space.l) {
+                    Card(title: "Every session") {
+                        ForEach(budget, id: \.label) { row in
+                            BudgetRow(label: row.label, note: row.note, tokens: row.tokens, max: maxTokens, term: row.term)
+                        }
+                    }
+                    Card(title: "In one project") {
+                        Picker("Project", selection: $project) {
+                            Text("Choose…").tag("")
+                            ForEach(model.snapshot.projects.filter(\.folderExists)) { Text(shortPath(URL(filePath: $0.path))).tag($0.path) }
+                        }
+                        if projectRows.isEmpty {
+                            Text("Choose a project to add what it loads on top.").font(.callout).foregroundStyle(.secondary)
+                        }
+                        ForEach(projectRows, id: \.label) { row in
+                            BudgetRow(label: row.label, note: row.note, tokens: row.tokens, max: maxTokens, term: row.term)
+                        }
+                    }
                 }
             }
-            SwiftUI.Section("In one project") {
-                Picker("Project", selection: $project) {
-                    Text("Choose…").tag("")
-                    ForEach(model.snapshot.projects.filter(\.folderExists)) { Text(shortPath(URL(filePath: $0.path))).tag($0.path) }
-                }
-                ForEach(projectRows, id: \.label) { row in
-                    BudgetRow(label: row.label, note: row.note, tokens: row.tokens, max: maxTokens, term: row.term)
-                }
-            }
+            .padding(Space.l)
         }
-        .formStyle(.grouped)
     }
 
     private var projectBudget: [(label: String, term: Term, tokens: Int, note: String)] {
@@ -202,7 +213,7 @@ struct BudgetRow: View {
     let term: Term
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: Space.xs) {
             HStack {
                 Text(label)
                 Spacer()

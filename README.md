@@ -8,13 +8,19 @@ Every issue has a copyable AI prompt that asks Claude Code to fix it, and you ca
 
 Forked from [gagarinyury/claude-config-editor](https://github.com/gagarinyury/claude-config-editor), which started as a web editor and is now a native macOS app.
 
+![Health](docs/screenshots/health.png)
+
+| Analytics (cost) | MCP Servers |
+|---|---|
+| ![Analytics](docs/screenshots/analytics.png) | ![MCP Servers](docs/screenshots/mcp.png) |
+
 ## Sections
 
 | Section | What it shows |
 |---|---|
 | Health | Ranked problems, warnings and suggestions, each with a doc-backed reason, a **Fix…** button and a copyable AI prompt |
 | Context Budget | Estimated tokens loaded before your first message, every session and per project |
-| Analytics | Past sessions from transcripts: tokens per day, peak context, compactions, cache use, tools, models |
+| Analytics | Cost and tokens from ccusage (today, 7 and 30 days, all time, per day by model, per model by agent), plus past sessions from transcripts: tokens per day, peak context, compactions, cache use, tools, models |
 | Storage | Scratch folders, transcripts, plugins, jobs, caches, backups: size, age, safety, auto-cleanup |
 | Projects & History | Every folder Claude has run in, with transcript size; purge via `claude purge` |
 | Permissions | allow / ask / deny rules from every scope, plus per-project approvals |
@@ -26,6 +32,10 @@ Forked from [gagarinyury/claude-config-editor](https://github.com/gagarinyury/cl
 | CLAUDE.md Browser | Instruction files for Claude and other agents anywhere on disk, including backups, filterable by extension |
 | Settings | Every settings key by scope, keybindings, and `claude doctor` |
 | Discover | Plugins from your marketplaces, by install count |
+
+## Cost & tokens (via ccusage)
+
+Analytics runs `npx -y ccusage@latest daily --json --by-agent` through your login shell and shows cost (USD at API prices) and input, output, cache-write and cache-read tokens per day, model and agent (Claude, Codex, Gemini). **Node is required**: without `npx` the section says "Install Node to see cost" and the transcript stats still work. Results are cached for the launch; ⌘R or Reload runs ccusage again. Each number is labelled with its source: ccusage or transcripts.
 
 ## Keyboard (Health)
 

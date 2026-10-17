@@ -56,7 +56,7 @@ struct StorageView: View {
                         .help(area.safety == .keep ? "This location holds config Claude needs. Use the Claude CLI instead." : "Select items below first.")
                     }
                 }
-                .padding(8)
+                .padding(Space.s)
                 Table(items, selection: $picked) {
                     TableColumn("Name") { Text($0.url.lastPathComponent).lineLimit(1).truncationMode(.middle).help($0.url.path) }
                     TableColumn("Size") { Text(formatBytes($0.bytes)).monospacedDigit() }.width(90)

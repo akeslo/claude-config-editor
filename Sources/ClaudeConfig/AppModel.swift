@@ -51,6 +51,8 @@ final class AppModel {
     var showInspector = true
     var analytics: AnalyticsReport?
     var analyticsProgress = 0.0
+    /// ccusage cost report, cached for the launch; nil while loading.
+    var usage: Result<UsageReport, UsageError>?
 
     var issues: [Issue] {
         var s = snapshot
@@ -112,6 +114,18 @@ final class AppModel {
         analytics = await Analytics.load { done, total in
             Task { @MainActor in self.analyticsProgress = Double(done) / Double(max(total, 1)) }
         }
+    }
+
+    /// ⌘R and the Rescan button: config files, plus ccusage if it was already loaded.
+    func rescan() async {
+        if usage != nil { Task { await loadUsage(force: true) } }
+        await refresh()
+    }
+
+    func loadUsage(force: Bool = false) async {
+        guard force || usage == nil else { return }
+        if force { usage = nil }
+        usage = await CCUsage.load()
     }
 
     func propose(_ title: String, _ fix: Fix) { pendingFix = PendingFix(title: title, fix: fix) }

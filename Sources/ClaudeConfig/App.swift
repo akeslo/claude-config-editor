@@ -9,13 +9,14 @@ struct ClaudeConfigApp: App {
         WindowGroup("Claude Config") {
             RootView()
                 .environment(model)
+                .tint(.brand)
                 .frame(minWidth: 980, minHeight: 600)
                 .task { await model.refresh() }
         }
         .defaultSize(width: 1440, height: 900)
         .commands {
             CommandGroup(after: .toolbar) {
-                Button("Rescan") { Task { await model.refresh() } }.keyboardShortcut("r")
+                Button("Rescan") { Task { await model.rescan() } }.keyboardShortcut("r")
                 Button("Toggle Explanations") { model.showInspector.toggle() }.keyboardShortcut("i", modifiers: [.command, .option])
             }
         }
@@ -46,7 +47,7 @@ struct RootView: View {
                                 .help(promptHelp(Issue.aiPrompt(for: issues)))
                         }
                         if model.loading || model.measuringStorage { ProgressView().controlSize(.small).help("Scanning…") }
-                        Button { Task { await model.refresh() } } label: { Label("Rescan", systemImage: "arrow.clockwise") }
+                        Button { Task { await model.rescan() } } label: { Label("Rescan", systemImage: "arrow.clockwise") }
                             .help("Read all config files again (⌘R)")
                         Button { model.showInspector.toggle() } label: { Label("Explanations", systemImage: "sidebar.right") }
                             .help("Show or hide the explanation panel (⌥⌘I)")
@@ -91,13 +92,13 @@ struct InfoPanel: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: Space.m) {
                 Text(item.title).font(.title3.weight(.semibold)).textSelection(.enabled)
                 if item.title != item.term.title {
                     Text(item.term.title).font(.subheadline).foregroundStyle(.secondary)
                 }
                 if !item.facts.isEmpty {
-                    Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
+                    Grid(alignment: .leading, horizontalSpacing: Space.m, verticalSpacing: Space.s) {
                         ForEach(item.facts) { f in
                             GridRow {
                                 Text(f.label).foregroundStyle(.secondary)
@@ -115,7 +116,7 @@ struct InfoPanel: View {
                     .controlSize(.small)
                 }
                 Divider()
-                Text("How it fits into Claude Code").font(.headline)
+                Text("How it fits into Claude Code").font(.cardTitle)
                 Text(item.term.detail).fixedSize(horizontal: false, vertical: true)
                 Link("Read the docs", destination: item.term.docURL)
                 if let link = item.link { Link("View Source", destination: link).help(link.absoluteString) }
@@ -128,7 +129,7 @@ struct InfoPanel: View {
                     Text(text).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                 }
             }
-            .padding()
+            .padding(Space.l)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

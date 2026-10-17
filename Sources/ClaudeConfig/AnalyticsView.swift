@@ -7,24 +7,21 @@ struct AnalyticsView: View {
     @State private var selection: SessionStats.ID?
     @State private var sort = [KeyPathComparator(\SessionStats.start, order: .reverse)]
     @State private var search = ""
+    @State private var agent = "all"
 
     var body: some View {
         Group {
             if let report = model.analytics {
                 content(report)
             } else {
-                VStack(spacing: 10) {
-                    ProgressView(value: model.analyticsProgress) { Text("Reading transcripts…") }
-                        .frame(width: 280)
-                    Text("The first run reads every transcript; later runs only read changed files.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
+                LoadingState(title: "Reading transcripts…", detail: "The first run reads every transcript; later runs only read changed files.", progress: model.analyticsProgress)
             }
         }
         .task { await model.loadAnalytics() }
+        .task { await model.loadUsage() }
         .toolbar {
-            Button { Task { await model.loadAnalytics(force: true) } } label: { Label("Reload", systemImage: "arrow.clockwise.circle") }
-                .help("Read transcripts again (only changed files are re-parsed)")
+            Button { Task { await model.loadAnalytics(force: true); await model.loadUsage(force: true) } } label: { Label("Reload", systemImage: "arrow.clockwise.circle") }
+                .help("Read transcripts and run ccusage again (only changed transcripts are re-parsed)")
         }
     }
 
@@ -34,19 +31,25 @@ struct AnalyticsView: View {
             .sorted(using: sort)
         VSplitView {
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    HStack(spacing: 28) {
-                        Metric(value: "\(r.sessions.count)", label: "sessions on disk", term: .transcripts)
-                        Metric(value: compact(r.totalTokens), label: "tokens processed", term: .contextWindow)
-                        Metric(value: r.cacheHitRate.formatted(.percent.precision(.fractionLength(0))), label: "input from cache", term: .contextWindow)
-                            .help("Share of input tokens read from the prompt cache. Higher is cheaper and faster; it drops when sessions idle past the cache lifetime or the prompt prefix changes.")
-                        Metric(value: "\(r.compactions)", label: "compactions", term: .contextWindow)
-                            .help("Times a session hit its context limit and was summarized. Frequent compaction means long sessions or heavy startup context.")
+                VStack(alignment: .leading, spacing: Space.l) {
+                    cost
+                    HStack(alignment: .firstTextBaseline) { Text("Transcripts").font(.title3.weight(.semibold)); Spacer(); SourceTag("transcripts") }.padding(.top, Space.s)
+                    HStack(spacing: Space.m) {
+                        Card { Metric(value: "\(r.sessions.count)", label: "sessions on disk", term: .transcripts) }
+                        Card { Metric(value: compact(r.totalTokens), label: "tokens processed", term: .contextWindow) }
+                        Card {
+                            Metric(value: r.cacheHitRate.formatted(.percent.precision(.fractionLength(0))), label: "input from cache", term: .contextWindow)
+                                .help("Share of input tokens read from the prompt cache. Higher is cheaper and faster; it drops when sessions idle past the cache lifetime or the prompt prefix changes.")
+                        }
+                        Card {
+                            Metric(value: "\(r.compactions)", label: "compactions", term: .contextWindow)
+                                .help("Times a session hit its context limit and was summarized. Frequent compaction means long sessions or heavy startup context.")
+                        }
                     }
                     Text("Covers transcripts still on disk; Claude deletes ones older than \(model.snapshot.cleanupPeriodDays) days.")
                         .font(.caption).foregroundStyle(.secondary)
 
-                    HStack(alignment: .top, spacing: 24) {
+                    HStack(alignment: .top, spacing: Space.l) {
                         chartBox("Tokens per day (last 60 days)") {
                             Chart(r.perDay(), id: \.day) {
                                 BarMark(x: .value("Day", $0.day, unit: .day), y: .value("Tokens", $0.tokens))
@@ -60,7 +63,7 @@ struct AnalyticsView: View {
                         }
                         .help("The largest prompt each session sent. Sessions near the model's window are the ones that compact.")
                     }
-                    HStack(alignment: .top, spacing: 24) {
+                    HStack(alignment: .top, spacing: Space.l) {
                         chartBox("Most used tools") {
                             Chart(r.topTools(12), id: \.name) {
                                 BarMark(x: .value("Calls", $0.count), y: .value("Tool", $0.name))
@@ -73,7 +76,7 @@ struct AnalyticsView: View {
                         }
                     }
                 }
-                .padding()
+                .padding(Space.l)
             }
             .frame(minHeight: 300)
 
@@ -108,13 +111,106 @@ struct AnalyticsView: View {
         }
     }
 
-    private func chartBox<C: View>(_ title: String, @ViewBuilder _ chart: () -> C) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.headline)
-            chart().frame(height: 180)
-        }
-        .frame(maxWidth: .infinity)
+    private func chartBox<C: View>(_ title: String, source: String = "transcripts", @ViewBuilder _ chart: () -> C) -> some View {
+        Card(title: title, source: source) { chart().frame(height: 180) }
     }
+
+    // MARK: Cost (ccusage)
+
+    @ViewBuilder private var cost: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text("Cost & tokens").font(.title3.weight(.semibold))
+            SourceTag("ccusage")
+            Spacer()
+            Picker("Agent", selection: $agent) {
+                ForEach(["all", "claude", "codex", "gemini"], id: \.self) { Text($0 == "all" ? "All agents" : $0.capitalized).tag($0) }
+            }
+            .pickerStyle(.segmented).fixedSize()
+            .help("Which coding agent's usage to count, as ccusage detects it")
+        }
+        switch model.usage {
+        case nil:
+            Card(source: "ccusage") { LoadingState(title: "Running ccusage…", detail: "npx -y ccusage@latest daily --json").frame(height: 120) }
+        case .failure(.noNode):
+            Card(source: "ccusage") {
+                ContentUnavailableView {
+                    Label("Install Node to see cost", systemImage: "dollarsign.circle")
+                } description: {
+                    Text("Cost comes from ccusage, which runs with npx. Install Node (for example with brew install node), then rescan with ⌘R.")
+                }
+            }
+        case .failure(.failed(let why)):
+            Card(source: "ccusage") {
+                ContentUnavailableView("ccusage didn't return a report", systemImage: "exclamationmark.triangle", description: Text("\(why). Rescan with ⌘R to try again."))
+            }
+        case .success(let u):
+            let a = agent == "all" ? nil : agent
+            HStack(spacing: Space.m) {
+                costTile(u.rows(lastDays: 1, agent: a), "today", tint: .spark)
+                costTile(u.rows(lastDays: 7, agent: a), "last 7 days")
+                costTile(u.rows(lastDays: 30, agent: a), "last 30 days")
+                costTile(u.rows(lastDays: nil, agent: a), "all time")
+            }
+            let month = u.rows(lastDays: 30, agent: a)
+            Card(title: "Cost per day, last 30 days", source: "ccusage") {
+                if month.isEmpty {
+                    Text("No usage in the last 30 days for this agent.").font(.callout).foregroundStyle(.secondary)
+                } else {
+                    Chart(month) {
+                        BarMark(x: .value("Day", day($0.day), unit: .day), y: .value("Cost", $0.cost))
+                            .foregroundStyle(by: .value("Model", $0.model))
+                    }
+                    .chartYAxis { AxisMarks { v in AxisGridLine(); AxisValueLabel { Text(usd(v.as(Double.self) ?? 0)) } } }
+                    .frame(height: 200)
+                }
+            }
+            modelTable(u.rows(lastDays: nil, agent: a))
+        }
+    }
+
+    private func costTile(_ rows: [UsageRow], _ label: String, tint: Color? = nil) -> some View {
+        Card {
+            Metric(value: usd(rows.reduce(0) { $0 + $1.cost }), label: label, term: .transcripts, tint: tint)
+            Text("\(compact(rows.reduce(0) { $0 + $1.tokens })) tokens").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+        }
+        .help("Estimated API-price cost of \(label), computed by ccusage from local transcripts")
+    }
+
+    private func modelTable(_ rows: [UsageRow]) -> some View {
+        let models = Dictionary(grouping: rows, by: \.model)
+            .map { m, r in (model: m, input: r.reduce(0) { $0 + $1.input }, output: r.reduce(0) { $0 + $1.output },
+                            create: r.reduce(0) { $0 + $1.cacheCreate }, read: r.reduce(0) { $0 + $1.cacheRead }, cost: r.reduce(0) { $0 + $1.cost }) }
+            .sorted { $0.cost > $1.cost }
+        return Card(title: "By model, all time", source: "ccusage") {
+            Grid(alignment: .trailing, horizontalSpacing: Space.xl, verticalSpacing: Space.s) {
+                GridRow {
+                    Text("Model").gridColumnAlignment(.leading)
+                    Text("Input"); Text("Output"); Text("Cache write"); Text("Cache read"); Text("Cost")
+                }
+                .font(.caption).foregroundStyle(.secondary)
+                Divider()
+                ForEach(models, id: \.model) { m in
+                    GridRow {
+                        Text(m.model)
+                        Text(compact(m.input)); Text(compact(m.output)); Text(compact(m.create)); Text(compact(m.read))
+                        Text(usd(m.cost)).fontWeight(.medium)
+                    }
+                    .monospacedDigit()
+                }
+            }
+        }
+    }
+
+    private func day(_ s: String) -> Date {
+        let p = s.split(separator: "-").compactMap { Int($0) }
+        guard p.count == 3 else { return .distantPast }
+        return Calendar.current.date(from: DateComponents(year: p[0], month: p[1], day: p[2])) ?? .distantPast
+    }
+}
+
+func usd(_ v: Double) -> String { v.formatted(.currency(code: "USD").precision(.fractionLength(v >= 100 ? 0 : 2))) }
+
+private extension AnalyticsView {
 
     private func histogram(_ values: [Int]) -> [(label: String, count: Int)] {
         let buckets = [(0, "<50k"), (50_000, "50k+"), (100_000, "100k+"), (200_000, "200k+"), (500_000, "500k+")]
