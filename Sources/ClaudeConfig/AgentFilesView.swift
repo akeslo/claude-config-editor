@@ -28,6 +28,9 @@ struct AgentFilesView: View {
                 TableColumn("Size", value: \.size) { Text(formatBytes($0.size)).monospacedDigit() }.width(70)
                 TableColumn("Modified") { f in Text(f.modified.map { $0.formatted(.relative(presentation: .named)) } ?? "") }.width(110)
             }
+            .contextMenu(forSelectionType: AgentFile.ID.self) { ids in
+                if let f = files.first(where: { ids.contains($0.id) }) { TrashButton(url: f.url) }
+            }
             .overlay { if loading { ProgressView("Searching with Spotlight…") } else if shown.isEmpty { ContentUnavailableView.search } }
             .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
             Divider()

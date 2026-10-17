@@ -55,7 +55,7 @@ struct FixSheet: View {
             let r = await ClaudeCLI.run(dryRun, in: cwd.map { URL(filePath: $0) })
             return "Dry run (claude \(dryRun.joined(separator: " "))):\n\n" + r.output
         case .trash(let urls):
-            return "These go to the Trash (recoverable from Finder):\n\n" + urls.map { "  \(shortPath($0))  \(formatBytes(exists($0) ? directorySize($0) : 0))" }.joined(separator: "\n")
+            return "These go to the Trash (recoverable from Finder):\n\n" + urls.map { "  \(shortPath($0))  " + (trashRefusal($0).map { "SKIPPED (\($0))" } ?? formatBytes(exists($0) ? directorySize($0) : 0)) }.joined(separator: "\n")
         case .settingsKey(let file, let path, let value):
             var node: Any? = readJSON(file)
             for key in path { node = (node as? JSON)?[key] }
@@ -74,8 +74,9 @@ struct FixSheet: View {
                 failed = !r.ok
                 result = r.output.isEmpty ? (r.ok ? "Finished." : "Exit code \(r.status)") : r.output
             case .trash(let urls):
-                for url in urls where exists(url) { try FileManager.default.trashItem(at: url, resultingItemURL: nil) }
-                result = "Moved \(urls.count) item(s) to the Trash."
+                let allowed = urls.filter { trashRefusal($0) == nil }
+                for url in allowed where exists(url) { try FileManager.default.trashItem(at: url, resultingItemURL: nil) }
+                result = "Moved \(allowed.count) item(s) to the Trash." + (allowed.count < urls.count ? " Skipped \(urls.count - allowed.count) protected item(s)." : "")
             case .settingsKey(let file, let path, let value):
                 let backup = try updateSettingsKey(file, path: path, value: value)
                 result = "Saved." + (backup.map { "\nBackup: \(shortPath($0))" } ?? "")

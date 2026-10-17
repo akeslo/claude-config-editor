@@ -117,3 +117,19 @@ public func directorySize(_ url: URL) -> Int64 {
 public func children(_ url: URL) -> [URL] {
     (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? []
 }
+
+/// Why `url` must not go to the Trash, or nil when it may. Live config and whole working folders are never trashed.
+public func trashRefusal(_ url: URL) -> String? {
+    let path = url.standardizedFileURL.path
+    // plugins/ and backups/ match the Storage areas marked "keep".
+    let core = ["/", Paths.home.path, Paths.claudeDir.path, Paths.claudeJSON.path,
+                Paths.claudeDir.appending(path: "plugins").path, Paths.claudeDir.appending(path: "backups").path]
+    if core.contains(path) { return "core Claude location" }
+    if ["settings.json", "settings.local.json", "managed-settings.json"].contains(url.lastPathComponent) { return "live settings file" }
+    let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? url.hasDirectoryPath
+    // A folder must be Claude data (inside some .claude dir, or scratch); anything else could be a project's working folder.
+    if isDir, !url.standardizedFileURL.pathComponents.dropLast().contains(".claude"), !path.hasPrefix(Paths.scratchRoot.path) {
+        return "not a Claude data folder"
+    }
+    return nil
+}

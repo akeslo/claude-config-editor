@@ -120,6 +120,9 @@ struct ComponentsView: View {
             TableColumn("Last used", value: \.last) { Text(relative($0.c.lastUsed)) }.width(110)
             TableColumn("Lines", value: \.lines) { r in Text("\(r.lines)").monospacedDigit().foregroundStyle(r.lines > 500 ? .orange : .primary) }.width(50)
         }
+        .contextMenu(forSelectionType: Component.ID.self) { ids in
+            if let c = model.snapshot.components.first(where: { ids.contains($0.id) }) { TrashButton(url: trashURL(c)) }
+        }
         .searchable(text: $search, prompt: "Filter by name or description")
         .toolbar {
             Picker("Kind", selection: $kind) {
@@ -127,6 +130,7 @@ struct ComponentsView: View {
                 ForEach(ComponentKind.allCases, id: \.self) { Text($0.rawValue + "s").tag(Optional($0)) }
             }
             .pickerStyle(.segmented)
+            if let c = selected { TrashButton(url: trashURL(c)) }
             if let c = selected, c.kind == .skill {
                 if c.override == nil {
                     Button("Hide from listing…") {
@@ -152,6 +156,8 @@ struct ComponentsView: View {
     }
 
     private var selected: Component? { model.snapshot.components.first { $0.id == selection } }
+    /// A skill is its whole folder; agents and commands are single files.
+    private func trashURL(_ c: Component) -> URL { c.kind == .skill && c.file.lastPathComponent == "SKILL.md" ? c.file.deletingLastPathComponent() : c.file }
 }
 
 struct PluginsView: View {
@@ -178,7 +184,11 @@ struct PluginsView: View {
             TableColumn("Uses") { Text("\($0.usageCount)").monospacedDigit() }.width(50)
             TableColumn("Last used") { Text(relative($0.lastUsed)) }.width(110)
         }
+        .contextMenu(forSelectionType: Plugin.ID.self) { ids in
+            if let p = plugins.first(where: { ids.contains($0.id) }) { TrashButton(url: p.installPath) }
+        }
         .toolbar {
+            if let p = plugins.first(where: { $0.id == selection }) { TrashButton(url: p.installPath) }
             if let p = plugins.first(where: { $0.id == selection }) {
                 Button(p.enabled ? "Disable…" : "Enable…") {
                     model.propose("\(p.enabled ? "Disable" : "Enable") \(p.id)", .cli(args: ["plugin", p.enabled ? "disable" : "enable", p.id], dryRun: nil, cwd: nil))
@@ -217,6 +227,9 @@ struct HooksView: View {
             }
             TableColumn("Runs") { h in Text(h.async ? "async" : h.timeout.map { "\($0)s timeout" } ?? "waits") }.width(90)
             TableColumn("Source") { Text($0.source).lineLimit(1) }.width(200)
+        }
+        .contextMenu(forSelectionType: Hook.ID.self) { ids in
+            if let s = hooks.first(where: { ids.contains($0.id) })?.scriptPath, exists(s) { TrashButton(url: s, label: "Move Script to Trash…") }
         }
         .onChange(of: selection) {
             guard let h = hooks.first(where: { $0.id == selection }) else { return }
@@ -262,6 +275,9 @@ struct InstructionsView: View {
             TableColumn("Loads") { f in Text(f.pathScoped ? "with matching files" : f.project == nil ? "every session" : "in project").help(f.pathScoped ? "Has paths: frontmatter" : "") }.width(130)
             TableColumn("Lines") { f in Text("\(f.lines)").monospacedDigit().foregroundStyle(f.lines > 200 ? .orange : .primary) }.width(60)
             TableColumn("Context") { Text(formatTokens($0.tokens)).monospacedDigit() }.width(90)
+        }
+        .contextMenu(forSelectionType: InstructionFile.ID.self) { ids in
+            if let f = files.first(where: { ids.contains($0.id) }) { TrashButton(url: f.url) }
         }
         .toolbar { Toggle("Only with problems", isOn: $problemsOnly) }
         .onChange(of: selection) {

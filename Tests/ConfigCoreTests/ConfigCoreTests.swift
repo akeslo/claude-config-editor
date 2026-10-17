@@ -204,3 +204,17 @@ struct UsageTests {
         #expect(abs(r.rows.reduce(0) { $0 + $1.cost } - 379.6658544499991) < 0.001)
     }
 }
+
+@Test func trashRefuseList() throws {
+    #expect(trashRefusal(Paths.claudeJSON) != nil)
+    #expect(trashRefusal(Paths.claudeDir) != nil)
+    #expect(trashRefusal(Paths.home) != nil)
+    #expect(trashRefusal(Paths.claudeDir.appending(path: "plugins")) != nil)
+    #expect(trashRefusal(Paths.userSettings) != nil)
+    #expect(trashRefusal(URL(filePath: "/tmp/proj/.claude/settings.local.json")) != nil)
+    #expect(trashRefusal(URL(filePath: "/tmp/proj/", directoryHint: .isDirectory)) != nil)
+    #expect(trashRefusal(Paths.claudeDir.appending(path: "projects/-tmp-proj", directoryHint: .isDirectory)) == nil)
+    #expect(trashRefusal(Paths.claudeDir.appending(path: "skills/foo/SKILL.md")) == nil)
+    #expect(trashRefusal(URL(filePath: "/tmp/proj/CLAUDE.md")) == nil)
+    #expect(trashRefusal(Paths.claudeDir.appending(path: "settings.json.bak")) == nil)
+}

@@ -94,6 +94,9 @@ struct AnalyticsView: View {
                 TableColumn("Compactions", value: \.compactions) { s in Text("\(s.compactions)").monospacedDigit().foregroundStyle(s.compactions > 0 ? .orange : .primary) }.width(85)
                 TableColumn("Tokens", value: \.totalTokens) { Text(compact($0.totalTokens)).monospacedDigit() }.width(70)
             }
+            .contextMenu(forSelectionType: SessionStats.ID.self) { ids in
+                if let s = r.sessions.first(where: { ids.contains($0.id) }) { TrashButton(url: URL(filePath: s.file)) }
+            }
             .searchable(text: $search, prompt: "Filter sessions by title or folder")
             .frame(minHeight: 200)
         }

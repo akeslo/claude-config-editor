@@ -64,6 +64,9 @@ struct StorageView: View {
                 }
                 .contextMenu(forSelectionType: Item.ID.self) { ids in
                     if let id = ids.first { Button("Reveal in Finder") { reveal(URL(filePath: id)) } }
+                    if !ids.isEmpty, let area, area.safety != .keep {
+                        Button("Move to Trash…") { model.propose("Clear \(ids.count) item(s) from \(area.name)", .trash(ids.map { URL(filePath: $0) })) }
+                    }
                 }
             }
             .frame(minHeight: 200)
@@ -137,6 +140,7 @@ struct ProjectsView: View {
             if let path = ids.first {
                 Button("Reveal transcripts") { reveal(Paths.projectDataDir(for: path)) }
                 Button("Purge…") { purge(ids) }.disabled(ids.count != 1)
+                if ids.count == 1 { TrashButton(url: Paths.projectDataDir(for: path), label: "Move Transcripts to Trash…") }
             }
         }
         .toolbar {

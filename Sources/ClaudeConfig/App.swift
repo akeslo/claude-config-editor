@@ -112,6 +112,7 @@ struct InfoPanel: View {
                     HStack {
                         Button("Reveal in Finder") { reveal(file) }
                         if !file.hasDirectoryPath { Button("Open") { openFile(file) } }
+                        TrashButton(url: file)
                     }
                     .controlSize(.small)
                 }

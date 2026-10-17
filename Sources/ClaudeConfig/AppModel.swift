@@ -129,6 +129,7 @@ final class AppModel {
     }
 
     func propose(_ title: String, _ fix: Fix) { pendingFix = PendingFix(title: title, fix: fix) }
+    func proposeTrash(_ url: URL) { propose("Move \(url.lastPathComponent) to the Trash", .trash([url])) }
 
     // MARK: Totals
 
@@ -163,6 +164,16 @@ extension View {
 /// Hover text showing the exact prompt a Copy button puts on the clipboard.
 func promptHelp(_ prompt: String) -> String {
     "Copies this prompt:\n\n" + (prompt.count > 1500 ? prompt.prefix(1500) + "…" : prompt)
+}
+
+/// Opens the shared confirm sheet to trash `url`; hidden for anything the refuse-list protects.
+struct TrashButton: View {
+    @Environment(AppModel.self) private var model
+    let url: URL
+    var label = "Move to Trash…"
+    var body: some View {
+        if trashRefusal(url) == nil { Button(label) { model.proposeTrash(url) } }
+    }
 }
 
 func reveal(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
