@@ -12,6 +12,9 @@ struct AskClaudeBar: View {
     @State private var failed = false
     @State private var asking = false
     @State private var task: Task<Void, Never>?
+    @State private var copied: String?
+    @State private var autoCopied: (previous: String?, copied: String)?
+    @AppStorage("askAutoCopyPrompt") private var autoCopy = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -26,15 +29,38 @@ struct AskClaudeBar: View {
             if failed {
                 Text("Claude didn't answer. Is the `claude` command installed?").font(.caption).foregroundStyle(.secondary)
             } else if let answer {
-                Text(answer).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                if !picks.isEmpty {
-                    let visible = picks.map(\.id)
-                    BulkBar(sel: $sel, visible: visible, actions: model.installActions(picks.filter { sel.contains($0.id) })).padding(.horizontal, -Space.l)
-                    VStack(alignment: .leading, spacing: 0) { ForEach(picks) { RecommendationRow(item: $0, sel: $sel, visible: visible) } }
-                        .padding(.vertical, 4)
-                        .bulkKeys($sel, visible: visible)
+                // Scrolls past a cap: unbounded, the answer squeezed against the greedy detail view below and was truncated.
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array(AnswerBlocks.segments(answer).enumerated()), id: \.offset) { _, seg in
+                            switch seg {
+                            case .text(let t):
+                                Text(t).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            case .code(_, let body):
+                                codeBlock(body)
+                            }
+                        }
+                        if !picks.isEmpty {
+                            let visible = picks.map(\.id)
+                            BulkBar(sel: $sel, visible: visible, actions: model.installActions(picks.filter { sel.contains($0.id) })).padding(.horizontal, -Space.l)
+                            VStack(alignment: .leading, spacing: 0) { ForEach(picks) { RecommendationRow(item: $0, sel: $sel, visible: visible) } }
+                                .padding(.vertical, 4)
+                                .bulkKeys($sel, visible: visible)
+                        }
+                    }
                 }
-                Text("AI suggestion — not verified").font(.caption).foregroundStyle(.secondary)
+                .frame(maxHeight: 360).fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 10) {
+                    Text("AI suggestion — not verified").font(.caption).foregroundStyle(.secondary)
+                    if let a = autoCopied {
+                        Label("Prompt copied to clipboard", systemImage: "checkmark.circle").font(.caption).foregroundStyle(.green)
+                        Button("Undo") { if let p = a.previous { setClipboard(p) } else { NSPasteboard.general.clearContents() }; autoCopied = nil }.buttonStyle(.link).font(.caption)
+                    }
+                    Spacer()
+                    Button(copied == answer ? "Copied" : "Copy answer") { copyNow(answer) }.controlSize(.small)
+                        .help("Copy the whole answer as text")
+                }
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
@@ -43,10 +69,22 @@ struct AskClaudeBar: View {
         .task(id: model.loading) { if !model.loading, !model.snapshot.components.isEmpty, let q = UserDefaults.standard.string(forKey: "autoAsk"), answer == nil, !asking { question = q; submit() } }
     }
 
+    private func codeBlock(_ body: String) -> some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            Button(copied == body ? "Copied" : "Copy") { copyNow(body) }.controlSize(.small).help("Copy just this block, without the ``` fences")
+            Text(body).font(.system(.callout, design: .monospaced)).textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(8).background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func copyNow(_ text: String) { setClipboard(text); copied = text; autoCopied = nil }
+    private func setClipboard(_ text: String) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) }
+
     private func submit() {
         let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty, !asking else { return }
-        asking = true; answer = nil; picks = []; failed = false
+        asking = true; answer = nil; picks = []; failed = false; autoCopied = nil; copied = nil
         task = Task {
             let a = await model.askWithScreen(q, about: section)
             guard !Task.isCancelled else { return }
@@ -57,6 +95,10 @@ struct AskClaudeBar: View {
                 answer = parsed.prose
                 picks = Recommendations.match(parsed.picks, available: model.available, community: model.community)
             } else { answer = a }
+            if autoCopy, let a, let text = AnswerBlocks.autoCopyText(question: q, answer: a) {
+                autoCopied = (NSPasteboard.general.string(forType: .string), text)
+                setClipboard(text)
+            }
             if UserDefaults.standard.string(forKey: "autoAsk") != nil { print("ASK-ANSWER:\n" + (a ?? "<none>")); fflush(stdout) }
         }
     }
