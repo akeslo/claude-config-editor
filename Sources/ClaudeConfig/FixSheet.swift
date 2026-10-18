@@ -58,7 +58,10 @@ struct FixSheet: View {
             let before = (readText(file) ?? "").split(separator: "\n").first { $0.hasPrefix(key + ":") }.map(String.init) ?? "(not set)"
             return "File:   \(shortPath(file))\nBefore: \(before)\nAfter:  \(value.map { "\(key): \($0)" } ?? "(removed)")"
         case .cli(let args, let dryRun, let cwd):
-            guard let dryRun else { return "Will run:\n  claude \(args.joined(separator: " "))\n\nThis command has no dry-run mode; nothing runs until you click Apply." }
+            guard let dryRun else {
+                return "Will run:\n  claude \(args.joined(separator: " "))\n\nThis command has no dry-run mode; nothing runs until you click Apply."
+                    + (args.starts(with: ["plugin", "marketplace", "add"]) ? "\n\nThen install its plugins from the Plugins tab." : "")
+            }
             let r = await ClaudeCLI.run(dryRun, in: cwd.map { URL(filePath: $0) })
             return "Dry run (claude \(dryRun.joined(separator: " "))):\n\n" + r.output
         case .trash(let urls):
@@ -95,6 +98,10 @@ struct FixSheet: View {
             result = error.localizedDescription
         }
         await model.refresh()
+        if !failed, case .cli(let args, _, _) = pending.fix, args.starts(with: ["plugin", "marketplace", "add"]) {
+            model.available = []
+            await model.loadAvailable()
+        }
     }
 
     /// Runs one fix and describes what happened; a failed step stops the rest.

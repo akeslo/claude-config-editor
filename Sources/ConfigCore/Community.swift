@@ -364,8 +364,8 @@ public func hasMarketplace(_ root: URL) -> Bool {
 /// A symlink's target when it is a file inside `base` (a dir path ending in "/"), else nil.
 private func linkTarget(_ f: URL, base: String) -> URL? {
     let real = f.resolvingSymlinksInPath().standardizedFileURL
-    var isDir: ObjCBool = false
-    guard real.path.hasPrefix(base), FileManager.default.fileExists(atPath: real.path, isDirectory: &isDir), !isDir.boolValue else { return nil }
+    guard real.path.hasPrefix(base),
+          (try? FileManager.default.attributesOfItem(atPath: real.path))?[.type] as? FileAttributeType == .typeRegular else { return nil }
     return real
 }
 

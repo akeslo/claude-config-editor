@@ -27,7 +27,11 @@ struct CommunityView: View {
             if let busy = model.communityBusy { ProgressView(busy).controlSize(.small).padding(6) }
             if let error = model.communityError { Text(error).foregroundStyle(.red).font(.callout).padding(6).textSelection(.enabled) }
             if model.community.isEmpty {
-                ProgressView("Loading community lists…").frame(maxHeight: .infinity)
+                if model.communityLoaded {
+                    ContentUnavailableView("Couldn't load community lists.", systemImage: "wifi.exclamationmark")
+                } else {
+                    ProgressView("Loading community lists…").frame(maxHeight: .infinity)
+                }
             } else {
                 Table(list, selection: $selection) {
                     TableColumn("Skill") { s in
@@ -103,7 +107,8 @@ extension AppModel {
         let root: URL
         do { root = try await downloadRepo(s.slug) } catch { communityError = error.localizedDescription; return }
         communityDownloads.append(root)
-        if hasMarketplace(root) { clearCommunityDownloads(); proposeMarketplace(s.slug); return }
+        // A row naming one skill folder installs that skill even when the repo is also a marketplace.
+        if s.path == nil, hasMarketplace(root) { clearCommunityDownloads(); proposeMarketplace(s.slug); return }
         guard let base = skillBase(root: root, path: s.path) else {
             clearCommunityDownloads(); communityError = "Refusing \(s.slug): its path is missing or leaves the repo."; return
         }

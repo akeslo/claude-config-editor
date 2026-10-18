@@ -59,6 +59,8 @@ final class AppModel {
     var info: InfoItem?
     var pendingFix: PendingFix? { didSet { if pendingFix == nil { clearCommunityDownloads() } } }
     var community: [CommunitySkill] = []
+    var communityLoaded = false
+    private var communityLoading = false
     /// Repo downloads behind a pending skill install; deleted when the sheet closes or the next install starts.
     var communityDownloads: [URL] = []
     /// One community install at a time; set before its task starts so a second click can't race cleanup.
@@ -306,7 +308,10 @@ final class AppModel {
     }
 
     /// Each list is refetched at most daily; a list that fails falls back to its cache, or shows nothing.
-    func loadCommunity() async {
+    func loadCommunity(force: Bool = false) async {
+        guard !communityLoading, force || !communityLoaded else { return }
+        communityLoading = true
+        defer { communityLoading = false; communityLoaded = true }
         let d = UserDefaults.standard
         let dir = Paths.claudeDir.appending(path: "config-editor-community")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

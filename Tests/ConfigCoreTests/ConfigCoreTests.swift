@@ -629,6 +629,9 @@ struct CommunityTests {
         #expect(!FileManager.default.fileExists(atPath: skills.appending(path: "s").path))
         try FileManager.default.createSymbolicLink(atPath: r.appending(path: "src/ok").path, withDestinationPath: "SKILL.md")
         #expect(refusedSkillFiles(in: r.appending(path: "src")) == ["evil"])
+        #expect(mkfifo(r.appending(path: "src/fifo").path, 0o600) == 0)
+        try FileManager.default.createSymbolicLink(atPath: r.appending(path: "src/tofifo").path, withDestinationPath: "fifo")
+        #expect(refusedSkillFiles(in: r.appending(path: "src")) == ["evil", "fifo", "tofifo"])
     }
 
     private func tarball(_ r: URL, _ extra: [String] = []) throws -> URL {
