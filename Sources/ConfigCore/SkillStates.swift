@@ -141,17 +141,21 @@ public func setFrontmatterKey(_ url: URL, key: String, value: String?, backupDir
 func frontmatterSetting(_ text: String, key: String, value: String?) -> String {
     let eol = text.contains("\r\n") ? "\r" : ""  // keep a CRLF file CRLF
     var lines = text.components(separatedBy: "\n")
-    let isKey = { (l: String) in l.hasPrefix(key + ":") }
-    // .whitespacesAndNewlines so a CRLF file's "---\r" still counts as a fence instead of getting a second frontmatter.
-    guard lines.first?.trimmingCharacters(in: .whitespacesAndNewlines) == "---",
-          let end = lines.dropFirst().firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == "---" }) else {
+    // Any top-level spelling of the key ('key :', "key":, 'key':) counts, so a duplicate can't shadow the value we write.
+    let isKey = { (l: String) -> Bool in
+        guard let c = l.firstIndex(of: ":"), !(l.first?.isWhitespace ?? true) else { return false }
+        return l[..<c].trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "\"'")) == key
+    }
+    // .whitespacesAndNewlines so a CRLF file's "---\r" still counts as a fence instead of getting a second frontmatter; only an unindented fence closes.
+    let isFence = { (l: String) in !(l.first?.isWhitespace ?? true) && l.trimmingCharacters(in: .whitespacesAndNewlines) == "---" }
+    guard let first = lines.first, isFence(first), let end = lines.dropFirst().firstIndex(where: isFence) else {
         return value.map { "---\(eol)\n\(key): \($0)\(eol)\n---\(eol)\n" + text } ?? text
     }
-    if let i = lines[1..<end].firstIndex(where: isKey) {
-        if let value { lines[i] = "\(key): \(value)" + eol } else { lines.remove(at: i) }
-    } else if let value {
-        lines.insert("\(key): \(value)" + eol, at: end)
-    }
+    var body = Array(lines[1..<end])
+    let at = body.firstIndex(where: isKey) ?? body.count
+    body.removeAll(where: isKey)
+    if let value { body.insert("\(key): \(value)" + eol, at: min(at, body.count)) }
+    lines.replaceSubrange(1..<end, with: body)
     return lines.joined(separator: "\n")
 }
 

@@ -23,4 +23,9 @@ struct FrontmatterUserOnlyTests {
         let out = frontmatterSetting(src, key: k, value: "true")
         #expect(out == src.replacingOccurrences(of: "  v: 1\n---", with: "  v: 1\ndisable-model-invocation: true\n---"))
     }
+
+    @Test func duplicateAndQuotedKeysCollapseToOne() {
+        let t = "---\nname: a\ndisable-model-invocation: true\n\"disable-model-invocation\": false\ndisable-model-invocation : false\n  ---\n---\n"
+        #expect(frontmatterSetting(t, key: k, value: "true") == "---\nname: a\ndisable-model-invocation: true\n  ---\n---\n")
+    }
 }

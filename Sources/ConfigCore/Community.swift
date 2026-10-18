@@ -431,8 +431,15 @@ public func installSkill(_ c: SkillCopy, into skillsDir: URL? = nil) throws -> B
     }
     // Other agents ignore the key; it is harmless there.
     let md = target.appending(path: "SKILL.md")
-    if c.userInvokedOnly, let text = readText(md) {
-        try Data(frontmatterSetting(text, key: "disable-model-invocation", value: "true").utf8).write(to: md)
+    // Fail closed: a skill asked to be call-only is never left installed as automatic.
+    if c.userInvokedOnly {
+        do {
+            guard let text = readText(md) else { throw CocoaError(.fileReadUnknown) }
+            try Data(frontmatterSetting(text, key: "disable-model-invocation", value: "true").utf8).write(to: md)
+        } catch {
+            try? fm.removeItem(at: target)
+            throw error
+        }
     }
     return true
 }
