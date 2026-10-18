@@ -418,3 +418,19 @@ struct AdviceTests {
         }
     }
 }
+
+struct ScreenTextTests {
+    @Test func capsAndFlagsLongScreens() {
+        let p = askPrompt(question: "why?", screen: String(repeating: "x", count: 40_000), section: .health)
+        #expect(p.contains("truncated") && p.count < 31_000)
+    }
+    @Test func fenceTagIsRandom() {
+        func tag(_ p: String) -> String { String(p.split(separator: "<screen-")[1].prefix(15)) }
+        #expect(tag(askPrompt(question: "a", screen: "s", section: .mcp)) != tag(askPrompt(question: "a", screen: "s", section: .mcp)))
+    }
+    @Test func healthListsIssueTitles() {
+        let i = Issue(severity: .warning, section: .mcp, title: "Big\u{7}Thing", subject: "srv", detail: "d", term: .scratch)
+        let t = screenText(.health, Snapshot(), issues: [i], advice: Advice(rules: []))
+        #expect(t.contains("BigThing") && t.contains("srv"))
+    }
+}
