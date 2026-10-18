@@ -633,31 +633,49 @@ struct CommunityTests {
         return r.appending(path: "x.tgz")
     }
 
-    @Test func extractsAndStripsTopDir() throws {
+    @Test func extractsAndStripsTopDir() async throws {
         let r = try tmp(); defer { try? FileManager.default.removeItem(at: r) }
         try put(r, "top/s/SKILL.md", "hi")
         let out = r.appending(path: "out"); try FileManager.default.createDirectory(at: out, withIntermediateDirectories: false)
-        try extractTarball(try tarball(r), into: out)
+        try await extractTarball(try tarball(r), into: out)
         #expect(readText(out.appending(path: "s/SKILL.md")) == "hi")
     }
 
-    @Test func rejectsOversizedArchive() throws {
+    @Test func rejectsOversizedArchive() async throws {
         let r = try tmp(); defer { try? FileManager.default.removeItem(at: r) }
         try put(r, "top/a", String(repeating: "x", count: 2000)); try put(r, "top/b")
         let t = try tarball(r), out = r.appending(path: "out")
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: false)
-        #expect(throws: (any Error).self) { try extractTarball(t, into: out, maxBytes: 1000) }
-        #expect(throws: (any Error).self) { try extractTarball(t, into: out, maxEntries: 2) }
-        #expect(try FileManager.default.contentsOfDirectory(atPath: out.path).isEmpty)
+        await #expect(throws: (any Error).self) { try await extractTarball(t, into: out, maxBytes: 1000) }
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: false)
+        await #expect(throws: (any Error).self) { try await extractTarball(t, into: out, maxEntries: 1) }
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: false)
+        try await extractTarball(t, into: out, maxBytes: 100_000, maxEntries: 2)  // same archive passes under roomy caps
+        #expect(readText(out.appending(path: "b")) == "x")
     }
 
-    @Test func rejectsDotDotMember() throws {
+    @Test func rejectsDotDotMember() async throws {
         let r = try tmp(); defer { try? FileManager.default.removeItem(at: r) }
         try put(r, "top/a")
         let t = try tarball(r, ["-s", ",^top/a$,top/../../evil,"]), out = r.appending(path: "out")
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: false)
-        #expect(throws: (any Error).self) { try extractTarball(t, into: out) }
+        await #expect(throws: (any Error).self) { try await extractTarball(t, into: out) }
         #expect(!FileManager.default.fileExists(atPath: r.appending(path: "evil").path))
+    }
+
+    @Test func rejectsShiftedColumnBomb() async throws {
+        let r = try tmp(); defer { try? FileManager.default.removeItem(at: r) }
+        try put(r, "top/a", String(repeating: "x", count: 20_000))
+        let t = try tarball(r, ["--uname", "a", "--gname", "b 0"]), out = r.appending(path: "out")
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: false)
+        await #expect(throws: (any Error).self) { try await extractTarball(t, into: out, maxBytes: 10_000) }
+        #expect(!FileManager.default.fileExists(atPath: out.path))
+    }
+
+    @Test func rootSkillUsesFallbackName() throws {
+        let r = try tmp(); defer { try? FileManager.default.removeItem(at: r) }
+        try put(r, "SKILL.md"); try put(r, "sub/SKILL.md")
+        #expect(findSkills(in: r, fallbackName: "repo").map(\.name).sorted() == ["repo", "sub"])
     }
 
     @Test func rejectsBadSlug() async {

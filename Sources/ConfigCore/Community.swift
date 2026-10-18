@@ -208,7 +208,7 @@ public func downloadRepo(_ slug: String) async throws -> URL {
         try data.write(to: tarball)
         let root = tmp.appending(path: "src")
         try fm.createDirectory(at: root, withIntermediateDirectories: false)
-        try extractTarball(tarball, into: root)
+        try await extractTarball(tarball, into: root)
         try? fm.removeItem(at: tarball)
         return root
     } catch {
@@ -217,58 +217,60 @@ public func downloadRepo(_ slug: String) async throws -> URL {
     }
 }
 
-/// Runs `/usr/bin/tar` (no shell) and returns its stdout; throws on a non-zero exit or after `timeout` seconds.
-private func runTar(_ args: [String], timeout: TimeInterval) throws -> String {
-    let out = FileManager.default.temporaryDirectory.appending(path: "config-editor-tar-\(UUID().uuidString)")
-    FileManager.default.createFile(atPath: out.path, contents: nil)
-    defer { try? FileManager.default.removeItem(at: out) }
-    let p = Process()
-    p.executableURL = URL(filePath: "/usr/bin/tar")
-    p.arguments = args
-    p.standardOutput = try FileHandle(forWritingTo: out)  // a file, not a pipe, so a long listing can't block tar
-    p.standardError = FileHandle.nullDevice
-    try p.run()
-    let deadline = Date().addingTimeInterval(timeout)
-    while p.isRunning {
-        if Date() > deadline { p.terminate(); p.waitUntilExit(); throw CommunityError("Unpacking took too long.") }
-        Thread.sleep(forTimeInterval: 0.05)
+/// On-disk size and entry count under `dir`, not following symlinks.
+private func usage(_ dir: URL) -> (bytes: Int, entries: Int) {
+    var bytes = 0, entries = 0
+    for case let f as URL in FileManager.default.enumerator(at: dir, includingPropertiesForKeys: [.totalFileAllocatedSizeKey]) ?? .init() {
+        entries += 1
+        bytes += (try? f.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize) ?? 0
     }
-    guard p.terminationStatus == 0 else { throw CommunityError("Couldn't unpack the repo.") }
-    return readText(out) ?? ""
+    return (bytes, entries)
 }
 
-/// Lists the archive first and refuses it when unpacked it would exceed `maxBytes` or `maxEntries`
-/// (or has a member we can't size, an absolute path, or `..`), then extracts it into `dir`,
-/// dropping codeload's `<repo>-<sha>/` top folder.
+/// Extracts into `dir` (dropping codeload's `<repo>-<sha>/` top folder) under a watchdog that stops tar
+/// once the unpacked tree exceeds `maxBytes` or `maxEntries`, or after `timeout` seconds; on any failure
+/// `dir` is deleted. bsdtar refuses `..` and absolute member paths by default.
 func extractTarball(_ tarball: URL, into dir: URL, maxBytes: Int = 200 * 1024 * 1024, maxEntries: Int = 20_000,
-                    timeout: TimeInterval = 60) throws {
-    let lines = try runTar(["-tvzf", tarball.path], timeout: timeout).split(separator: "\n")
-    guard lines.count <= maxEntries else { throw CommunityError("The repo has too many files.") }
-    var total = 0
-    for line in lines {
-        // `-rw-r--r--  0 user group  1234 Oct 17 23:07 path`: the size is the 5th field.
-        let f = line.split(separator: " ", maxSplits: 8, omittingEmptySubsequences: true)
-        guard f.count == 9, let size = Int(f[4]) else { throw CommunityError("Couldn't read the repo archive.") }
-        let name = f[8].split(separator: " -> ").first.map(String.init) ?? ""
-        if name.hasPrefix("/") || name.split(separator: "/").contains("..") { throw CommunityError("The repo archive has unsafe paths.") }
-        total += size
-        if total > maxBytes { throw CommunityError("The repo is over 200 MB unpacked.") }
+                    timeout: TimeInterval = 60) async throws {
+    let p = Process()
+    p.executableURL = URL(filePath: "/usr/bin/tar")
+    p.arguments = ["-xzf", tarball.path, "-C", dir.path, "--strip-components", "1"]
+    p.standardOutput = FileHandle.nullDevice
+    p.standardError = FileHandle.nullDevice
+    func check() throws {
+        let u = usage(dir)
+        if u.bytes > maxBytes { throw CommunityError("The repo is over 200 MB unpacked.") }
+        if u.entries > maxEntries { throw CommunityError("The repo has too many files.") }
     }
-    // bsdtar also refuses `..` and absolute member paths by default.
-    _ = try runTar(["-xzf", tarball.path, "-C", dir.path, "--strip-components", "1"], timeout: timeout)
+    do {
+        try p.run()
+        let deadline = Date().addingTimeInterval(timeout)
+        while p.isRunning {
+            if Date() > deadline { throw CommunityError("Unpacking took too long.") }
+            try check()
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        guard p.terminationStatus == 0 else { throw CommunityError("Couldn't unpack the repo.") }
+        try check()
+    } catch {
+        if p.isRunning { p.terminate(); p.waitUntilExit() }
+        try? FileManager.default.removeItem(at: dir)
+        throw error
+    }
 }
 
 private let scriptExtensions: Set<String> = ["sh", "py", "js", "ts", "rb", "pl", "ps1", "bash", "zsh", "mjs", "cjs"]
 
 /// Every folder under `root` holding a `SKILL.md`. Symlinked folders are not followed.
-public func findSkills(in root: URL) -> [FoundSkill] {
+/// `fallbackName` names a nameless skill at `root` itself (e.g. the repo name, since the extract dir is `src`).
+public func findSkills(in root: URL, fallbackName: String? = nil) -> [FoundSkill] {
     let fm = FileManager.default
     guard let e = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) else { return [] }
     var out: [FoundSkill] = []
     for case let f as URL in e where f.lastPathComponent == "SKILL.md" {
         guard (try? f.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
         let dir = f.deletingLastPathComponent()
-        guard let name = Frontmatter(readText(f) ?? "").values["name"].flatMap(skillName) ?? skillName(dir.lastPathComponent) else { continue }
+        guard let name = Frontmatter(readText(f) ?? "").values["name"].flatMap(skillName) ?? skillName(dir.standardizedFileURL == root.standardizedFileURL ? fallbackName ?? dir.lastPathComponent : dir.lastPathComponent) else { continue }
         var files: [String] = [], scripts: [String] = []
         let base = dir.standardizedFileURL.path + "/"
         for case let g as URL in fm.enumerator(at: dir, includingPropertiesForKeys: [.isDirectoryKey]) ?? .init() {
