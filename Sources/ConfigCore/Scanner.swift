@@ -271,6 +271,7 @@ public enum Scanner {
             let name = p.id.split(separator: "@").first.map(String.init) ?? p.id
             scan(p.installPath, scope: .plugin, owner: p.id, prefix: "\(name):")
         }
+        out = mergeAgentSkills(out, dirs: SkillAgent.otherSkillDirs())
         let lock = readJSON(Paths.home.appending(path: ".agents/.skill-lock.json"))?["skills"] as? JSON ?? [:]
         return out.map { c in
             var c = c

@@ -11,11 +11,25 @@ struct FixSheet: View {
     @State private var result: String?
     @State private var failed = false
     @State private var running = false
+    @State private var target = SkillAgent.claude
+
+    /// Skill installs go to the agent picked in "Install to"; everything else runs as proposed.
+    private var fix: Fix {
+        guard case .installSkills(let cs) = pending.fix else { return pending.fix }
+        return .installSkills(cs.map { var c = $0; c.into = target; return c })
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(pending.title).font(.title3.weight(.semibold))
-            Text(pending.fix.summary).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+            if case .installSkills = pending.fix, result == nil {
+                Picker("Install to", selection: $target) {
+                    ForEach(SkillAgent.installTargets, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .fixedSize()
+                .help("Skills are SKILL.md folders, so any of these agents can use them. Existing folders are never overwritten.")
+            }
+            Text(fix.summary).font(.system(.body, design: .monospaced)).textSelection(.enabled)
             Text(result == nil ? "Preview" : failed ? "Failed" : "Done").font(.headline)
                 .foregroundStyle(failed ? .red : .primary)
             ScrollView {
@@ -45,7 +59,7 @@ struct FixSheet: View {
         }
         .padding(20)
         .frame(width: 620)
-        .task { preview = await makePreview(pending.fix) }
+        .task(id: target) { preview = await makePreview(fix) }
     }
 
     private func makePreview(_ fix: Fix) async -> String {
@@ -74,15 +88,14 @@ struct FixSheet: View {
             let before = node.map { "\($0)" } ?? "(not set)"
             return "File:   \(shortPath(file))\nKey:    \(path.joined(separator: " → "))\nBefore: \(before)\nAfter:  \(value ?? "(removed)")"
         case .installSkills(let cs):
-            let skills = Paths.claudeDir.appending(path: "skills")
             return cs.map { c in
-                let skipped = (try? FileManager.default.attributesOfItem(atPath: skills.appending(path: c.name).path)) != nil
+                let skipped = (try? FileManager.default.attributesOfItem(atPath: c.targetDir.path)) != nil
                 let found = findSkills(in: c.from, fallbackName: c.name).first { $0.dir.standardizedFileURL == c.from.standardizedFileURL }
                 let refused = refusedSkillFiles(in: c.from)
                 let files = (found?.files ?? []).map { f in
                     "    \(f)" + (refused.contains(f) ? "  ✗ will be refused" : found?.scripts.contains(f) == true ? "  ⚠ runs code" : "")
                 }
-                return (["\(c.name) → ~/.claude/skills/\(c.name)" + (skipped ? "  SKIPPED (already exists)" : "")]
+                return (["\(c.name) → \(shortPath(c.targetDir))" + (skipped ? "  SKIPPED (already exists)" : "")]
                         + (c.link.map { ["  From \($0.absoluteString)"] } ?? []) + ["  Files:"] + files).joined(separator: "\n")
             }.joined(separator: "\n\n") + "\n\nOnly install skills you trust: scripts in a skill can run on your machine."
         }
@@ -92,7 +105,7 @@ struct FixSheet: View {
         running = true
         defer { running = false }
         do {
-            result = try await run(pending.fix)
+            result = try await run(fix)
         } catch {
             failed = true
             result = error.localizedDescription

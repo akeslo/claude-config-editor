@@ -139,8 +139,8 @@ public enum ScreenContext {
             }
             if d.community.isEmpty { l.append("(community lists not loaded yet)") }
             let mine = rank(s.components.sorted { $0.name < $1.name }, t, name: \.name, rest: \.description)
-            l += [""] + list("Your installed skills, agents, commands: kind | name | source | description", mine) {
-                "\($0.kind.rawValue) | \(c($0.name)) | \($0.scope.rawValue) | \(short($0.description))"
+            l += [""] + list("Your installed skills, agents, commands: kind | name | source | agents | description", mine) {
+                "\($0.kind.rawValue) | \(c($0.name)) | \($0.scope.rawValue) | \($0.agents.map(\.rawValue).joined(separator: ", ")) | \(short($0.description))"
             }
             let plugins = rank(s.plugins, t, name: \.id, rest: \.description)
             l += [""] + list("Your installed plugins: id | enabled | description", plugins) {

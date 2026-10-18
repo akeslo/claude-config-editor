@@ -30,12 +30,13 @@ struct MenuBarSkills: View {
     @State private var asking = false
     @State private var expanded: String?
     @State private var copied: String?
+    @State private var picked: Set<String> = []
 
     /// Personal, project and enabled-plugin skills that aren't Off.
     private var skills: [Component] {
         let enabled = Set(model.snapshot.plugins.filter(\.enabled).map(\.id))
         return model.snapshot.components
-            .filter { $0.kind == .skill && $0.state != .off && ($0.ownsFile || $0.owner.map(enabled.contains) == true) }
+            .filter { $0.kind == .skill && $0.state != .off && ($0.ownsFile || $0.scope == .external || $0.owner.map(enabled.contains) == true) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
@@ -69,6 +70,7 @@ struct MenuBarSkills: View {
             }
             .frame(height: 360)
             .overlay { if shown.isEmpty && catalog.isEmpty { Text(all.isEmpty ? "Loading skills…" : "No matches").foregroundStyle(.secondary) } }
+            CopyPromptButton(skills: all.filter { picked.contains($0.id) }, picked: $picked)
             if let copied { Label("Copied \(copied)", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(Color.accentColor) }
         }
         .padding(Space.m)
@@ -84,12 +86,14 @@ struct MenuBarSkills: View {
     private func row(_ s: Component) -> some View {
         let open = expanded == s.id
         return HStack(alignment: .top, spacing: Space.s) {
+            Toggle("Select", isOn: Binding(get: { picked.contains(s.id) }, set: { if $0 { picked.insert(s.id) } else { picked.remove(s.id) } }))
+                .labelsHidden().toggleStyle(.checkbox).help("Select for Copy prompt")
             Button { copy("/" + s.name); flash("/" + s.name) } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
                         Text("/" + s.name).font(.body.monospaced())
                         Spacer()
-                        Text("Installed · \(s.owner.map { "plugin \($0)" } ?? s.scope.rawValue) · " + (s.state == .always ? "Always" : s.state.rawValue)).font(.caption).foregroundStyle(.secondary)
+                        Text("\(s.scope == .external ? s.belongsTo : s.owner.map { "plugin \($0)" } ?? s.scope.rawValue + " · " + s.agents.map(\.rawValue).joined(separator: ", ")) · " + (s.state == .always ? "Always" : s.state.rawValue)).font(.caption).foregroundStyle(.secondary)
                     }
                     Text(open ? s.description : purpose(s)).font(.caption).foregroundStyle(.secondary)
                         .lineLimit(open ? nil : 1).fixedSize(horizontal: false, vertical: open)

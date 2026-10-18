@@ -186,6 +186,7 @@ extension Component {
         switch scope {
         case .user: "Personal"
         case .project: "Project " + (owner.map { ($0 as NSString).lastPathComponent } ?? "")
+        case .external: agents.map(\.rawValue).joined(separator: ", ")
         default: "Plugin " + (owner?.split(separator: "@").first.map(String.init) ?? "")
         }
     }

@@ -194,6 +194,7 @@ private struct StatesPage: View {
     private func source(_ c: Component) -> String {
         switch c.scope {
         case .user: "Personal"
+        case .external: c.belongsTo
         case .project: c.owner.map { ($0 as NSString).lastPathComponent } ?? "Project"
         default: "Plugin " + (c.owner?.split(separator: "@").first.map(String.init) ?? "")
         }

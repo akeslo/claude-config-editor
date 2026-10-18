@@ -6,10 +6,13 @@ struct SkillGridView: View {
     let skills: [Component]
     @State private var filter = ""
     @State private var source = "All"
+    @State private var agent: SkillAgent?
+    @State private var picked: Set<String> = []
 
     var body: some View {
         let shown = skills
             .filter { source == "All" || (source == "Plugins") == !$0.ownsFile }
+            .filter { agent == nil || $0.agents.contains(agent!) }
             .filter { filter.isEmpty || [$0.name, $0.description, $0.category, $0.belongsTo].contains { $0.localizedCaseInsensitiveContains(filter) } }
         let groups = Dictionary(grouping: shown, by: \.category).sorted { $0.key == "Other" ? false : $1.key == "Other" ? true : $0.key < $1.key }
         VStack(spacing: 0) {
@@ -21,7 +24,13 @@ struct SkillGridView: View {
                     Text("Plugins").tag("Plugins")
                 }
                 .fixedSize()
+                Picker("Agent", selection: $agent) {
+                    Text("All agents").tag(SkillAgent?.none)
+                    ForEach(SkillAgent.allCases, id: \.self) { Text($0.rawValue).tag(SkillAgent?.some($0)) }
+                }
+                .fixedSize()
                 Spacer()
+                CopyPromptButton(skills: skills.filter { picked.contains($0.id) }, picked: $picked)
                 Text("\(shown.count) skills in \(groups.count) categories").font(.callout).foregroundStyle(.secondary)
             }
             .padding(Space.l)
@@ -30,7 +39,9 @@ struct SkillGridView: View {
                     ForEach(groups, id: \.key) { cat, items in
                         Section {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: Space.m, alignment: .top)], spacing: Space.m) {
-                                ForEach(items.sorted { ($0.usageCount, $1.name) > ($1.usageCount, $0.name) }) { SkillGridCard(skill: $0) }
+                                ForEach(items.sorted { ($0.usageCount, $1.name) > ($1.usageCount, $0.name) }) { s in
+                                    SkillGridCard(skill: s, picked: Binding(get: { picked.contains(s.id) }, set: { if $0 { picked.insert(s.id) } else { picked.remove(s.id) } }))
+                                }
                             }
                         } header: {
                             Text("\(cat)  \(items.count)").font(.headline).padding(.vertical, Space.xs)
@@ -47,12 +58,14 @@ struct SkillGridView: View {
 
 private struct SkillGridCard: View {
     let skill: Component
+    @Binding var picked: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s) {
             HStack(alignment: .firstTextBaseline) {
                 Text("/" + skill.shortName).font(.body.weight(.semibold).monospaced()).lineLimit(1)
                 Spacer()
+                Toggle("Select", isOn: $picked).labelsHidden().toggleStyle(.checkbox).help("Select for Copy prompt")
                 StaleBadge(Staleness.of(lastUsed: skill.lastUsed ?? skill.installedAt))
             }
             Text(purpose(skill)).font(.callout).lineLimit(2).help(skill.description)
@@ -65,6 +78,8 @@ private struct SkillGridCard: View {
                 Text("· " + skill.state.rawValue)
             }
             .font(.caption).foregroundStyle(.secondary)
+            Text(skill.agents.map(\.rawValue).joined(separator: " · ")).font(.caption2).foregroundStyle(.tertiary)
+                .help((skill.locations.isEmpty ? "" : "Also at:\n" + skill.locations.map(shortPath).joined(separator: "\n")))
         }
         .padding(Space.m)
         .frame(maxWidth: .infinity, minHeight: 130, alignment: .topLeading)
@@ -113,6 +128,28 @@ struct SkillOverlapsView: View {
                 .padding(.vertical, Space.s)
             }
             .listStyle(.inset)
+        }
+    }
+}
+
+/// Copies an agent-neutral prompt naming the selected skills and their SKILL.md paths; flashes "Copied N skills".
+struct CopyPromptButton: View {
+    let skills: [Component]
+    @Binding var picked: Set<String>
+    @State private var copied: Int?
+
+    var body: some View {
+        HStack(spacing: Space.s) {
+            if let copied { Label("Copied \(copied) skill\(copied == 1 ? "" : "s")", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(Color.accentColor) }
+            if !picked.isEmpty { Button("Clear") { picked = [] }.buttonStyle(.link) }
+            Button("Copy prompt (\(skills.count))", systemImage: "doc.on.clipboard") {
+                copy(skillPrompt(skills))
+                let n = skills.count
+                copied = n
+                Task { try? await Task.sleep(for: .seconds(1.5)); if copied == n { copied = nil } }
+            }
+            .disabled(skills.isEmpty)
+            .help("Copies a prompt that tells Claude Code, Codex or Gemini to read and use the selected skills. Fill in {task}.")
         }
     }
 }

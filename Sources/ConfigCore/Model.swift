@@ -1,7 +1,7 @@
 import Foundation
 
 public enum Scope: String, CaseIterable, Sendable {
-    case managed = "Managed", user = "User", userLocal = "User (local)", project = "Project", local = "Project (local)", plugin = "Plugin", desktop = "Claude Desktop"
+    case managed = "Managed", user = "User", userLocal = "User (local)", project = "Project", local = "Project (local)", plugin = "Plugin", desktop = "Claude Desktop", external = "Other agent"
 }
 
 /// JSON trees are read-only after scanning, so sharing them across tasks is safe.
@@ -69,8 +69,11 @@ public struct Component: Identifiable, Sendable {
     /// Where it came from on GitHub (skills CLI lock file, the folder's git remote, or its plugin), when known.
     public var repoURL: URL?
     public var installedAt: Date?
+    /// Agents that see this skill, and every SKILL.md copy beyond `file` (other agents' folders).
+    public var agents: [SkillAgent] = [.claude]
+    public var locations: [URL] = []
     public var listingTokens: Int {
-        guard alwaysLoaded, override != "user-invocable-only" else { return 0 }
+        guard alwaysLoaded, scope != .external, override != "user-invocable-only" else { return 0 }
         return override == "name-only" ? estimateTokens(name) + 4 : estimateTokens(name + description) + 4
     }
 }

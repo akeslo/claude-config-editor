@@ -180,7 +180,10 @@ public struct SkillCopy: Sendable, Hashable {
     public let name: String
     /// Where the skill came from, shown in the install preview.
     public let link: URL?
+    /// Which agent's skills folder it is copied into.
+    public var into: SkillAgent = .claude
     public init(from: URL, name: String, link: URL? = nil) { self.from = from; self.name = name; self.link = link }
+    public var targetDir: URL { (into.skillsDir() ?? Paths.claudeDir.appending(path: "skills")).appending(path: name) }
 }
 
 public struct CommunityError: LocalizedError, Sendable {
@@ -388,7 +391,9 @@ public func refusedSkillFiles(in dir: URL) -> Set<String> {
 
 /// Copies a skill folder to `skillsDir/<name>`. Returns false (and touches nothing) when that name already exists.
 /// Symlinks are copied as the file they point to, and refused unless that file lies inside `c.from`.
-public func installSkill(_ c: SkillCopy, into skillsDir: URL = Paths.claudeDir.appending(path: "skills")) throws -> Bool {
+/// Never overwrites: an existing folder (or file) at the target returns false.
+public func installSkill(_ c: SkillCopy, into skillsDir: URL? = nil) throws -> Bool {
+    let skillsDir = skillsDir ?? c.targetDir.deletingLastPathComponent()
     guard skillName(c.name) == c.name else { throw CommunityError("Invalid skill name: \(c.name)") }
     let fm = FileManager.default
     let target = skillsDir.appending(path: c.name)
