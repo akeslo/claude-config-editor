@@ -506,3 +506,60 @@ struct ScreenTextTests {
         #expect(t.contains("BigThing") && t.contains("srv"))
     }
 }
+
+struct CommunityTests {
+    @Test func githubRefParsesTreeAndBlob() {
+        #expect(githubRef("https://github.com/a/b/tree/main/skills/x")?.path == "skills/x")
+        #expect(githubRef("https://github.com/a/b/tree/main/skills/x")?.slug == "a/b")
+        #expect(githubRef("https://github.com/a/b/blob/main/skills/x/SKILL.md")?.path == "skills/x")
+        #expect(githubRef("https://github.com/a/b#readme")?.path == nil)
+        #expect(githubRef("https://example.com/x") == nil)
+    }
+
+    @Test func videoParses() throws {
+        let j = #"{"kinds":[{"id":"promo","icon":"📣","en":"Promo & demos"}],"skills":[{"repo_full_name":"o/r","path":null,"stars":5,"description":"d","kind":"promo"},{"repo_full_name":"o/q","path":"skills/s","stars":1,"description":"e","kind":"zzz"}]}"#
+        let r = try #require(CommunityList.video.parse(Data(j.utf8)))
+        #expect(r.count == 2 && r[0].category == "📣 Promo & demos" && r[0].stars == 5 && r[0].id == "o/r")
+        #expect(r[1].id == "o/q/skills/s" && r[1].category == "zzz")
+    }
+
+    @Test func anthropicMarketplaceRowsAreMarketplace() throws {
+        let j = #"{"plugins":[{"name":"a","description":"x"},{"name":"b","description":"y"}]}"#
+        let r = try #require(CommunityList.anthropic.parse(Data(j.utf8)))
+        #expect(r.count == 2 && r.allSatisfy { $0.marketplace && $0.slug == "anthropics/skills" })
+        #expect(CommunityCatalog.merge([r]).count == 2)
+    }
+
+    @Test func csvSkipsStaleAndNonGitHub() throws {
+        let c = "ID,Display Name,Category,Sub-Category,Link,Author Name,Author Link,Active,Date Added,Last Checked,Description,Stale\n"
+            + "1,One,Skills,,https://github.com/a/b,x,y,TRUE,,,\"Does \"\"a\"\", then b\",FALSE\n"
+            + "2,Old,Skills,,https://github.com/a/old,x,y,TRUE,,,d,TRUE\n"
+            + "3,Web,Skills,,https://example.com/z,x,y,TRUE,,,d,FALSE\n"
+            + "4,Tree,Skills,,https://github.com/a/c/tree/main/s/t,x,y,TRUE,,,\"multi\nline\",FALSE\n"
+        let r = try #require(CommunityList.awesomeClaudeCode.parse(Data(c.utf8)))
+        #expect(r.map(\.name) == ["One", "Tree"])
+        #expect(r[0].description == #"Does "a", then b"# && r[1].path == "s/t" && r[1].description == "multi\nline")
+    }
+
+    @Test func composioParsesOnlyGitHub() throws {
+        let m = """
+        # T
+        ## Skills
+        ### Docs
+        - [docx](https://github.com/anthropics/skills/tree/main/skills/docx) - Make docs.
+        - **[bold](https://github.com/o/r#section)** – Bold one
+          - [nested](https://github.com/o/n): nested one
+        - [web](https://example.com/x) - not github
+        ### Other
+        - [broken](https://github.com/o/z)
+        - [two](https://github.com/o/two) - second
+        """
+        let r = try #require(CommunityList.composio.parse(Data(m.utf8)))
+        #expect(r.map(\.name) == ["docx", "bold", "nested", "two"])
+        #expect(r[0].category == "Docs" && r[0].path == "skills/docx" && r[3].category == "Other" && r[1].slug == "o/r")
+    }
+
+    @Test func pickSkipsBrokenList() {
+        for l in CommunityList.allCases { #expect(l.parse(Data("<html>".utf8)) == nil) }
+    }
+}
