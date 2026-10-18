@@ -73,10 +73,13 @@ public enum SkillSearch {
             return String(decoding: (try? e.encode(hits)) ?? Data("[]".utf8), as: UTF8.self)
         }
         if hits.isEmpty { return "No matches." }
+        // Community names and descriptions come from remote repos: drop control chars so ESC sequences can't drive the terminal.
+        func clean(_ s: String?) -> String { String(String.UnicodeScalarView((s ?? "").unicodeScalars.map { $0.properties.generalCategory == .control ? "\u{FFFD}" : $0 })) }
         return hits.enumerated().map { i, h in
-            let desc = h.description.count > 100 ? String(h.description.prefix(99)) + "…" : h.description
-            let where_ = h.kind == "installed" ? "agents: \(h.source)\n   at: \(h.location ?? "")" : "from: \(h.source)\n   install: \(h.install ?? "")"
-            return "\(i + 1). [\(h.kind)] \(h.name)\n   \(desc)\n   \(where_)"
+            let d = clean(h.description)
+            let desc = d.count > 100 ? String(d.prefix(99)) + "…" : d
+            let where_ = h.kind == "installed" ? "agents: \(clean(h.source))\n   at: \(clean(h.location))" : "from: \(clean(h.source))\n   install: \(clean(h.install))"
+            return "\(i + 1). [\(h.kind)] \(clean(h.name))\n   \(desc)\n   \(where_)"
         }.joined(separator: "\n")
     }
 

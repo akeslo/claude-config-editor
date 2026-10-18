@@ -26,4 +26,10 @@ struct SkillSearchTests {
         #expect(SkillSearch.format([], json: false) == "No matches.")
         #expect(SkillSearch.format(hits, json: true).contains("\"kind\" : \"plugin\""))
     }
+
+    @Test func textOutputStripsControlChars() {
+        let comm = [CommunitySkill(name: "evil\u{1B}]0;x\u{07}", description: "a\u{1B}[2Jb\u{9B}c", category: "Video", slug: "o/r", path: "skills/evil", list: .anthropic)]
+        let text = SkillSearch.format(SkillSearch.rank("evil", installed: [], available: [], community: comm, limit: 5), json: false)
+        #expect(!text.unicodeScalars.contains { $0.value == 0x1B || $0.value == 0x9B || $0.value == 0x07 })
+    }
 }
