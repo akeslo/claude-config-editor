@@ -17,6 +17,7 @@ struct ClaudeConfigApp: App {
                     if UserDefaults.standard.object(forKey: "analyzeOnLaunch") as? Bool ?? true { await model.analyzeSkillsIfNeeded() }
                 }
                 .task { await model.checkForAppUpdate() }
+                .task { await model.loadAdvice() }
         }
         .defaultSize(width: 1440, height: 900)
         .commands {

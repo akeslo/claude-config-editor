@@ -274,6 +274,23 @@ final class AppModel {
         appUpdate = ahead > 0 ? (ahead, page) : nil
     }
 
+    /// Best-practice rules behind Review's "why" lines: bundled seed first, then the newest fetched copy (at most daily).
+    var advice = Advice(rules: [])
+
+    func loadAdvice() async {
+        let d = UserDefaults.standard
+        let cacheURL = Paths.claudeDir.appending(path: "config-editor-advice.json")
+        let bundled = Bundle.main.url(forResource: "best-practices", withExtension: "json").flatMap { try? Data(contentsOf: $0) }
+        advice = Advice.pick(fetched: nil, cached: try? Data(contentsOf: cacheURL), bundled: bundled)
+        if let last = d.object(forKey: "adviceCheckedAt") as? Date, Date().timeIntervalSince(last) < 86_400 { return }
+        guard let api = URL(string: "https://raw.githubusercontent.com/akeslo/claude-config-editor/advice/best-practices.json"),
+              let (data, resp) = try? await URLSession.shared.data(from: api), (resp as? HTTPURLResponse)?.statusCode == 200,
+              Advice.decode(data) != nil else { return }
+        try? data.write(to: cacheURL, options: .atomic)
+        d.set(Date(), forKey: "adviceCheckedAt")
+        advice = Advice.pick(fetched: data, cached: nil, bundled: bundled)
+    }
+
     func rescan() async {
         if usage != nil { Task { await loadUsage(force: true) } }
         await refresh()

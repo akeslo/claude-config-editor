@@ -409,4 +409,12 @@ struct AdviceTests {
         let a = try #require(Advice.decode(Data(contentsOf: url)))
         #expect(a.rules.count >= 12)
     }
+    @Test func ruleIdsResolveInSeed() throws {
+        let url = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "../../Resources/best-practices.json")
+        let a = try #require(Advice.decode(Data(contentsOf: url)))
+        for id in ["skillmd-500-lines", "skill-description-specific", "skill-listing-budget", "no-secrets-in-settings-env",
+                   "no-secrets-in-mcp-config", "mcp-use-https", "no-broad-permissions", "hook-scripts-exist"] {
+            #expect(a.rule(id) != nil, "\(id)")
+        }
+    }
 }

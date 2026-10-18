@@ -99,6 +99,8 @@ public struct Issue: Identifiable, Sendable {
     /// Rough cost so the list can rank by impact: tokens per session, or bytes on disk.
     public var tokens = 0
     public var bytes: Int64 = 0
+    /// Id of the best-practices rule this finding comes from, if any.
+    public var rule: String?
 
     /// What kind of risk this is, in the order Review ranks them.
     public enum Category: Int, CaseIterable, Comparable, Sendable {
@@ -192,7 +194,7 @@ public enum Checks {
             out.append(Issue(severity: .warning, section: .mySkills, title: "Skill descriptions exceed the listing budget",
                              subject: "\(skills.count) skills",
                              detail: "Skill descriptions total \(formatTokens(listing)). The listing gets about 1% of the context window (≈2k tokens at 200k), so the least-used skills lose their description and Claude may not pick them. Switch rarely used ones to On demand on the Skills page.",
-                             term: .skillListing, tokens: listing))
+                             term: .skillListing, tokens: listing, rule: "skill-listing-budget"))
         }
         let triage = skillSuggestions(s.components, projects: s.projects.map(\.path))
         let suggested = skills.filter { triage[$0.id]?.state != nil }
@@ -206,11 +208,11 @@ public enum Checks {
         for c in s.components where c.kind == .skill {
             if c.lineCount > 500 {
                 out.append(Issue(severity: .info, section: .skills, title: "SKILL.md over 500 lines", subject: c.name,
-                                 detail: "\(c.lineCount) lines load every time the skill runs. Move reference material into linked files.", term: .skill, file: c.file))
+                                 detail: "\(c.lineCount) lines load every time the skill runs. Move reference material into linked files.", term: .skill, file: c.file, rule: "skillmd-500-lines"))
             }
             if c.description.count > 1_536 {
                 out.append(Issue(severity: .warning, section: .skills, title: "Description is cut off", subject: c.name,
-                                 detail: "description + when_to_use is \(c.description.count) characters; Claude truncates at 1,536.", term: .skillListing, file: c.file))
+                                 detail: "description + when_to_use is \(c.description.count) characters; Claude truncates at 1,536.", term: .skillListing, file: c.file, rule: "skill-description-specific"))
             }
         }
         let byName = Dictionary(grouping: s.components.filter { $0.kind == .skill || $0.kind == .command }, by: \.name)
@@ -234,7 +236,7 @@ public enum Checks {
             if let url = URL(string: m.command.split(separator: " ").first.map(String.init) ?? ""),
                ["http", "ws"].contains(url.scheme ?? ""), let host = url.host, !loopbackHosts.contains(host) {
                 out.append(Issue(severity: .problem, section: .mcp, title: "MCP server uses an unencrypted connection", subject: "\(m.name) · \(shortPath(m.source))",
-                                 detail: "\(url.absoluteString) is plain \(url.scheme!) to a remote host. Use https/wss.", term: .mcpServer, file: m.source))
+                                 detail: "\(url.absoluteString) is plain \(url.scheme!) to a remote host. Use https/wss.", term: .mcpServer, file: m.source, rule: "mcp-use-https"))
             }
             let literal = (m.env.merging(m.headers) { a, _ in a }).filter { k, v in
                 looksSecret(k) && !v.isEmpty && !v.contains("${") && !v.hasPrefix("$") && !v.hasPrefix("/") && !v.hasPrefix("~")
@@ -242,7 +244,7 @@ public enum Checks {
             if !literal.isEmpty {
                 out.append(Issue(severity: .problem, section: .mcp, title: "Secret written directly into MCP config", subject: "\(m.name) · \(shortPath(m.source))",
                                  detail: "\(literal.keys.sorted().joined(separator: ", ")) hold literal values in \(shortPath(m.source)). Use ${VAR} references so the secret stays out of config files and backups.",
-                                 term: .env, file: m.source))
+                                 term: .env, file: m.source, rule: "no-secrets-in-mcp-config"))
             }
         }
         return out
@@ -287,7 +289,7 @@ public enum Checks {
             }
             if let script = h.scriptPath, !exists(script) {
                 out.append(Issue(severity: .problem, section: .hooks, title: "Hook runs a script that does not exist", subject: "\(h.event) · \(h.source)",
-                                 detail: "\(shortPath(script)) is missing, so this hook fails every time it fires.", term: .hook, file: h.sourceURL))
+                                 detail: "\(shortPath(script)) is missing, so this hook fails every time it fires.", term: .hook, file: h.sourceURL, rule: "hook-scripts-exist"))
             }
         }
         let injecting = s.hooks.filter { ["SessionStart", "UserPromptSubmit"].contains($0.event) && !$0.async }
@@ -303,7 +305,7 @@ public enum Checks {
         let broad: Set<String> = ["Bash", "Bash(*)", "Bash(:*)", "*", "Edit", "Write", "Edit(*)", "Write(*)"]
         for r in s.permissions where r.kind != "deny" && broad.contains(r.rule) {
             out.append(Issue(severity: .warning, section: .permissions, title: "Very broad permission rule", subject: "\(r.rule) · \(r.source)",
-                             detail: "\(r.rule) lets Claude run that tool on anything without asking. Narrow it to specific commands or paths.", term: .permissions, file: r.sourceURL))
+                             detail: "\(r.rule) lets Claude run that tool on anything without asking. Narrow it to specific commands or paths.", term: .permissions, file: r.sourceURL, rule: "no-broad-permissions"))
         }
         for src in s.settings {
             let mode = (src.root["permissions"] as? JSON)?["defaultMode"] as? String
@@ -370,7 +372,7 @@ public enum Checks {
             let secrets = env.filter { k, v in looksSecret(k) && !v.isEmpty && !v.hasPrefix("$") && !v.hasPrefix("/") && !v.hasPrefix("~") }
             if !secrets.isEmpty {
                 out.append(Issue(severity: .problem, section: .settings, title: "Secret in settings env", subject: shortPath(src.url),
-                                 detail: "\(secrets.keys.sorted().joined(separator: ", ")) are stored as plain text in this settings file.", term: .env, file: src.url))
+                                 detail: "\(secrets.keys.sorted().joined(separator: ", ")) are stored as plain text in this settings file.", term: .env, file: src.url, rule: "no-secrets-in-settings-env"))
             }
         }
         if !s.cliAvailable {

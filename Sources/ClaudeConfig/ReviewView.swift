@@ -75,6 +75,7 @@ struct FindingRow: View {
             VStack(alignment: .leading, spacing: Space.xs) {
                 Text(issue.title).font(.body.weight(.medium))
                 Text(issue.detail).font(.callout).foregroundStyle(.secondary).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+                if let rule = issue.rule.flatMap(model.advice.rule) { adviceLine(rule) }
                 Text(issue.subject).font(.caption).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
             }
             Spacer(minLength: Space.l)
@@ -90,6 +91,14 @@ struct FindingRow: View {
             if let file = issue.file { Button("Open \(file.lastPathComponent)") { openFile(file) } }
             Button("Go to \(issue.section.rawValue)") { model.section = issue.section }
         }
+    }
+
+    private func adviceLine(_ rule: AdviceRule) -> some View {
+        let host = (rule.source.host ?? "").replacingOccurrences(of: "www.", with: "", options: .anchored)
+        return HStack(spacing: Space.s) {
+            if let why = rule.why { Text(why).foregroundStyle(.secondary) }
+            Link("\(rule.kind == .official ? "Official" : "Community") · \(host)", destination: rule.source)
+        }.font(.caption)
     }
 
     /// The one obvious next step: apply the fix (with preview), else go to the page where it can be fixed.
