@@ -154,16 +154,22 @@ final class AppModel {
         \(script)
         </\(tag)>
         """
-        guard let text = await askHaiku(prompt) else { return }
+        guard let text = await askClaude(prompt, model: "haiku") else { return }
         hookExplanations[key] = text
         UserDefaults.standard.set(hookExplanations, forKey: "hookExplanations")
     }
 
-    /// One-shot `claude -p` on haiku with hooks, tools and session saving off; nil when it fails or says nothing.
-    private func askHaiku(_ prompt: String) async -> String? {
-        let r = await ClaudeCLI.run(["-p", prompt, "--model", "haiku", "--settings", #"{"disableAllHooks":true}"#, "--tools", "", "--no-session-persistence"])
+    /// One-shot `claude -p` with hooks, tools and session saving off; nil when it fails or says nothing.
+    private func askClaude(_ prompt: String, model: String) async -> String? {
+        let r = await ClaudeCLI.run(["-p", prompt, "--model", model, "--settings", #"{"disableAllHooks":true}"#, "--tools", "", "--no-session-persistence"])
         let text = r.output.trimmingCharacters(in: .whitespacesAndNewlines)
         return r.ok && !text.isEmpty ? text : nil
+    }
+
+    /// Answers a free-form question about the screen the user is on, from its redacted text.
+    func ask(_ question: String, about: AppSection) async -> String? {
+        let screen = screenText(about, snapshot, issues: issues, advice: advice)
+        return await askClaude(askPrompt(question: question, screen: screen, section: about), model: "sonnet")
     }
 
     /// The 1–3 skills that best fit a use case, each with a one-line reason, from `claude -p`.
@@ -182,7 +188,7 @@ final class AppModel {
         \(list)
         </\(tag)>
         """
-        return await askHaiku(prompt) ?? "Couldn't reach Claude. Is the claude command installed and signed in?"
+        return await askClaude(prompt, model: "haiku") ?? "Couldn't reach Claude. Is the claude command installed and signed in?"
     }
 
     var analysis: SkillAnalysis? = UserDefaults.standard.data(forKey: "skillAnalysis").flatMap { try? JSONDecoder().decode(SkillAnalysis.self, from: $0) }
@@ -216,7 +222,7 @@ final class AppModel {
         </\(tag)>
         """
         struct Reply: Decodable { let advice: [SkillAnalysis.Advice]; let discover: [SkillAnalysis.Pick] }
-        guard let text = await askHaiku(prompt), let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}"), start < end,
+        guard let text = await askClaude(prompt, model: "haiku"), let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}"), start < end,
               let reply = try? JSONDecoder().decode(Reply.self, from: Data(text[start...end].utf8)) else {
             analysisError = "Claude's review didn't come back. Is the claude command installed and signed in?"
             return

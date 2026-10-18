@@ -62,7 +62,12 @@ struct RootView: View {
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)
         } detail: {
             Group {
-                if search.isEmpty { detail } else { SearchResultsView(query: search) { search = "" } }
+                if search.isEmpty {
+                    VStack(spacing: 0) {
+                        if model.snapshot.cliAvailable { AskClaudeBar(section: model.section).id(model.section) }
+                        detail
+                    }
+                } else { SearchResultsView(query: search) { search = "" } }
             }
                 .navigationTitle(search.isEmpty ? model.section.rawValue : "Search")
                 .toolbar {
