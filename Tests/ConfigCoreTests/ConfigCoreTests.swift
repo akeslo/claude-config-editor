@@ -442,9 +442,14 @@ struct ScreenTextTests {
         let h = screenText(.hooks, snap, issues: [], advice: adv)
         let p = screenText(.permissions, snap, issues: [], advice: adv)
         for t in [m, h, p] { #expect(!t.contains("LEAK")) }
-        #expect(m.contains("npx srv") && m.contains("h.io") && h.contains("./run.sh"))
+        #expect(m.contains("npx srv") && m.contains("https://h.io/…") && h.contains("./run.sh"))
         let i = Issue(severity: .info, section: .mcp, title: "t", subject: "x", detail: "uses TOKEN=LEAK6", term: .scratch)
         #expect(!screenText(.health, snap, issues: [i], advice: adv).contains("LEAK"))
+        for bad in [#"API_KEY="LEAK""#, "TOKEN='LEAK'", #"--token "LEAK""#, "--api-key='LEAK'", "X-Api-Key: LEAK",
+                    "Cookie: sid=LEAK; a=b", "curl -u LEAK:x", #"curl --user "LEAK:x""#, "https://h.io/x/LEAKPATH?t=1#LEAKFRAG", "https://u:LEAK@h.io", "KEY=\nLEAK", #"-H "X-Auth-Token: LEAK""#] {
+            let j = Issue(severity: .info, section: .mcp, title: "t", subject: "x", detail: bad, term: .scratch)
+            #expect(!screenText(.health, snap, issues: [j], advice: adv).contains("LEAK"), "\(bad)")
+        }
     }
     @Test func omitsSecretValues() {
         var snap = Snapshot()
