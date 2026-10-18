@@ -52,7 +52,7 @@ Built after the Best Practices work above.
 ---
 
 # Follow-on (approved in chat): Community skills in Discover
-- Discover gets a second tab, "Community skills", fed by awesome-lists: https://github.com/zhuyansen/awesome-claude-video-skills (`data/skills.json`) plus a few similar lists Claude finds and verifies (shown to the user before adding). Lists refresh daily, cached like advice.
+- Discover gets a second tab, "Community skills", fed by four lists the user approved: zhuyansen/awesome-claude-video-skills (data/skills.json), anthropics/skills (marketplace), hesreallyhim/awesome-claude-code (CSV), ComposioHQ/awesome-claude-skills (README). Lists refresh daily, cached like advice.
 - Rows: repo, description, stars, category, installed or not, link.
 - Install (user chose installable):
   - Repo is a plugin marketplace (`.claude-plugin/marketplace.json`) → `claude plugin marketplace add <repo>` then `claude plugin install`.
