@@ -70,6 +70,8 @@ struct FixSheet: View {
             for key in path { node = (node as? JSON)?[key] }
             let before = node.map { "\($0)" } ?? "(not set)"
             return "File:   \(shortPath(file))\nKey:    \(path.joined(separator: " → "))\nBefore: \(before)\nAfter:  \(value ?? "(removed)")"
+        case .installSkills(let cs):
+            return "Will copy:\n" + cs.map { "  \(shortPath($0.from)) → ~/.claude/skills/\($0.name)" }.joined(separator: "\n")
         }
     }
 
@@ -114,6 +116,10 @@ struct FixSheet: View {
         case .settingsKey(let file, let path, let value):
             let backup = try updateSettingsKey(file, path: path, value: value)
             result = "Saved." + (backup.map { "\nBackup: \(shortPath($0))" } ?? "")
+        case .installSkills(let cs):
+            var installed = 0
+            for c in cs where try installSkill(c) { installed += 1 }
+            result = "Installed \(installed) skill(s)." + (installed < cs.count ? " Skipped \(cs.count - installed) that already exist." : "")
         }
         return result
     }

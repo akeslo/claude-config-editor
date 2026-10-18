@@ -62,6 +62,8 @@ public enum Fix: Sendable {
     case frontmatter(file: URL, key: String, value: String?)
     /// Several fixes applied in order, under one preview.
     case many([Fix])
+    /// Copies community skill folders into ~/.claude/skills, skipping names that exist.
+    case installSkills([SkillCopy])
 
     public var editsSettings: Bool {
         switch self {
@@ -78,6 +80,7 @@ public enum Fix: Sendable {
         case .removeHooks(let refs): "Remove \(refs.count) hook\(refs.count == 1 ? "" : "s") from " + Set(refs.map { $0.file.path.replacingOccurrences(of: Paths.home.path, with: "~") }).sorted().joined(separator: ", ")
         case .frontmatter(let file, let key, let value): "Set \(key): \(value ?? "(removed)") in \(file.path.replacingOccurrences(of: Paths.home.path, with: "~"))"
         case .many(let fs): fs.count <= 3 ? fs.map(\.summary).joined(separator: "\n") : "\(fs.count) changes"
+        case .installSkills(let cs): "Install \(cs.count) skill\(cs.count == 1 ? "" : "s") into ~/.claude/skills"
         case .settingsKey(let file, let path, let value): "Set \(path.joined(separator: ".")) = \(value.map { "\"\($0)\"" } ?? "(removed)") in \(file.path.replacingOccurrences(of: Paths.home.path, with: "~"))"
         }
     }

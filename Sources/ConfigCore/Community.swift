@@ -158,3 +158,142 @@ public enum CommunityCatalog {
         return lists.joined().filter { seen.insert($0.id).inserted }
     }
 }
+
+// MARK: - Download, find, install
+
+public struct FoundSkill: Sendable, Hashable {
+    public let name: String
+    public let dir: URL
+    /// Paths relative to `dir`.
+    public let files: [String]
+    public let scripts: [String]
+}
+
+public struct SkillCopy: Sendable, Hashable {
+    public let from: URL
+    public let name: String
+    public init(from: URL, name: String) { self.from = from; self.name = name }
+}
+
+public struct CommunityError: LocalizedError, Sendable {
+    public let errorDescription: String?
+    init(_ m: String) { errorDescription = m }
+}
+
+/// `[A-Za-z0-9._-]` only, and never `.`/`..` (which would escape the skills dir); nil when nothing usable is left.
+func skillName(_ raw: String) -> String? {
+    let s = String(raw.unicodeScalars.filter { CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-").contains($0) })
+    return s.isEmpty || s.allSatisfy({ $0 == "." }) ? nil : s
+}
+
+/// Downloads `owner/repo` at HEAD and returns its extracted root (a fresh dir; its parent temp dir is the caller's to delete).
+public func downloadRepo(_ slug: String) async throws -> URL {
+    guard slug.wholeMatch(of: /[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/) != nil,
+          !slug.split(separator: "/").contains(where: { $0.allSatisfy { $0 == "." } }),
+          let url = URL(string: "https://codeload.github.com/\(slug)/tar.gz/HEAD") else { throw CommunityError("Not a GitHub repo: \(slug)") }
+    let cap = 50 * 1024 * 1024
+    let fm = FileManager.default
+    let tmp = fm.temporaryDirectory.appending(path: "config-editor-repo-\(UUID().uuidString)")
+    try fm.createDirectory(at: tmp, withIntermediateDirectories: false)
+    do {
+        let (bytes, response) = try await URLSession.shared.bytes(from: url)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw CommunityError("Couldn't download \(slug).") }
+        if response.expectedContentLength > cap { throw CommunityError("\(slug) is over 50 MB.") }
+        var data = Data()
+        for try await b in bytes {
+            data.append(b)
+            if data.count > cap { throw CommunityError("\(slug) is over 50 MB.") }
+        }
+        let tarball = tmp.appending(path: "repo.tar.gz")
+        try data.write(to: tarball)
+        // shortcut: only the compressed size is capped, not the extracted size; add a walk-and-sum check if tarball bombs show up.
+        let root = tmp.appending(path: String(slug.split(separator: "/")[1]))
+        try fm.createDirectory(at: root, withIntermediateDirectories: false)
+        let p = Process()
+        p.executableURL = URL(filePath: "/usr/bin/tar")
+        // bsdtar refuses `..` and absolute member paths by default; strip codeload's `<repo>-<sha>/` top dir.
+        p.arguments = ["-xzf", tarball.path, "-C", root.path, "--strip-components", "1"]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        try p.run()
+        p.waitUntilExit()
+        try? fm.removeItem(at: tarball)
+        guard p.terminationStatus == 0 else { throw CommunityError("Couldn't unpack \(slug).") }
+        return root
+    } catch {
+        try? fm.removeItem(at: tmp)
+        throw error
+    }
+}
+
+private let scriptExtensions: Set<String> = ["sh", "py", "js", "ts", "rb", "pl", "ps1", "bash", "zsh", "mjs", "cjs"]
+
+/// Every folder under `root` holding a `SKILL.md`. Symlinked folders are not followed.
+public func findSkills(in root: URL) -> [FoundSkill] {
+    let fm = FileManager.default
+    guard let e = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) else { return [] }
+    var out: [FoundSkill] = []
+    for case let f as URL in e where f.lastPathComponent == "SKILL.md" {
+        guard (try? f.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
+        let dir = f.deletingLastPathComponent()
+        guard let name = Frontmatter(readText(f) ?? "").values["name"].flatMap(skillName) ?? skillName(dir.lastPathComponent) else { continue }
+        var files: [String] = [], scripts: [String] = []
+        let base = dir.standardizedFileURL.path + "/"
+        for case let g as URL in fm.enumerator(at: dir, includingPropertiesForKeys: [.isDirectoryKey]) ?? .init() {
+            guard let attrs = try? fm.attributesOfItem(atPath: g.path), attrs[.type] as? FileAttributeType != .typeDirectory else { continue }
+            let rel = String(g.standardizedFileURL.path.dropFirst(base.count))
+            files.append(rel)
+            let exec = ((attrs[.posixPermissions] as? Int) ?? 0) & 0o111 != 0
+            if exec || scriptExtensions.contains(g.pathExtension.lowercased()) { scripts.append(rel) }
+        }
+        out.append(FoundSkill(name: name, dir: dir, files: files.sorted(), scripts: scripts.sorted()))
+    }
+    return out
+}
+
+public func hasMarketplace(_ root: URL) -> Bool {
+    FileManager.default.fileExists(atPath: root.appending(path: ".claude-plugin/marketplace.json").path)
+}
+
+/// Copies a skill folder to `skillsDir/<name>`. Returns false (and touches nothing) when that name already exists.
+/// Symlinks are copied as the file they point to, and refused unless that file lies inside `c.from`.
+public func installSkill(_ c: SkillCopy, into skillsDir: URL = Paths.claudeDir.appending(path: "skills")) throws -> Bool {
+    guard skillName(c.name) == c.name else { throw CommunityError("Invalid skill name: \(c.name)") }
+    let fm = FileManager.default
+    let target = skillsDir.appending(path: c.name)
+    if (try? fm.attributesOfItem(atPath: target.path)) != nil { return false }
+    let src = c.from.resolvingSymlinksInPath().standardizedFileURL
+    let base = src.path + "/"
+    // Plan the whole copy first so a refused symlink leaves nothing behind.
+    var plan: [(rel: String, from: URL?)] = []  // nil `from` = directory
+    guard let e = fm.enumerator(at: src, includingPropertiesForKeys: nil) else { throw CommunityError("Can't read \(c.from.path)") }
+    for case let f as URL in e {
+        let rel = String(f.standardizedFileURL.path.dropFirst(base.count))
+        let type = try fm.attributesOfItem(atPath: f.path)[.type] as? FileAttributeType
+        switch type {
+        case .typeDirectory: plan.append((rel, nil))
+        case .typeRegular: plan.append((rel, f))
+        case .typeSymbolicLink:
+            let real = f.resolvingSymlinksInPath().standardizedFileURL
+            var isDir: ObjCBool = false
+            guard real.path.hasPrefix(base), fm.fileExists(atPath: real.path, isDirectory: &isDir), !isDir.boolValue else {
+                throw CommunityError("Refusing \(rel): it links outside the skill folder.")
+            }
+            plan.append((rel, real))
+        default: throw CommunityError("Refusing \(rel): not a regular file.")
+        }
+    }
+    try fm.createDirectory(at: skillsDir, withIntermediateDirectories: true)
+    try fm.createDirectory(at: target, withIntermediateDirectories: false)
+    do {
+        for p in plan {
+            let to = target.appending(path: p.rel)
+            if let from = p.from { try fm.copyItem(at: from, to: to) } // copyItem keeps permissions
+            else { try fm.createDirectory(at: to, withIntermediateDirectories: true) }
+        }
+    } catch {
+        try? fm.removeItem(at: target)
+        throw error
+    }
+    return true
+}

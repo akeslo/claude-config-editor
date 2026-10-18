@@ -562,4 +562,69 @@ struct CommunityTests {
     @Test func pickSkipsBrokenList() {
         for l in CommunityList.allCases { #expect(l.parse(Data("<html>".utf8)) == nil) }
     }
+
+    private func tmp() throws -> URL {
+        let d = FileManager.default.temporaryDirectory.appending(path: "cc-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+    private func put(_ root: URL, _ rel: String, _ text: String = "x", exec: Bool = false) throws {
+        let f = root.appending(path: rel)
+        try FileManager.default.createDirectory(at: f.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try text.write(to: f, atomically: true, encoding: .utf8)
+        if exec { try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: f.path) }
+    }
+
+    @Test func findsSkillsAtAnyDepth() throws {
+        let r = try tmp(); defer { try? FileManager.default.removeItem(at: r) }
+        try put(r, "SKILL.md", "---\nname: root-skill\n---\n")
+        try put(r, "skills/a/SKILL.md", "no frontmatter")
+        try put(r, ".agents/skills/b/SKILL.md", "---\nname: \"b b/../x\"\n---\n")
+        try put(r, "skills/dots/SKILL.md", "---\nname: ..\n---\n")
+        let names = findSkills(in: r).map(\.name).sorted()
+        #expect(names == ["a", "bb..x", "dots", "root-skill"])
+        #expect(!hasMarketplace(r))
+        try put(r, ".claude-plugin/marketplace.json", "{}")
+        #expect(hasMarketplace(r))
+    }
+
+    @Test func flagsScripts() throws {
+        let r = try tmp(); defer { try? FileManager.default.removeItem(at: r) }
+        try put(r, "s/SKILL.md"); try put(r, "s/run.sh"); try put(r, "s/bin/tool", exec: true); try put(r, "s/notes.txt")
+        let s = try #require(findSkills(in: r).first)
+        #expect(s.files.sorted() == ["SKILL.md", "bin/tool", "notes.txt", "run.sh"])
+        #expect(s.scripts.sorted() == ["bin/tool", "run.sh"])
+    }
+
+    @Test func installRefusesExisting() throws {
+        let r = try tmp(); defer { try? FileManager.default.removeItem(at: r) }
+        try put(r, "src/SKILL.md", "new"); try put(r, "skills/s/SKILL.md", "old")
+        #expect(try installSkill(SkillCopy(from: r.appending(path: "src"), name: "s"), into: r.appending(path: "skills")) == false)
+        #expect(readText(r.appending(path: "skills/s/SKILL.md")) == "old")
+    }
+
+    @Test func installCopies() throws {
+        let r = try tmp(); defer { try? FileManager.default.removeItem(at: r) }
+        try put(r, "src/SKILL.md", "hi"); try put(r, "src/bin/tool", exec: true)
+        try FileManager.default.createSymbolicLink(atPath: r.appending(path: "src/link.md").path, withDestinationPath: "SKILL.md")
+        let skills = r.appending(path: "skills")
+        #expect(try installSkill(SkillCopy(from: r.appending(path: "src"), name: "s"), into: skills))
+        #expect(readText(skills.appending(path: "s/SKILL.md")) == "hi" && readText(skills.appending(path: "s/link.md")) == "hi")
+        #expect(FileManager.default.isExecutableFile(atPath: skills.appending(path: "s/bin/tool").path))
+        #expect(throws: (any Error).self) { try installSkill(SkillCopy(from: r.appending(path: "src"), name: ".."), into: skills) }
+    }
+
+    @Test func copyRefusesEscapingSymlink() throws {
+        let r = try tmp(); defer { try? FileManager.default.removeItem(at: r) }
+        try put(r, "src/SKILL.md")
+        try FileManager.default.createSymbolicLink(atPath: r.appending(path: "src/evil").path, withDestinationPath: "/etc/hosts")
+        let skills = r.appending(path: "skills")
+        #expect(throws: (any Error).self) { try installSkill(SkillCopy(from: r.appending(path: "src"), name: "s"), into: skills) }
+        #expect(!FileManager.default.fileExists(atPath: skills.appending(path: "s").path))
+    }
+
+    @Test func rejectsBadSlug() async {
+        await #expect(throws: (any Error).self) { try await downloadRepo("a/b;rm") }
+        await #expect(throws: (any Error).self) { try await downloadRepo("../x") }
+    }
 }
