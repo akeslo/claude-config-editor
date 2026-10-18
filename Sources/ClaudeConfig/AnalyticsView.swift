@@ -109,7 +109,7 @@ struct AnalyticsView: View {
             }
             .bulkSelectable($sel, visible: rows.map(\.id), actions: [
                 BulkAction(title: "Copy resume commands", icon: "doc.on.clipboard", check: bulkCheck(picked) { _ in nil }) {
-                    copy(picked.map { "cd \(shortPath(URL(filePath: $0.project))) && claude --resume \($0.id)" }.joined(separator: "\n"))
+                    copy(picked.compactMap { resumeCommand(project: $0.project, id: $0.id) }.joined(separator: "\n"))
                 },
                 BulkAction(title: "Export list…", icon: "square.and.arrow.up", check: bulkCheck(picked) { _ in nil }) {
                     exportCSV("sessions.csv", header: ["id", "title", "folder", "started", "prompts", "peak context", "compactions", "tokens"],

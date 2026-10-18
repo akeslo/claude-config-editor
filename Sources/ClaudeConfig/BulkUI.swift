@@ -110,6 +110,5 @@ func exportCSV(_ name: String, header: [String], rows: [[String]]) {
     panel.nameFieldStringValue = name
     panel.allowedContentTypes = [.commaSeparatedText]
     guard panel.runModal() == .OK, let url = panel.url else { return }
-    let esc = { (s: String) in "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }
-    try? ([header] + rows).map { $0.map(esc).joined(separator: ",") }.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+    try? ([header] + rows).map { $0.map(csvCell).joined(separator: ",") }.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
 }
