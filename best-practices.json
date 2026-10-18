@@ -1,0 +1,180 @@
+{
+  "version": 1,
+  "sources": [
+    "https://github.com/anthropics/skills"
+  ],
+  "rules": [
+    {
+      "id": "skillmd-500-lines",
+      "check": "skillmd-lines",
+      "area": "skills",
+      "kind": "official",
+      "text": "Keep SKILL.md under 500 lines and move detailed reference material into separate files.",
+      "why": "Anthropic's skills docs: \"Keep SKILL.md under 500 lines. Move detailed reference material to separate files.\"",
+      "source": "https://code.claude.com/docs/en/skills"
+    },
+    {
+      "id": "skill-description-specific",
+      "area": "skills",
+      "kind": "official",
+      "text": "Write the description to say what the skill does and when to use it, with the key use case first and keywords people would naturally say.",
+      "why": "Claude uses the description to decide when to apply the skill; if a skill triggers too often, the docs advise making the description more specific.",
+      "source": "https://code.claude.com/docs/en/skills"
+    },
+    {
+      "id": "skill-listing-budget",
+      "area": "skills",
+      "kind": "official",
+      "text": "Keep descriptions short: the combined description and when_to_use text is cut at 1,536 characters, and when many skills overflow the listing budget (1% of the context window) some descriptions are dropped.",
+      "why": "A dropped description removes the keywords Claude needs to match your request.",
+      "source": "https://code.claude.com/docs/en/skills"
+    },
+    {
+      "id": "skill-frontmatter-name-description",
+      "area": "skills",
+      "kind": "community",
+      "text": "Give every SKILL.md frontmatter with a name and a complete description of what the skill does and when to use it.",
+      "why": "The reference skills repository requires exactly these two frontmatter fields.",
+      "source": "https://github.com/anthropics/skills"
+    },
+    {
+      "id": "skill-side-effects-manual",
+      "area": "skills",
+      "kind": "official",
+      "text": "Set disable-model-invocation: true on skills with side effects, such as deploying or pushing, so they only run when you invoke them.",
+      "why": "Anthropic's best-practices page recommends it for workflows you want to trigger manually.",
+      "source": "https://code.claude.com/docs/en/best-practices"
+    },
+    {
+      "id": "claudemd-concise",
+      "check": "claudemd-lines",
+      "area": "instructions",
+      "kind": "official",
+      "text": "Target under 200 lines per CLAUDE.md file and move instructions that only matter for part of the codebase into path-scoped rules.",
+      "why": "Longer files consume more context and reduce adherence.",
+      "source": "https://code.claude.com/docs/en/memory"
+    },
+    {
+      "id": "claudemd-prune",
+      "area": "instructions",
+      "kind": "official",
+      "text": "For each CLAUDE.md line ask whether removing it would cause Claude to make mistakes; if not, cut it.",
+      "why": "Bloated CLAUDE.md files cause Claude to ignore your actual instructions.",
+      "source": "https://code.claude.com/docs/en/best-practices"
+    },
+    {
+      "id": "claudemd-not-enforced",
+      "area": "instructions",
+      "kind": "official",
+      "text": "Use a hook, not a CLAUDE.md line, for anything that must happen every time.",
+      "why": "Claude treats CLAUDE.md as context, not enforced configuration; hooks are deterministic.",
+      "source": "https://code.claude.com/docs/en/memory"
+    },
+    {
+      "id": "mcp-env-expansion",
+      "area": "mcp",
+      "kind": "official",
+      "text": "Reference secrets in .mcp.json as ${VAR} environment variables instead of writing the values in the file.",
+      "why": "Claude Code expands ${VAR} in .mcp.json so teams can share a config while keeping API keys out of it.",
+      "source": "https://code.claude.com/docs/en/mcp"
+    },
+    {
+      "id": "no-secrets-in-mcp-config",
+      "area": "mcp",
+      "kind": "official",
+      "text": "Reference sensitive values such as API keys in .mcp.json with ${VAR} environment variable expansion instead of writing them into the file.",
+      "why": "The MCP docs say ${VAR} expansion lets teams share configurations while keeping machine-specific paths and sensitive values like API keys flexible.",
+      "source": "https://code.claude.com/docs/en/mcp"
+    },
+    {
+      "id": "mcp-use-https",
+      "area": "mcp",
+      "kind": "official",
+      "text": "Point remote MCP servers at https:// URLs; HTTP-transport servers are the recommended option and SSE is deprecated.",
+      "why": "MCP OAuth credentials are only sent to token endpoints over HTTPS (or localhost), so sign-in fails against plain http:// elsewhere.",
+      "source": "https://code.claude.com/docs/en/mcp"
+    },
+    {
+      "id": "mcp-trust-servers",
+      "area": "mcp",
+      "kind": "official",
+      "text": "Only connect MCP servers you wrote or that come from providers you trust.",
+      "why": "Anthropic does not security-audit or manage MCP servers, and servers that fetch external content can expose you to prompt injection.",
+      "source": "https://code.claude.com/docs/en/security"
+    },
+    {
+      "id": "no-secrets-in-settings-env",
+      "check": "no-env-secrets",
+      "area": "settings",
+      "kind": "official",
+      "text": "Commit .claude/settings.json only for what the whole team shares, and keep personal settings in .claude/settings.local.json.",
+      "why": "Everyone who clones the repository gets the committed .claude/settings.json; settings.local.json is for your personal overrides in one project and is kept out of git.",
+      "source": "https://code.claude.com/docs/en/settings"
+    },
+    {
+      "id": "settings-local-personal",
+      "area": "settings",
+      "kind": "official",
+      "text": "Put personal, per-project overrides in .claude/settings.local.json so teammates are unaffected.",
+      "why": "Project local settings sit above shared project settings and are for personal overrides for one project.",
+      "source": "https://code.claude.com/docs/en/settings"
+    },
+    {
+      "id": "deny-env-files",
+      "area": "permissions",
+      "kind": "official",
+      "text": "Add deny rules such as Read(./.env) and Read(./.env.*) to block access to secret files.",
+      "why": "The settings docs show these as the example deny rules for environment files.",
+      "source": "https://code.claude.com/docs/en/settings"
+    },
+    {
+      "id": "no-broad-permissions",
+      "check": "no-broad-permissions",
+      "area": "permissions",
+      "kind": "official",
+      "text": "Avoid allow rules like Bash(*) or a bare Bash; allow specific commands such as Bash(git log *) instead.",
+      "why": "Bash(*) is equivalent to Bash and matches every Bash command; the docs recommend putting the * after the subcommand to limit a rule.",
+      "source": "https://code.claude.com/docs/en/permissions"
+    },
+    {
+      "id": "permission-arg-patterns-fragile",
+      "area": "permissions",
+      "kind": "official",
+      "text": "Do not rely on Bash allow rules to restrict command arguments or URLs; use a sandbox or a hook for that.",
+      "why": "The permissions docs warn that Bash patterns constraining arguments, such as Bash(curl http://github.com/ *), are fragile and miss variations.",
+      "source": "https://code.claude.com/docs/en/permissions"
+    },
+    {
+      "id": "hook-scripts-exist",
+      "area": "hooks",
+      "kind": "official",
+      "text": "Make sure every hook command points at a script that exists and is executable (chmod +x), and reference it with an absolute path or \"$CLAUDE_PROJECT_DIR\".",
+      "why": "\"command not found\" and silently non-running hooks are the first two troubleshooting items in the hooks guide.",
+      "source": "https://code.claude.com/docs/en/hooks-guide"
+    },
+    {
+      "id": "hooks-for-guarantees",
+      "area": "hooks",
+      "kind": "official",
+      "text": "Use hooks for actions that must happen every time with zero exceptions, such as blocking edits to .env or lockfiles.",
+      "why": "Unlike CLAUDE.md instructions, which are advisory, hooks are deterministic.",
+      "source": "https://code.claude.com/docs/en/best-practices"
+    },
+    {
+      "id": "plugin-context-cost",
+      "area": "plugins",
+      "kind": "official",
+      "text": "Disable plugins you do not use; every enabled plugin adds its skill and agent descriptions to context on every turn.",
+      "why": "Those tokens count toward usage even in sessions where nothing from the plugin runs.",
+      "source": "https://code.claude.com/docs/en/plugins"
+    },
+    {
+      "id": "plugin-trust",
+      "area": "plugins",
+      "kind": "official",
+      "text": "Review a plugin before installing it: it can run code with your user privileges, whichever marketplace it came from.",
+      "why": "Anthropic's plugin docs state this for all three marketplace tiers.",
+      "source": "https://code.claude.com/docs/en/plugins"
+    }
+  ]
+}
