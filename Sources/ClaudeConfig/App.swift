@@ -37,17 +37,13 @@ struct ClaudeConfigApp: App {
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @State private var search = ""
-    @AppStorage("everythingElseExpanded") private var everythingElseExpanded = false
 
     var body: some View {
         @Bindable var model = model
         NavigationSplitView {
             List(selection: $model.section) {
-                Section {
-                    ForEach(AppSection.allCases.filter(\.isPrimary)) { sidebarRow($0) }
-                }
-                Section("Everything else", isExpanded: $everythingElseExpanded) {
-                    ForEach(AppSection.allCases.filter { !$0.isPrimary }) { sidebarRow($0) }
+                ForEach(AppSection.groups, id: \.self) { g in
+                    Section(g) { ForEach(AppSection.allCases.filter { $0.group == g }) { sidebarRow($0) } }
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -90,11 +86,9 @@ struct RootView: View {
                 }
         }
         .searchable(text: $search, placement: .sidebar, prompt: "Search everything")
-        .onChange(of: model.section) {
-            model.info = nil
-            if !model.section.isPrimary { everythingElseExpanded = true }
-        }
+        .onChange(of: model.section) { model.info = nil }
         .sheet(item: $model.pendingFix) { FixSheet(pending: $0) }
+        .overlay(alignment: .bottom) { UndoToast() }
     }
 
     @ViewBuilder private var detail: some View {

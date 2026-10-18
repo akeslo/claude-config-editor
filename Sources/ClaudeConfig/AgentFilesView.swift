@@ -1,92 +1,150 @@
 import ConfigCore
 import SwiftUI
 
-/// Every CLAUDE.md, AGENTS.md and similar agent instruction file on this Mac, with a read-only preview.
+/// Memory: every CLAUDE.md, rule, auto-memory and other-agent file, grouped by project, with guidance and edit/reset/delete.
 struct AgentFilesView: View {
     @Environment(AppModel.self) private var model
-    @State private var files: [AgentFile] = []
+    @State private var agentFiles: [URL] = []
     @State private var loading = true
-    @State private var selection = Set<AgentFile.ID>()
+    @State private var selection: String?
     @State private var search = ""
-    @State private var agent = "All"
-    @State private var ext = "All"
-    @State private var sort = [KeyPathComparator(\AgentFile.url.path)]
+    @State private var editing: URL?
+    @State private var expanded: Set<String> = ["user"]
+    @State private var showEmpty = false
 
     var body: some View {
-        let shown = files.filter {
-            (agent == "All" || $0.agent == agent) && (ext == "All" || $0.suffix == ext) && (search.isEmpty || $0.url.path.localizedCaseInsensitiveContains(search))
-        }.sorted(using: sort)
-        // Files Claude loads, with their context cost and any problems found by the scan.
-        let loaded = Dictionary(model.snapshot.instructions.map { ($0.url.path, $0) }, uniquingKeysWith: { a, _ in a })
-        HStack(spacing: 0) {
-            Table(shown, selection: $selection, sortOrder: $sort) {
-                TableColumn("File", value: \.url.path) { f in
-                    VStack(alignment: .leading, spacing: 1) {
-                        HStack(spacing: 4) {
-                            if let p = loaded[f.url.path]?.problems, !p.isEmpty { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).help(p.joined(separator: "\n")) }
-                            Text(f.url.deletingLastPathComponent().lastPathComponent + "/" + f.url.lastPathComponent).lineLimit(1)
+        let all = Memory.groups(instructions: model.snapshot.instructions, agentFiles: agentFiles, projects: model.snapshot.projects.map(\.path))
+            .compactMap { g -> MemoryGroup? in
+                guard !search.isEmpty else { return g }
+                var g = g
+                g.entries = g.entries.filter { $0.url.path.localizedCaseInsensitiveContains(search) }
+                return g.entries.isEmpty ? nil : g
+            }
+        let emptyCount = all.filter(\.isEmpty).count
+        let groups = showEmpty || !search.isEmpty ? all : all.filter { !$0.isEmpty }
+        let selected = groups.flatMap(\.entries).first { $0.id == selection }
+        HSplitView {
+            List(selection: $selection) {
+                ForEach(groups) { g in
+                    DisclosureGroup(isExpanded: Binding(get: { !search.isEmpty || expanded.contains(g.id) },
+                                                        set: { if $0 { expanded.insert(g.id) } else { expanded.remove(g.id) } })) {
+                        ForEach(g.entries) { row($0).tag($0.id) }
+                    } label: {
+                        HStack {
+                            Label(g.title, systemImage: g.path == nil ? "person.crop.circle" : "folder")
+                                .help(g.path ?? "Applies to every project")
+                            Spacer()
+                            Text(formatTokens(g.tokens)).font(.caption).monospacedDigit().foregroundStyle(.secondary)
                         }
-                        Text(shortPath(f.url.deletingLastPathComponent())).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
-                    }.help(f.url.path)
+                    }
                 }
-                TableColumn("Agent", value: \.agent) { Text($0.agent) }.width(110)
-                TableColumn("In context") { f in
-                    Text(loaded[f.url.path].map { $0.pathScoped ? "when matching files open" : formatTokens($0.tokens) } ?? "—")
-                        .foregroundStyle(loaded[f.url.path] == nil ? .secondary : .primary)
-                        .help(loaded[f.url.path] == nil ? "Claude doesn't load this file in any project it has run in." : "Tokens this file adds to every session in its project.")
-                }.width(120)
-                TableColumn("Size", value: \.size) { Text(formatBytes($0.size)).monospacedDigit() }.width(70)
-                TableColumn("Modified") { f in Text(f.modified.map { $0.formatted(.relative(presentation: .named)) } ?? "") }.width(110)
             }
-            .contextMenu(forSelectionType: AgentFile.ID.self) { ids in
-                TrashButton(urls: files.filter { ids.contains($0.id) }.map(\.url))
+            .safeAreaInset(edge: .bottom) {
+                if emptyCount > 0 {
+                    Toggle("Show empty (\(emptyCount))", isOn: $showEmpty).toggleStyle(.checkbox).font(.caption)
+                        .help("Folders whose files add ≈0 tokens to context and need no cleanup")
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(6).background(.bar)
+                }
             }
-            .overlay { if loading { ProgressView("Searching with Spotlight…") } else if shown.isEmpty { ContentUnavailableView.search } }
-            .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
-            Divider()
-            preview.frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
+            .overlay { if loading && groups.isEmpty { ProgressView("Searching with Spotlight…") } }
+            .frame(minWidth: 460, maxHeight: .infinity)
+            detail(selected).frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
         }
         .searchable(text: $search, prompt: "Filter by path")
-        .toolbar {
-            Picker("Agent", selection: $agent) {
-                Text("All").tag("All")
-                ForEach(Set(AgentFiles.names.values).sorted(), id: \.self) { Text($0).tag($0) }
+        .toolbar { Button("Search again", systemImage: "doc.text.magnifyingglass") { Task { await load() } } }
+        .task(id: model.snapshot.scannedAt) { await load() }
+        .sheet(item: Binding(get: { editing.map(EditTarget.init) }, set: { editing = $0?.url })) { FileEditorSheet(url: $0.url) }
+    }
+
+    private func row(_ e: MemoryEntry) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) {
+                    if !e.recommendations.isEmpty { Image(systemName: "lightbulb.fill").foregroundStyle(.orange).help(e.recommendations.joined(separator: "\n")) }
+                    Text(relativeName(e)).foregroundStyle(e.exists ? .primary : .secondary)
+                    if e.exists { StaleBadge(Staleness.of(modified: e.modified)) } else { Text("missing").font(.caption2).foregroundStyle(.tertiary) }
+                }
+                Text(e.type.rawValue).font(.caption).foregroundStyle(.secondary)
             }
-            Picker("Extension", selection: $ext) {
-                Text("All").tag("All")
-                ForEach(Set(files.map(\.suffix)).sorted(), id: \.self) { Text($0.isEmpty ? "Live file" : $0).tag($0) }
+            Spacer()
+            if e.exists {
+                Text(e.loaded ? formatTokens(e.tokens) : (e.type == .rule ? "on match" : "not loaded"))
+                    .monospacedDigit().foregroundStyle(e.loaded ? .primary : .secondary)
+                    .frame(width: 80, alignment: .trailing)
+                    .help(e.loaded ? "Tokens this file adds to every session" : "Not loaded into every session")
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(e.modified.map { "Modified " + $0.formatted(.relative(presentation: .named)) } ?? "")
+                    Text(e.created.map { "Created " + $0.formatted(date: .abbreviated, time: .omitted) } ?? "").foregroundStyle(.secondary)
+                }.font(.caption).frame(width: 150, alignment: .trailing)
             }
-            Text("\(shown.count) files").foregroundStyle(.secondary)
-            Button("Search again", systemImage: "doc.text.magnifyingglass") { Task { await load() } }
         }
-        .task(id: model.snapshot.scannedAt) { await load() }  // re-run once a rescan finds the rule and memory files
-        .onChange(of: selection) {
-            guard let f = files.first(where: { selection.contains($0.id) }) else { return }
-            let isLocal = AgentFiles.baseName(f.url.lastPathComponent) == "CLAUDE.local.md"
-            model.info = InfoItem(f.url.lastPathComponent, term: isLocal ? .claudeLocalMD : .claudeMD, facts: [
-                ("Path", shortPath(f.url)), ("Read by", f.agent), ("Size", formatBytes(f.size)),
-                ("Context", formatTokens(estimateTokens(readText(f.url) ?? ""))),
-            ], file: f.url)
+        .contextMenu { actions(e) }
+    }
+
+    @ViewBuilder private func actions(_ e: MemoryEntry) -> some View {
+        if e.exists {
+            Button("Edit…") { editing = e.url }
+            ResetButton(what: e.url.lastPathComponent, explanation: "Replaces it with the default \(e.type.rawValue) template. The current version is backed up.") {
+                try Memory.reset(e.url, type: e.type)
+            }
+            ConfirmDeleteButton(url: e.url)
+        } else {
+            Button("Create from template") {
+                do { try Memory.reset(e.url, type: e.type); model.didAct("Created \(e.url.lastPathComponent)", []); editing = e.url }
+                catch { model.actionError = error.localizedDescription }
+            }
         }
     }
 
-    @ViewBuilder private var preview: some View {
-        if let f = files.first(where: { selection.contains($0.id) }) {
+    @ViewBuilder private func detail(_ e: MemoryEntry?) -> some View {
+        if let e {
             ScrollView {
-                Text(readText(f.url) ?? "Can't read this file.")
-                    .font(.system(.callout, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
+                VStack(alignment: .leading, spacing: Space.m) {
+                    Text(e.url.lastPathComponent).font(.title2.weight(.semibold))
+                    Text(shortPath(e.url)).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    HStack { actions(e) }
+                    GroupBox(e.type.rawValue) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(e.type.purpose)
+                            ForEach(e.type.whatToPut, id: \.self) { Label($0, systemImage: "checkmark").font(.callout) }
+                            Text("Recommended: under \(e.type.lineLimit) lines" + (e.exists ? " · yours: \(e.lines)" : ""))
+                                .font(.caption).foregroundStyle(e.lines > e.type.lineLimit ? .orange : .secondary)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    if !e.recommendations.isEmpty {
+                        GroupBox("Recommendations") {
+                            VStack(alignment: .leading, spacing: 6) {
+                                ForEach(e.recommendations, id: \.self) { Label($0, systemImage: "lightbulb").foregroundStyle(.orange) }
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    if e.exists {
+                        GroupBox("Contents") {
+                            Text(readText(e.url) ?? "Can't read this file.").font(.system(.callout, design: .monospaced))
+                                .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }.padding(Space.l)
             }
         } else {
-            ContentUnavailableView("Select a file", systemImage: "doc.text", description: Text("Its contents show here."))
+            ContentUnavailableView("Select a file", systemImage: "doc.text", description: Text("See what it's for, recommendations, and edit, reset or delete it."))
         }
+    }
+
+    /// Path relative to its project/user root, so `.claude/rules/x.md` reads clearly.
+    private func relativeName(_ e: MemoryEntry) -> String {
+        let p = shortPath(e.url)
+        if let proj = model.snapshot.projects.map(\.path).filter({ e.url.path.hasPrefix($0 + "/") }).max(by: { $0.count < $1.count }), proj != Paths.home.path {
+            return String(e.url.path.dropFirst(proj.count + 1))
+        }
+        return p
     }
 
     private func load() async {
         loading = true
-        files = await AgentFiles.find(extra: model.snapshot.instructions.map(\.url))
+        agentFiles = await AgentFiles.find(extra: []).map(\.url)
         loading = false
     }
 }
+
+private struct EditTarget: Identifiable { let url: URL; var id: String { url.path } }

@@ -4,12 +4,23 @@ import SwiftUI
 /// Skills as three plain states, with suggestions from real usage and a cheat sheet so on-demand skills aren't forgotten.
 struct SkillsView: View {
     @Environment(AppModel.self) private var model
-    @AppStorage("skillsPage") private var page = Page.states
+    @AppStorage("skillsPage2") private var page = Page.grid
     @State private var filter = ""
 
-    enum Page: String, CaseIterable { case states = "Your skills", map = "Skill map", cheatSheet = "My on-demand skills" }
+    enum Page: String, CaseIterable {
+        case grid = "By category", states = "Always available", cheatSheet = "On demand", overlaps = "Overlaps", map = "Skill map"
+        var explanation: String {
+            switch self {
+            case .grid: "Every skill you have, grouped by what it is for."
+            case .states: "Always available skills are listed in every session so Claude can pick them itself; each costs its description in tokens."
+            case .cheatSheet: "On demand skills are not listed and cost nothing; they run only when you type /name."
+            case .overlaps: "Skills with the same name or near-identical descriptions compete for the same requests; keep one."
+            case .map: "Word size is how many times you have used each skill."
+            }
+        }
+    }
 
-    private var skills: [Component] { model.snapshot.components.filter { $0.kind == .skill } }
+    private var skills: [Component] { uniqueSkills(model.snapshot.components) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,9 +28,12 @@ struct SkillsView: View {
                 ForEach(Page.allCases, id: \.self) { Text($0.rawValue) }
             }
             .pickerStyle(.segmented).labelsHidden().fixedSize()
-            .padding(.vertical, Space.m)
+            .padding(.top, Space.m)
+            Text(page.explanation).font(.callout).foregroundStyle(.secondary).padding(.vertical, Space.s)
             Divider()
             switch page {
+            case .grid: SkillGridView(skills: skills)
+            case .overlaps: SkillOverlapsView(skills: skills)
             case .states: StatesPage(skills: skills)
             case .map: SkillMapView()
             case .cheatSheet: CheatSheet(skills: skills.filter { $0.state == .onDemand }, filter: $filter)
@@ -51,6 +65,7 @@ private struct StatesPage: View {
     @State private var order = [KeyPathComparator(\SkillRow.tokens, order: .reverse)]
     @State private var filter = ""
     @State private var stateFilter: SkillState?
+    @State private var sourceFilter = "All"
 
     var body: some View {
         let triage = skillSuggestions(model.snapshot.components, projects: model.snapshot.projects.map(\.path))
@@ -60,6 +75,7 @@ private struct StatesPage: View {
         let total = skills.reduce(0) { $0 + $1.listingTokens }
         let rows = skills
             .filter { stateFilter == nil || $0.state == stateFilter }
+            .filter { sourceFilter == "All" || (sourceFilter == "Plugins") == !$0.ownsFile }
             .filter { filter.isEmpty || $0.name.localizedCaseInsensitiveContains(filter) || $0.description.localizedCaseInsensitiveContains(filter) }
             .map { SkillRow(skill: $0, suggestion: triage[$0.id], stars: githubSlug($0.repoURL).flatMap { model.stars[$0] }, source: source($0)) }
             .sorted(using: order)
@@ -157,6 +173,13 @@ private struct StatesPage: View {
                     ForEach(SkillState.allCases, id: \.self) { Text($0.rawValue).tag(SkillState?.some($0)) }
                 }
                 .frame(width: 200)
+                Picker("From", selection: $sourceFilter) {
+                    Text("All sources").tag("All")
+                    Text("Personal & project").tag("Mine")
+                    Text("Plugins").tag("Plugins")
+                }
+                .fixedSize()
+                .help("Plugin skills follow their plugin; manage those plugins in the list below")
                 Spacer()
                 Text("\(rows.count) of \(skills.count)").font(.callout).foregroundStyle(.secondary)
             }
@@ -164,7 +187,7 @@ private struct StatesPage: View {
                 }
                 .background(.background)
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) { PluginSection(skills: skills.filter { !$0.ownsFile }).background(.background) }
+            .safeAreaInset(edge: .bottom, spacing: 0) { Button("Plugins are turned on or off in Plugins") { model.section = .plugins }.buttonStyle(.link).padding(Space.s).frame(maxWidth: .infinity, alignment: .leading).background(.background) }
         .task { await model.loadStars() }
     }
 
@@ -196,56 +219,6 @@ private struct StatePicker: View {
     }
 }
 
-/// skillOverrides doesn't reach plugin skills, so a plugin's skills follow the plugin: Always available, or Off.
-private struct PluginSection: View {
-    @Environment(AppModel.self) private var model
-    let skills: [Component]
-
-    var body: some View {
-        let plugins = model.snapshot.plugins.filter { p in skills.contains { $0.owner == p.id } }
-        if !plugins.isEmpty {
-            VStack(alignment: .leading, spacing: 0) {
-            Divider()
-            Text("Plugins").font(.headline).padding([.horizontal, .top], Space.l)
-            List {
-                ForEach(plugins) { p in
-                    let mine = skills.filter { $0.owner == p.id }
-                    HStack(spacing: Space.l) {
-                        VStack(alignment: .leading, spacing: Space.xs) {
-                            Text(p.id.split(separator: "@").first.map(String.init) ?? p.id).font(.body.weight(.medium))
-                            Text("\(mine.count) skill\(mine.count == 1 ? "" : "s") · " + (p.usageCount == 0 ? "never used" : "used \(p.usageCount)×"))
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        VStack(alignment: .trailing, spacing: Space.xs) {
-                            HStack(spacing: Space.s) {
-                                Picker("State", selection: Binding(get: { p.enabled }, set: { on in
-                                    model.propose("Turn \(p.id) \(on ? "on" : "off")", .cli(args: ["plugin", on ? "enable" : "disable", p.id], dryRun: nil, cwd: nil))
-                                })) {
-                                    Text("Always").tag(true)
-                                    Text("Off").tag(false)
-                                }
-                                .pickerStyle(.segmented).labelsHidden().fixedSize()
-                                .help("Plugins can only be on or off. Turning one off keeps its files.")
-                                Button("Uninstall…", systemImage: "trash") {
-                                    model.propose("Uninstall \(p.id)", .cli(args: ["plugin", "uninstall", p.id], dryRun: nil, cwd: nil))
-                                }
-                                .labelStyle(.iconOnly).buttonStyle(.borderless)
-                                .help("Uninstall \(p.id) and all its skills with claude plugin uninstall")
-                            }
-                            Text(p.enabled ? (model.pluginTokens[p.id].map { "\(formatTokens($0)) per session" } ?? "measuring…") : "0 tok")
-                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.vertical, Space.s)
-                }
-            }
-            .listStyle(.inset)
-            .frame(height: min(CGFloat(plugins.count) * 52 + 12, 160))
-            }
-        }
-    }
-}
 
 /// Every on-demand skill with its /command and one-line purpose: searchable and copyable.
 private struct CheatSheet: View {

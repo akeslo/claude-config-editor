@@ -89,7 +89,10 @@ struct SkillMapView: View {
                 }
                 TextField("Find a skill", text: $search).textFieldStyle(.roundedBorder).frame(maxWidth: 240)
                 Spacer()
-                Text("Size = times used").font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("Based on times used").font(.headline)
+                    Text("Bigger word = used more · \(skills.reduce(0) { $0 + $1.usageCount }) uses across \(skills.count) skills").font(.caption).foregroundStyle(.secondary)
+                }
             }
             .padding(Space.l)
             ScrollView {
@@ -98,7 +101,7 @@ struct SkillMapView: View {
                         ForEach(plugins) { p in
                             let n = p.id.split(separator: "@").first.map(String.init) ?? p.id
                             Button { plugin = p.id } label: {
-                                Label(n, systemImage: "shippingbox").font(.system(size: size(p.usageCount), weight: .semibold))
+                                Label(n + " \(p.usageCount)", systemImage: "shippingbox").font(.system(size: size(p.usageCount), weight: .semibold))
                                     .padding(.horizontal, 6).padding(.vertical, 2)
                                     .overlay(RoundedRectangle(cornerRadius: 6).stroke(Source.plugin.color.opacity(0.5)))
                                     .foregroundStyle(p.enabled ? Source.plugin.color : .secondary)
@@ -113,7 +116,8 @@ struct SkillMapView: View {
                             && (search.isEmpty || c.name.localizedCaseInsensitiveContains(search) || c.description.localizedCaseInsensitiveContains(search))
                     }) { c in
                         Button { selected = c } label: {
-                            Text(c.name.split(separator: ":").last.map(String.init) ?? c.name)
+                            (Text(c.name.split(separator: ":").last.map(String.init) ?? c.name)
+                             + Text(" \(c.usageCount)").font(.caption2.monospacedDigit()).foregroundColor(.secondary))
                                 .font(.system(size: size(c.usageCount), weight: top.contains(c.id) ? .bold : .regular))
                                 .foregroundStyle(top.contains(c.id) ? Color.accentColor : source(c).color)
                                 .opacity(c.state == .off ? 0.35 : c.state == .onDemand ? 0.7 : 1)
@@ -130,7 +134,7 @@ struct SkillMapView: View {
             HStack(spacing: Space.l) {
                 ForEach(Source.allCases, id: \.self) { s in Label(s.rawValue, systemImage: "circle.fill").foregroundStyle(s.color) }
                 Label("Most used", systemImage: "circle.fill").foregroundStyle(Color.accentColor)
-                Text("Faded = On demand · struck = Off").foregroundStyle(.secondary)
+                Text("Number = times used · faded = On demand · struck = Off").foregroundStyle(.secondary)
                 Spacer()
             }
             .font(.caption).labelStyle(LegendLabel()).padding(.horizontal, Space.l).padding(.vertical, Space.s)

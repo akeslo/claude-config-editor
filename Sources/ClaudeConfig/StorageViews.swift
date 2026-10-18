@@ -55,29 +55,34 @@ struct StorageView: View {
                     Spacer()
                     if let area {
                         Button("Reveal") { reveal(area.url) }
-                        Button("Move to Trash…") {
-                            model.propose("Clear \(picked.count) item(s) from \(area.name)", .trash(items.filter { picked.contains($0.id) }.map(\.url)))
+                        if area.safety != .keep {
+                            let stale = items.filter { staleness($0).level == .stale }.map(\.url)
+                            if !stale.isEmpty { ConfirmDeleteButton(urls: stale, label: "Clean up \(stale.count) stale…") }
+                            if !picked.isEmpty { ConfirmDeleteButton(urls: items.filter { picked.contains($0.id) }.map(\.url), label: "Delete \(picked.count)…") }
+                        } else {
+                            Text("Claude needs this; view only").font(.caption).foregroundStyle(.secondary)
                         }
-                        .disabled(picked.isEmpty || area.safety == .keep)
-                        .help(area.safety == .keep ? "This location holds config Claude needs. Use the Claude CLI instead." : "Select items below first.")
                     }
                 }
                 .padding(Space.s)
                 Table(items.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }.sorted(using: itemSort), selection: $picked, sortOrder: $itemSort) {
                     TableColumn("Name", value: \.name) { Text($0.name).lineLimit(1).truncationMode(.middle).help($0.url.path) }
                     TableColumn("Size", value: \.bytes) { Text(formatBytes($0.bytes)).monospacedDigit() }.width(90)
-                    TableColumn("Modified", value: \.modified, comparator: OptionalDateComparator()) { Text(relative($0.modified)) }.width(130)
+                    TableColumn("Modified", value: \.modified, comparator: OptionalDateComparator()) { i in
+                        HStack { Text(relative(i.modified)); StaleBadge(staleness(i)) }
+                    }.width(170)
                 }
                 .contextMenu(forSelectionType: Item.ID.self) { ids in
                     if let id = ids.first { Button("Reveal in Finder") { reveal(URL(filePath: id)) } }
                     if !ids.isEmpty, let area, area.safety != .keep {
-                        Button("Move to Trash…") { model.propose("Clear \(ids.count) item(s) from \(area.name)", .trash(ids.map { URL(filePath: $0) })) }
+                        ConfirmDeleteButton(urls: ids.map { URL(filePath: $0) })
                     }
                 }
             }
             .frame(minHeight: 200)
         }
         .searchable(text: $search, prompt: "Filter locations and items")
+        .onChange(of: model.lastAction?.title) { if let a = area { picked = []; Task { await loadItems(a.url) } } }
         .onChange(of: areaID) {
             picked = []
             guard let area else { items = []; return }
@@ -87,6 +92,8 @@ struct StorageView: View {
             Task { await loadItems(area.url) }
         }
     }
+
+    private func staleness(_ i: Item) -> (level: Staleness, reason: String) { Staleness.of(modified: i.modified) }
 
     private var area: StorageArea? { model.storage.first { $0.id == areaID } }
 
@@ -134,6 +141,7 @@ struct ProjectsView: View {
                 HStack {
                     if !r.p.folderExists { Image(systemName: "folder.badge.questionmark").foregroundStyle(.orange).help("This folder no longer exists.") }
                     Text(shortPath(URL(filePath: r.p.path))).lineLimit(1).truncationMode(.middle)
+                    StaleBadge(stale(r.p))
                 }
             }
             TableColumn("Sessions", value: \.sessions) { Text("\($0.sessions)").monospacedDigit().help(Term.transcripts.tooltip) }.width(70)
@@ -147,10 +155,18 @@ struct ProjectsView: View {
             if let path = ids.first {
                 Button("Reveal transcripts") { reveal(Paths.projectDataDir(for: path)) }
                 Button("Purge…") { purge(ids) }.disabled(ids.count != 1)
-                TrashButton(urls: ids.map { Paths.projectDataDir(for: $0) }, label: "Move Transcripts to Trash…")
+                ConfirmDeleteButton(urls: ids.map { Paths.projectDataDir(for: $0) }.filter(exists), label: "Delete Transcripts…")
             }
         }
         .toolbar {
+            let staleDirs = model.snapshot.projects.filter { stale($0).level == .stale }.map { Paths.projectDataDir(for: $0.path) }.filter(exists)
+            if !staleDirs.isEmpty {
+                ConfirmDeleteButton(urls: staleDirs, label: "Clean up \(staleDirs.count) stale…")
+                    .help("Deletes transcripts and memory of projects whose folder is gone or with no session in 90 days. Backed up; undoable.")
+            }
+            if !selection.isEmpty {
+                ConfirmDeleteButton(urls: selection.map { Paths.projectDataDir(for: $0) }.filter(exists), label: "Delete Transcripts…")
+            }
             Button("Purge…") { purge(selection) }
                 .disabled(selection.count != 1)
                 .help("Select one project. Deletes everything Claude stores for the selected project: transcripts, memory, history, trust and allowed tools. Shows a dry run first.")
@@ -167,6 +183,8 @@ struct ProjectsView: View {
             ], file: p.dataDir, text: p.allowedTools.isEmpty ? nil : "Allowed tools:\n" + p.allowedTools.joined(separator: "\n"))
         }
     }
+
+    private func stale(_ p: Project) -> (level: Staleness, reason: String) { Staleness.of(modified: p.lastSession, pathExists: p.folderExists) }
 
     private func purge(_ ids: Set<String>) {
         guard ids.count == 1, let path = ids.first else { return }
