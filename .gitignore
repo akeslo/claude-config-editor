@@ -43,3 +43,4 @@ test_*.json
 # Swift
 .build/
 build/
+.superpowers/
