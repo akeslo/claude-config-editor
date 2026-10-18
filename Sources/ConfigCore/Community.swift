@@ -297,6 +297,31 @@ public func hasMarketplace(_ root: URL) -> Bool {
     FileManager.default.fileExists(atPath: root.appending(path: ".claude-plugin/marketplace.json").path)
 }
 
+/// A symlink's target when it is a file inside `base` (a dir path ending in "/"), else nil.
+private func linkTarget(_ f: URL, base: String) -> URL? {
+    let real = f.resolvingSymlinksInPath().standardizedFileURL
+    var isDir: ObjCBool = false
+    guard real.path.hasPrefix(base), FileManager.default.fileExists(atPath: real.path, isDirectory: &isDir), !isDir.boolValue else { return nil }
+    return real
+}
+
+/// Paths (relative to `dir`) that `installSkill` would refuse: escaping or directory symlinks, and non-regular files.
+public func refusedSkillFiles(in dir: URL) -> Set<String> {
+    let fm = FileManager.default
+    let src = dir.resolvingSymlinksInPath().standardizedFileURL
+    let base = src.path + "/"
+    var out = Set<String>()
+    for case let f as URL in fm.enumerator(at: src, includingPropertiesForKeys: nil) ?? .init() {
+        let rel = String(f.standardizedFileURL.path.dropFirst(base.count))
+        switch (try? fm.attributesOfItem(atPath: f.path))?[.type] as? FileAttributeType {
+        case .typeDirectory, .typeRegular: break
+        case .typeSymbolicLink: if linkTarget(f, base: base) == nil { out.insert(rel) }
+        default: out.insert(rel)
+        }
+    }
+    return out
+}
+
 /// Copies a skill folder to `skillsDir/<name>`. Returns false (and touches nothing) when that name already exists.
 /// Symlinks are copied as the file they point to, and refused unless that file lies inside `c.from`.
 public func installSkill(_ c: SkillCopy, into skillsDir: URL = Paths.claudeDir.appending(path: "skills")) throws -> Bool {
@@ -316,11 +341,7 @@ public func installSkill(_ c: SkillCopy, into skillsDir: URL = Paths.claudeDir.a
         case .typeDirectory: plan.append((rel, nil))
         case .typeRegular: plan.append((rel, f))
         case .typeSymbolicLink:
-            let real = f.resolvingSymlinksInPath().standardizedFileURL
-            var isDir: ObjCBool = false
-            guard real.path.hasPrefix(base), fm.fileExists(atPath: real.path, isDirectory: &isDir), !isDir.boolValue else {
-                throw CommunityError("Refusing \(rel): it links outside the skill folder.")
-            }
+            guard let real = linkTarget(f, base: base) else { throw CommunityError("Refusing \(rel): it links outside the skill folder.") }
             plan.append((rel, real))
         default: throw CommunityError("Refusing \(rel): not a regular file.")
         }

@@ -627,6 +627,8 @@ struct CommunityTests {
         let skills = r.appending(path: "skills")
         #expect(throws: (any Error).self) { try installSkill(SkillCopy(from: r.appending(path: "src"), name: "s"), into: skills) }
         #expect(!FileManager.default.fileExists(atPath: skills.appending(path: "s").path))
+        try FileManager.default.createSymbolicLink(atPath: r.appending(path: "src/ok").path, withDestinationPath: "SKILL.md")
+        #expect(refusedSkillFiles(in: r.appending(path: "src")) == ["evil"])
     }
 
     private func tarball(_ r: URL, _ extra: [String] = []) throws -> URL {
