@@ -6,11 +6,15 @@ struct AppSettingsView: View {
     @AppStorage("showSkillsMenuBar") private var showMenuBar = true
     @AppStorage("analyzeOnLaunch") private var analyzeOnLaunch = true
     @AppStorage("installUserOnly") private var installUserOnly = true
+    @AppStorage("askAutoCopyPrompt") private var askAutoCopy = true
 
     var body: some View {
         Form {
             Toggle("Ask Claude to review my skills when the app opens", isOn: $analyzeOnLaunch)
             Text("Sends skill names, short descriptions and usage counts to Claude (haiku) at most once a day, or when your skills change.")
+                .font(.callout).foregroundStyle(.secondary)
+            Toggle("Copy prompts from Ask Claude automatically", isOn: $askAutoCopy)
+            Text("When you ask for a prompt and the answer holds one code block, it goes straight to the clipboard (with Undo).")
                 .font(.callout).foregroundStyle(.secondary)
             Toggle("Show skills in the menu bar", isOn: $showMenuBar)
             Text("A searchable list of every skill you can call, for when you can't remember the right /name.")
