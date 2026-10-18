@@ -48,3 +48,14 @@ Built after the Best Practices work above.
 - Runs the local `claude -p` the same way `AppModel.askHaiku` does (tools off, hooks off, no session persistence), but with `--model sonnet` (Claude's call).
 - Screen data is fenced in a random tag and marked as untrusted data, as in `AppModel.explain`.
 - Answers are labelled as an unverified AI suggestion.
+
+---
+
+# Follow-on (approved in chat): Community skills in Discover
+- Discover gets a second tab, "Community skills", fed by awesome-lists: https://github.com/zhuyansen/awesome-claude-video-skills (`data/skills.json`) plus a few similar lists Claude finds and verifies (shown to the user before adding). Lists refresh daily, cached like advice.
+- Rows: repo, description, stars, category, installed or not, link.
+- Install (user chose installable):
+  - Repo is a plugin marketplace (`.claude-plugin/marketplace.json`) → `claude plugin marketplace add <repo>` then `claude plugin install`.
+  - Otherwise download the repo, find every folder with `SKILL.md`, and let the user pick; copy into `~/.claude/skills/<name>`. Never overwrite an existing skill.
+  - Always through the existing confirm sheet (`model.propose`), which shows what is copied or run, flags bundled scripts, and links the repo.
+- Claude's calls: user scope only; no auto-update for copied skills.
