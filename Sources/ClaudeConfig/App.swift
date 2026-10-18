@@ -99,6 +99,7 @@ struct RootView: View {
         case .context: ContextView()
         case .analytics: AnalyticsView()
         case .storage: StorageView()
+        case .backups: BackupsView()
         case .projects: ProjectsView()
         case .permissions: PermissionsView()
         case .mcp: MCPView()

@@ -5,7 +5,7 @@ public enum AppSection: String, CaseIterable, Identifiable, Sendable {
     case health = "Review", guide = "Guide", context = "Context Budget"
     case instructions = "Memory", mySkills = "Skills", skills = "Agents & Commands", plugins = "Plugins", mcp = "MCP Servers", hooks = "Hooks"
     case settings = "Settings", permissions = "Permissions"
-    case projects = "Projects & History", storage = "Storage", analytics = "Analytics"
+    case projects = "Projects & History", storage = "Storage", backups = "Backups", analytics = "Analytics"
     case discover = "Discover"
     public var id: String { rawValue }
 
@@ -16,7 +16,7 @@ public enum AppSection: String, CaseIterable, Identifiable, Sendable {
         case .health, .guide, .context: "Overview"
         case .instructions, .mySkills, .skills, .plugins, .mcp, .hooks: "Context"
         case .settings, .permissions: "Config"
-        case .projects, .storage, .analytics: "Data"
+        case .projects, .storage, .backups, .analytics: "Data"
         case .discover: "Discover"
         }
     }
@@ -29,6 +29,7 @@ public enum AppSection: String, CaseIterable, Identifiable, Sendable {
         case .context: "gauge.with.dots.needle.50percent"
         case .analytics: "chart.bar.xaxis"
         case .storage: "internaldrive"
+        case .backups: "clock.arrow.circlepath"
         case .projects: "folder"
         case .permissions: "lock.shield"
         case .mcp: "server.rack"
@@ -45,6 +46,7 @@ public enum AppSection: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .health, .context, .guide: .contextWindow
         case .storage: .scratch
+        case .backups: .settings
         case .analytics: .transcripts
         case .projects: .project
         case .permissions: .permissions
