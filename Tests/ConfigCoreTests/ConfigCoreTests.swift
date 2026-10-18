@@ -680,6 +680,21 @@ struct CommunityTests {
         #expect(!FileManager.default.fileExists(atPath: out.path))
     }
 
+    @Test func skillBaseRefusesSymlinks() throws {
+        let r = try tmp(); defer { try? FileManager.default.removeItem(at: r) }
+        try put(r, "real/s/SKILL.md")
+        let fm = FileManager.default
+        try fm.createSymbolicLink(atPath: r.appending(path: "skills").path, withDestinationPath: "/")
+        try fm.createSymbolicLink(atPath: r.appending(path: "inner").path, withDestinationPath: "real")
+        #expect(skillBase(root: r, path: "skills/etc") == nil)
+        #expect(skillBase(root: r, path: "inner/s") == nil)
+        #expect(skillBase(root: r, path: "../x") == nil)
+        #expect(skillBase(root: r, path: "real/s")?.lastPathComponent == "s")
+        #expect(skillBase(root: r, path: nil) == r)
+        try fm.createSymbolicLink(atPath: r.appending(path: "real/t").path, withDestinationPath: r.appending(path: "real/s").path)
+        #expect(findSkills(in: r).map(\.name) == ["s"])
+    }
+
     @Test func rootSkillUsesFallbackName() throws {
         let r = try tmp(); defer { try? FileManager.default.removeItem(at: r) }
         try put(r, "SKILL.md"); try put(r, "sub/SKILL.md")

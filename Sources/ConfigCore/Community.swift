@@ -276,8 +276,10 @@ public func findSkills(in root: URL, fallbackName: String? = nil) -> [FoundSkill
     guard let e = fm.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]) else { return [] }
     var out: [FoundSkill] = []
     for case let f as URL in e where f.lastPathComponent == "SKILL.md" {
-        guard (try? f.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else { continue }
         let dir = f.deletingLastPathComponent()
+        // lstat both: a symlinked SKILL.md or skill folder could point anywhere.
+        guard (try? fm.attributesOfItem(atPath: f.path))?[.type] as? FileAttributeType == .typeRegular,
+              (try? fm.attributesOfItem(atPath: dir.path))?[.type] as? FileAttributeType == .typeDirectory else { continue }
         guard let name = Frontmatter(readText(f) ?? "").values["name"].flatMap(skillName) ?? skillName(dir.standardizedFileURL == root.standardizedFileURL ? fallbackName ?? dir.lastPathComponent : dir.lastPathComponent) else { continue }
         var files: [String] = [], scripts: [String] = []
         let base = dir.standardizedFileURL.path + "/"
@@ -291,6 +293,21 @@ public func findSkills(in root: URL, fallbackName: String? = nil) -> [FoundSkill
         out.append(FoundSkill(name: name, dir: dir, files: files.sorted(), scripts: scripts.sorted()))
     }
     return out
+}
+
+/// The folder `path` names inside an extracted repo, or nil when it is unsafe: `..`/absolute, any component a
+/// symlink, or resolving outside `root`.
+public func skillBase(root: URL, path: String?) -> URL? {
+    guard let path else { return root }
+    guard let rel = safeRepoPath(path) else { return nil }
+    var cur = root
+    for part in rel.split(separator: "/") {
+        cur = cur.appending(path: String(part))
+        guard let t = (try? FileManager.default.attributesOfItem(atPath: cur.path))?[.type] as? FileAttributeType,
+              t == .typeDirectory else { return nil }
+    }
+    let r = root.resolvingSymlinksInPath().standardizedFileURL.path, b = cur.resolvingSymlinksInPath().standardizedFileURL.path
+    return b == r || b.hasPrefix(r + "/") ? cur : nil
 }
 
 public func hasMarketplace(_ root: URL) -> Bool {

@@ -99,10 +99,8 @@ extension AppModel {
         do { root = try await downloadRepo(s.slug) } catch { communityError = error.localizedDescription; return }
         communityDownloads.append(root)
         if hasMarketplace(root) { clearCommunityDownloads(); proposeMarketplace(s.slug); return }
-        let base = s.path.map { root.appending(path: $0) } ?? root
-        let rootPath = root.standardizedFileURL.path
-        guard base.standardizedFileURL.path == rootPath || base.standardizedFileURL.path.hasPrefix(rootPath + "/") else {
-            clearCommunityDownloads(); communityError = "Refusing \(s.slug): its path leaves the repo."; return
+        guard let base = skillBase(root: root, path: s.path) else {
+            clearCommunityDownloads(); communityError = "Refusing \(s.slug): its path is missing or leaves the repo."; return
         }
         let found = findSkills(in: base, fallbackName: s.path == nil ? String(s.slug.split(separator: "/").last ?? "") : base.lastPathComponent)
         let link = URL(string: "https://github.com/\(s.slug)")
