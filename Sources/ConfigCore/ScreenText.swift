@@ -3,12 +3,12 @@ import Foundation
 /// Masks inline secrets in commands, rules and issue text. Fails closed: a shell-like tokenizer finds secret-looking
 /// KEY=value / KEY: value / --key value, secret headers, cookies, bearer tokens and curl/wget credentials, and shrinks
 /// every URL to scheme://host. Quoted arguments are redacted recursively. Run on stripped text, before capping.
-public func redact(_ s: String) -> String { Redactor.post(Redactor.run(s)) }
+public func redact(_ s: String) -> String { Redactor.post(Redactor.run(s).out) }
 
 private enum Redactor {
     static let keyed = try! NSRegularExpression(pattern: #"^([\[{(,]*-{0,2}["']?)([\w.-]+)(["']?)(=|:)(.*)$"#, options: [.dotMatchesLineSeparators])
     static let url = try! NSRegularExpression(pattern: #"[A-Za-z][\w+.-]*://"#)
-    static let netTool = try! NSRegularExpression(pattern: #"(?:^|[|(/;&])(curl|wget)$"#)
+    static let netTool = try! NSRegularExpression(pattern: #"(?:^|[|(/;&`{])(curl|wget)$"#)
 
     /// Capture groups of a match anchored to the whole string, or nil.
     static func groups(_ re: NSRegularExpression, _ t: String) -> [String]? {
@@ -22,7 +22,7 @@ private enum Redactor {
         (try! NSRegularExpression(pattern: #"(?i)\bbearer\s+[^\s"']+"#), "Bearer ***"),
         (try! NSRegularExpression(pattern: #"\?[^\s"']+"#), "?***"),
     ]
-    static let anyKey = try! NSRegularExpression(pattern: #"([\w.-]+)[=:](?=((?i:(?:bearer|basic|token|digest|apikey)\s+))?([^\s"']+))"#)
+    static let anyKey = try! NSRegularExpression(pattern: #"([\w.-]+)[=:](?=((?i:(?:bearer|basic|token|digest|apikey)\s+))?("[^"]*"?|'[^']*'?|[^\s"']+))"#)
     static func post(_ s: String) -> String {
         var t = s
         for (re, tpl) in post { t = re.stringByReplacingMatches(in: t, range: NSRange(t.startIndex..., in: t), withTemplate: tpl) }
@@ -30,7 +30,7 @@ private enum Redactor {
         var out = "", last = 0
         // The value is a lookahead so `--opt=API_KEY=x` still finds API_KEY; already-masked values and auth schemes stay.
         for m in anyKey.matches(in: t, range: NSRange(location: 0, length: ns.length)) where m.range.location >= last {
-            let v = m.range(at: 3), val = ns.substring(with: v).lowercased()
+            let v = m.range(at: 3), val = ns.substring(with: v).lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
             guard looksSecret(ns.substring(with: m.range(at: 1))), !val.hasPrefix("***"), !schemes.contains(val) else { continue }
             out += ns.substring(with: NSRange(location: last, length: v.location - last)) + "***"
             last = v.location + v.length
@@ -52,9 +52,10 @@ private enum Redactor {
         return out
     }
 
-    static func run(_ s: String) -> String {
+    /// `net` carries curl/wget context into quoted arguments; net and maskNext flow back out to the enclosing run.
+    static func run(_ s: String, net inNet: Bool = false) -> (out: String, net: Bool, maskNext: Bool) {
         let toks = tokens(s)
-        var maskNext = false, maskRest = false, out = "", net = false
+        var maskNext = false, maskRest = false, out = "", net = inNet
         for (t, space) in toks {
             if space { out += t; continue }
             // Fail closed: once curl/wget appears anywhere (xargs, -exec, time, x|curl), -u/--user stay masked to the end.
@@ -72,7 +73,8 @@ private enum Redactor {
             if let q = t.first, q == "\"" || q == "'", !(secretKey && m?[3].isEmpty == false) {
                 // A quoted argument (e.g. -H "Cookie: …") is redacted on its own, so its rules end at the closing quote.
                 let inner = t.dropFirst(), closed = inner.last == q && inner.count > 0
-                out += String(q) + run(String(closed ? inner.dropLast() : inner)) + (closed ? String(q) : "")
+                let r = run(String(closed ? inner.dropLast() : inner), net: net)
+                out += String(q) + r.out + (closed ? String(q) : ""); net = r.net; maskNext = r.maskNext
             } else if let m, secretKey {
                 let head = m[1] + m[2] + m[3] + m[4]
                 if m[2].lowercased().hasSuffix("cookie") { out += head + (m[5].isEmpty ? "" : "***"); maskRest = true; continue }
@@ -91,7 +93,7 @@ private enum Redactor {
                 out += t
             }
         }
-        return out
+        return (out, net, maskNext)
     }
 
     /// scheme://host, plus "/…" if anything followed; the host is after the last @ so userinfo never survives.

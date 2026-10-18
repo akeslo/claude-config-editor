@@ -475,6 +475,9 @@ struct ScreenTextTests {
             (#"find . -exec curl -u u:LEAK33 {} \;"#, []), ("xargs curl -u a:LEAK34", []), ("time curl -u a:LEAK35", []),
             ("watch curl -u a:LEAK36", []), ("x|curl -u a:LEAK37", []), (#"find . -exec true \; -exec curl -u a:LEAK38 {} \;"#, []),
             ("--opt=TOKEN=ab,LEAK39", []), ("--opt=TOKEN=bearer LEAK40", ["TOKEN=Bearer ***"]), ("--opt=TOKEN=basic LEAK41", ["TOKEN=basic ***"]),
+            ("echo `curl -u a:LEAK42`", []), ("{curl -u a:LEAK43;}", []), ("$(curl -u a:LEAK44)", []),
+            (#"curl "--user=a:LEAK45""#, []), ("curl '--user' 'a:LEAK46'", []),
+            (#"--opt=API_KEY="LEAK47""#, []), ("x,TOKEN='LEAK48'", []), (#"--opt=TOKEN="LEAK49 with space""#, []),
         ]
         for (input, keep) in cases {
             let out = redact(input)
