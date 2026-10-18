@@ -14,7 +14,7 @@ public enum ScreenContext {
         ("Off", SkillState.off.explanation + " (skillOverrides off)"),
         ("Your skills", "Skills page tab listing EVERY personal, project and plugin skill with its state picker (Always available / On demand / Off) and suggestions. It includes the on-demand ones."),
         ("My on-demand skills", "Skills page tab: a cheat sheet of only the skills whose state is On demand, so you remember to type /name. It is a subset of Your skills, so the two always overlap by design."),
-        ("Skill map", "Skills page tab: bubbles sized by times used (from ~/.claude.json skillUsage); faded = On demand, struck = Off."),
+        ("Skill map", "Skills page tab: every skill as a word cloud, treemap, cost-vs-use scatter, table or source→category→mode flow, with size/colour/group/filter controls and insight callouts; usage is a count plus last-used time from ~/.claude.json skillUsage. Automatic = always available, call-only = on demand."),
         ("source", "user = ~/.claude, project = <repo>/.claude, plugin = shipped by an installed plugin (follows the plugin being on/off)."),
         ("stale", "Not modified in >90 days, not used in >60 days, or its path is missing; aging = halfway there."),
         ("tokens", "Estimated at ~4 characters per token; an always-available skill costs its name+description every session."),
@@ -57,7 +57,7 @@ public enum ScreenContext {
     }
 
     public static func build(_ section: AppSection, _ s: Snapshot, issues: [Issue], advice: Advice, storage: [StorageArea] = [],
-                             discover: Discover? = nil, analytics: AnalyticsReport? = nil, question: String = "",
+                             discover: Discover? = nil, analytics: AnalyticsReport? = nil, skillMap: String? = nil, question: String = "",
                              now: Date = Date(), budget: Int = defaultBudget) -> String {
         var trimmed = 0
         func strip(_ v: String) -> String { String(String.UnicodeScalarView(v.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) })) }
@@ -188,6 +188,7 @@ public enum ScreenContext {
         default:
             data = [screenText(section, s, issues: issues, advice: advice)]
         }
+        if let skillMap { data = [redact(skillMap), ""] + data }
         let problems = issues.filter { $0.severity == .problem }
         if section != .health, !problems.isEmpty {
             data += ["", "## Problems detected anywhere (\(problems.count))"] + problems.map { "\(c($0.title)) | \(c($0.subject))" }

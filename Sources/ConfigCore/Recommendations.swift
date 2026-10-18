@@ -4,6 +4,7 @@ import Foundation
 public enum Recommendations {
     public struct Pick: Decodable, Equatable, Sendable {
         public let kind: String, name: String, marketplace: String?, reason: String?
+        public init(kind: String, name: String, marketplace: String?, reason: String?) { (self.kind, self.name, self.marketplace, self.reason) = (kind, name, marketplace, reason) }
     }
     public enum Item: Identifiable, Sendable {
         case plugin(AvailablePlugin, reason: String)

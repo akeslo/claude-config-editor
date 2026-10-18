@@ -65,7 +65,7 @@ extension AppModel {
             tab: UserDefaults.standard.string(forKey: "discoverTab") ?? "community", search: discoverSearch,
             available: available, community: community, communityInstalled: Set(community.filter(communityInstalled()).map(\.id))) : nil
         let screen = ScreenContext.build(section, snapshot, issues: issues, advice: advice, storage: storage,
-                                         discover: discover, analytics: analytics, question: question)
+                                         discover: discover, analytics: analytics, skillMap: section == .mySkills ? skillMapContext : nil, question: question)
         let prompt = askPrompt(question: question, screen: screen, section: section, cap: ScreenContext.defaultBudget + 10_000)
             + "\nYou may read files under \(Paths.claudeDir.path) (and paths listed above) with Read, Grep and Glob for detail. Do not modify anything. Answer in plain short paragraphs or bullets, citing item names."
             + (section == .discover ? "\n" + Recommendations.instruction : "")

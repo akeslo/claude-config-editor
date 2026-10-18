@@ -19,6 +19,7 @@ struct DiscoverView: View {
                 Text("Plugins").tag("plugins")
             }
             .pickerStyle(.segmented).labelsHidden().fixedSize().padding(8)
+            DiscoverReviewPanel()
             if tab == "community" { CommunityView(search: search) } else { plugins }
         }
         .searchable(text: $search, prompt: "Search plugins and skills")

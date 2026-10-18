@@ -15,7 +15,7 @@ struct SkillsView: View {
             case .states: "Always available skills are listed in every session so Claude can pick them itself; each costs its description in tokens."
             case .cheatSheet: "On demand skills are not listed and cost nothing; they run only when you type /name."
             case .overlaps: "Skills with the same name or near-identical descriptions compete for the same requests; keep one."
-            case .map: "Word size is how many times you have used each skill."
+            case .map: "Slice every skill by use, cost, recency, agent or mode; click anything for details."
             }
         }
     }
@@ -146,7 +146,7 @@ private struct StatesPage: View {
                 Text("Skills cost \(formatTokens(total)) every session").font(.title.weight(.semibold))
                 Text("Always available skills are listed so Claude can pick them. On demand skills cost nothing and still run when you type /name.")
                     .foregroundStyle(.secondary).lineLimit(2)
-                AIReviewPanel().padding(.top, Space.s)
+                CleanupReviewPanel().padding(.top, Space.s)
                 if !suggested.isEmpty || advice > 0 {
                     HStack(spacing: Space.m) {
                         if !suggested.isEmpty {
@@ -202,7 +202,7 @@ private struct StatesPage: View {
 }
 
 /// Always / On demand / Off for personal and project skills; plugin skills follow their plugin.
-private struct StatePicker: View {
+struct StatePicker: View {
     let model: AppModel   // passed in: Table cells don't receive the Observable environment
     let skill: Component
 

@@ -3,13 +3,15 @@ import SwiftUI
 
 /// Every skill as a card, grouped by a keyword category.
 struct SkillGridView: View {
+    @Environment(AppModel.self) private var model
     let skills: [Component]
     @State private var filter = ""
     @State private var source = "All"
     @State private var agent: SkillAgent?
-    @State private var picked: Set<String> = []
 
     var body: some View {
+        @Bindable var model = model
+        let picked = model.pickedSkills
         let shown = skills
             .filter { source == "All" || (source == "Plugins") == !$0.ownsFile }
             .filter { agent == nil || $0.agents.contains(agent!) }
@@ -30,7 +32,7 @@ struct SkillGridView: View {
                 }
                 .fixedSize()
                 Spacer()
-                CopyPromptButton(skills: skills.filter { picked.contains($0.id) }, picked: $picked)
+                CopyPromptButton(skills: skills.filter { picked.contains($0.id) }, picked: $model.pickedSkills)
                 Text("\(shown.count) skills in \(groups.count) categories").font(.callout).foregroundStyle(.secondary)
             }
             .padding(Space.l)
@@ -40,7 +42,7 @@ struct SkillGridView: View {
                         Section {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: Space.m, alignment: .top)], spacing: Space.m) {
                                 ForEach(items.sorted { ($0.usageCount, $1.name) > ($1.usageCount, $0.name) }) { s in
-                                    SkillGridCard(skill: s, picked: Binding(get: { picked.contains(s.id) }, set: { if $0 { picked.insert(s.id) } else { picked.remove(s.id) } }))
+                                    SkillGridCard(skill: s, picked: Binding(get: { picked.contains(s.id) }, set: { if $0 { model.pickedSkills.insert(s.id) } else { model.pickedSkills.remove(s.id) } }))
                                 }
                             }
                         } header: {

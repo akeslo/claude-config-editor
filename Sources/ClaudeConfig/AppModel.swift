@@ -50,6 +50,10 @@ final class AppModel {
     // `-section <name>` on the command line opens a given section (used for screenshots).
     var section: AppSection = UserDefaults.standard.string(forKey: "section").flatMap { AppSection(rawValue: $0) } ?? .health
     var snapshot = Snapshot()
+    /// Skill map state for Ask Claude, set while the map is on screen.
+    var skillMapContext: String?
+    /// Skills picked for Copy prompt, shared by By category and the map inspector.
+    var pickedSkills: Set<String> = []
     var storage: [StorageArea] = []
     var projectBytes: [String: Int64] = [:]
     var pluginTokens: [String: Int] = [:]
@@ -221,7 +225,7 @@ final class AppModel {
         Always-available skills cost their description in tokens every session; On demand skills cost nothing and still run as /name; Off disables them.
         Return ONLY JSON: {"advice":[{"skill":"name without slash","state":"Always available|On demand|Off","reason":"one short plain sentence"}],
         "discover":[{"plugin":"marketplace plugin name","reason":"one short sentence tied to skills they use"}]}.
-        advice: at most 8, only clear wins (rarely used but costly, overlapping, or heavily used but On demand). discover: at most 5, only from the marketplace list.
+        advice: clean-up only, at most 8 clear wins: prune, merge or demote (rarely used but costly → On demand, unused or overlapping → Off); never suggest Always available. discover: at most 5, only from the marketplace list.
         <\(tag)>
         Installed skills:
         \(skillLines.joined(separator: "\n"))
