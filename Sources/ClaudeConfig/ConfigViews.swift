@@ -497,8 +497,22 @@ struct DiscoverView: View {
     @State private var hideInstalled = true
     @State private var selection: AvailablePlugin.ID?
     @State private var sort = [KeyPathComparator(\AvailablePlugin.installCount, order: .reverse)]
+    // Also settable at launch with `-discoverTab community` (screenshots).
+    @AppStorage("discoverTab") private var tab = "plugins"
 
     var body: some View {
+        VStack(spacing: 0) {
+            Picker("Show", selection: $tab) {
+                Text("Plugins").tag("plugins")
+                Text("Community skills").tag("community")
+            }
+            .pickerStyle(.segmented).labelsHidden().fixedSize().padding(8)
+            if tab == "community" { CommunityView(search: search) } else { plugins }
+        }
+        .searchable(text: $search, prompt: "Search plugins and skills")
+    }
+
+    @ViewBuilder private var plugins: some View {
         let list = model.available
             .filter { !hideInstalled || !$0.installed }
             .filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.description.localizedCaseInsensitiveContains(search) }
@@ -521,7 +535,6 @@ struct DiscoverView: View {
                 }
             }
         }
-        .searchable(text: $search, prompt: "Search plugins and skills")
         .toolbar {
             Toggle("Hide installed", isOn: $hideInstalled)
             if let p = list.first(where: { $0.id == selection }), !p.installed {

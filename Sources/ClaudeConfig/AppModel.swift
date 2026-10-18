@@ -57,7 +57,10 @@ final class AppModel {
     var loading = false
     var measuringStorage = false
     var info: InfoItem?
-    var pendingFix: PendingFix?
+    var pendingFix: PendingFix? { didSet { if pendingFix == nil { clearCommunityDownloads() } } }
+    var community: [CommunitySkill] = []
+    /// Repo downloads behind a pending skill install; deleted when the sheet closes or the next install starts.
+    var communityDownloads: [URL] = []
     var showInspector = false
     var analytics: AnalyticsReport?
     var analyticsProgress = 0.0
@@ -295,6 +298,37 @@ final class AppModel {
         try? data.write(to: cacheURL, options: .atomic)
         d.set(Date(), forKey: "adviceCheckedAt")
         advice = Advice.pick(fetched: data, cached: nil, bundled: bundled)
+    }
+
+    /// Each list is refetched at most daily; a list that fails falls back to its cache, or shows nothing.
+    func loadCommunity() async {
+        let d = UserDefaults.standard
+        let dir = Paths.claudeDir.appending(path: "config-editor-community")
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let lists = await withTaskGroup(of: (CommunityList, [CommunitySkill]).self) { group in
+            for list in CommunityList.allCases {
+                let cache = dir.appending(path: list.rawValue)
+                let fresh = (d.object(forKey: "communityCheckedAt.\(list.rawValue)") as? Date).map { Date().timeIntervalSince($0) < 86_400 } ?? false
+                group.addTask {
+                    if !fresh, let (data, resp) = try? await URLSession.shared.data(from: list.url),
+                       (resp as? HTTPURLResponse)?.statusCode == 200, let rows = list.parse(data) {
+                        try? data.write(to: cache, options: .atomic)
+                        UserDefaults.standard.set(Date(), forKey: "communityCheckedAt.\(list.rawValue)")
+                        return (list, rows)
+                    }
+                    return (list, (try? Data(contentsOf: cache)).flatMap(list.parse) ?? [])
+                }
+            }
+            var out: [CommunityList: [CommunitySkill]] = [:]
+            for await (l, rows) in group { out[l] = rows }
+            return out
+        }
+        community = CommunityCatalog.merge(CommunityList.allCases.map { lists[$0] ?? [] })
+    }
+
+    func clearCommunityDownloads() {
+        for root in communityDownloads { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+        communityDownloads = []
     }
 
     func rescan() async {

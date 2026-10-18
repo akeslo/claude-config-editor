@@ -172,7 +172,9 @@ public struct FoundSkill: Sendable, Hashable {
 public struct SkillCopy: Sendable, Hashable {
     public let from: URL
     public let name: String
-    public init(from: URL, name: String) { self.from = from; self.name = name }
+    /// Where the skill came from, shown in the install preview.
+    public let link: URL?
+    public init(from: URL, name: String, link: URL? = nil) { self.from = from; self.name = name; self.link = link }
 }
 
 public struct CommunityError: LocalizedError, Sendable {

@@ -71,7 +71,14 @@ struct FixSheet: View {
             let before = node.map { "\($0)" } ?? "(not set)"
             return "File:   \(shortPath(file))\nKey:    \(path.joined(separator: " → "))\nBefore: \(before)\nAfter:  \(value ?? "(removed)")"
         case .installSkills(let cs):
-            return "Will copy:\n" + cs.map { "  \(shortPath($0.from)) → ~/.claude/skills/\($0.name)" }.joined(separator: "\n")
+            let skills = Paths.claudeDir.appending(path: "skills")
+            return cs.map { c in
+                let skipped = (try? FileManager.default.attributesOfItem(atPath: skills.appending(path: c.name).path)) != nil
+                let found = findSkills(in: c.from, fallbackName: c.name).first { $0.dir.standardizedFileURL == c.from.standardizedFileURL }
+                let files = (found?.files ?? []).map { f in "    \(f)" + (found?.scripts.contains(f) == true ? "  ⚠ runs code" : "") }
+                return (["\(c.name) → ~/.claude/skills/\(c.name)" + (skipped ? "  SKIPPED (already exists)" : "")]
+                        + (c.link.map { ["  From \($0.absoluteString)"] } ?? []) + ["  Files:"] + files).joined(separator: "\n")
+            }.joined(separator: "\n\n") + "\n\nOnly install skills you trust: scripts in a skill can run on your machine."
         }
     }
 
