@@ -427,6 +427,19 @@ struct ScreenTextTests {
     @Test func fenceTagIsRandom() {
         func tag(_ p: String) -> String { String(p.split(separator: "<screen-")[1].prefix(15)) }
         #expect(tag(askPrompt(question: "a", screen: "s", section: .mcp)) != tag(askPrompt(question: "a", screen: "s", section: .mcp)))
+        let p = askPrompt(question: "a", screen: "s", section: .mcp)
+        #expect(p.contains(try! Regex("<screen-[0-9a-f]{8}>")))
+    }
+    @Test func omitsSecretValues() {
+        var snap = Snapshot()
+        snap.mcpServers = [MCPServer(name: "srv", scope: .user, project: nil, source: URL(filePath: "/x"), command: "run", transport: "stdio",
+                                     env: ["API_KEY": "sk-SECRET1"], headers: ["Authorization": "Bearer SECRET2"], raw: "")]
+        snap.settings = [SettingsSource(scope: .user, url: URL(filePath: "/s.json"), project: nil, root: ["env": ["TOKEN": "SECRET3"]], modified: nil)]
+        let adv = Advice(rules: [])
+        let m = screenText(.mcp, snap, issues: [], advice: adv)
+        let st = screenText(.settings, snap, issues: [], advice: adv)
+        #expect(m.contains("API_KEY") && m.contains("Authorization") && st.contains("TOKEN"))
+        for t in [m, st] { #expect(!t.contains("SECRET")) }
     }
     @Test func healthListsIssueTitles() {
         let i = Issue(severity: .warning, section: .mcp, title: "Big\u{7}Thing", subject: "srv", detail: "d", term: .scratch)
