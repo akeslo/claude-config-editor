@@ -3,7 +3,9 @@ import Foundation
 public typealias JSON = [String: Any]
 
 public enum Paths {
-    public static let home = FileManager.default.homeDirectoryForCurrentUser
+    /// `CLAUDE_CONFIG_EDITOR_HOME` points the whole app at a fixture copy (testing); else the real home.
+    public static let home = ProcessInfo.processInfo.environment["CLAUDE_CONFIG_EDITOR_HOME"]
+        .flatMap { $0.isEmpty ? nil : URL(filePath: $0, directoryHint: .isDirectory) } ?? FileManager.default.homeDirectoryForCurrentUser
     public static let claudeDir = home.appending(path: ".claude")
     public static let claudeJSON = home.appending(path: ".claude.json")
     public static let userSettings = claudeDir.appending(path: "settings.json")

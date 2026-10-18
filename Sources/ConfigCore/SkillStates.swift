@@ -153,3 +153,92 @@ func frontmatterSetting(_ text: String, key: String, value: String?) -> String {
     }
     return lines.joined(separator: "\n")
 }
+
+// MARK: Categories and overlaps
+
+/// Keyword buckets, first match wins. Matched against name, description and owning plugin.
+private let categoryKeywords: [(String, [String])] = [
+    ("Git & review", ["commit", "git", "pull request", " pr ", "review", "branch", "diff"]),
+    ("Testing & debugging", ["test", "debug", "bug", "verify", "diagnos", "regression"]),
+    ("Design & UI", ["design", "ui", "frontend", "css", "layout", "figma", "interface"]),
+    ("Docs & writing", ["doc", "write", "writing", "readme", "markdown", "blog", "copy"]),
+    ("Media", ["video", "image", "audio", "music", "voice", "animation", "diagram"]),
+    ("Data & files", ["pdf", "xlsx", "spreadsheet", "csv", "docx", "pptx", "data"]),
+    ("Marketing", ["marketing", "seo", "campaign", "brand", "email sequence"]),
+    ("Planning & workflow", ["plan", "brainstorm", "workflow", "orchestrat", "agent", "subagent", "schedule", "loop"]),
+    ("Claude config", ["claude.md", "settings", "hook", "skill", "plugin", "mcp", "config", "permission"]),
+]
+
+/// A simple keyword category for a skill; "Other" when nothing matches.
+public func skillCategory(name: String, description: String, owner: String? = nil) -> String {
+    let text = " " + [name.replacingOccurrences(of: "-", with: " "), description, owner ?? ""].joined(separator: " ").lowercased() + " "
+    let words = Set(text.split { !$0.isLetter && $0 != "." }.map(String.init))
+    for (cat, keys) in categoryKeywords where keys.contains(where: { k in
+        k.contains(" ") || k.contains(".") ? text.contains(k) : k.count <= 3 ? words.contains(k) : text.contains(k)
+    }) { return cat }
+    return "Other"
+}
+
+extension Component {
+    public var category: String { skillCategory(name: name, description: description, owner: owner) }
+    /// "personal", "project <folder>" or the plugin name.
+    public var belongsTo: String {
+        switch scope {
+        case .user: "Personal"
+        case .project: "Project " + (owner.map { ($0 as NSString).lastPathComponent } ?? "")
+        default: "Plugin " + (owner?.split(separator: "@").first.map(String.init) ?? "")
+        }
+    }
+    /// The "Use when…" part of the description, else its first sentence.
+    public var whenToUse: String {
+        let d = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let r = d.range(of: "use (this )?(skill )?(when|whenever|for|after|before)", options: [.regularExpression, .caseInsensitive]) {
+            return String(d[r.lowerBound...]).components(separatedBy: ". ").first ?? d
+        }
+        return d.components(separatedBy: ". ").first ?? d
+    }
+}
+
+/// Two or more skills that compete: the same name in several places, or near-identical descriptions.
+public struct SkillOverlap: Identifiable, Sendable {
+    public enum Kind: Sendable { case sameName, similar }
+    public let kind: Kind
+    public let skills: [Component]
+    public var id: String { skills.map(\.id).joined(separator: "|") }
+    /// The copy to keep: the most used, then personal over project over plugin.
+    public var keep: Component {
+        skills.max { ($0.usageCount, rank($0)) < ($1.usageCount, rank($1)) }!
+    }
+    public var reason: String {
+        kind == .sameName ? "Same /\(skills[0].shortName) in \(skills.map(\.belongsTo).joined(separator: ", "))"
+                          : "Descriptions are nearly the same, so they compete for the same requests"
+    }
+    private func rank(_ c: Component) -> Int { c.scope == .user ? 2 : c.scope == .project ? 1 : 0 }
+}
+
+extension Component {
+    /// Name without a "plugin:" prefix.
+    public var shortName: String { name.split(separator: ":").last.map(String.init) ?? name }
+}
+
+/// One entry per SKILL.md: a project rooted at ~ lists ~/.claude/skills again, which is not a real duplicate.
+public func uniqueSkills(_ components: [Component]) -> [Component] {
+    var seen = Set<String>()
+    return components.filter { $0.kind == .skill }
+        .sorted { ($0.scope == .user ? 0 : 1) < ($1.scope == .user ? 0 : 1) }
+        .filter { seen.insert($0.file.standardizedFileURL.resolvingSymlinksInPath().path).inserted }
+}
+
+public func skillOverlaps(_ components: [Component], threshold: Double = 0.5) -> [SkillOverlap] {
+    let skills = uniqueSkills(components)
+    var out = Dictionary(grouping: skills) { $0.shortName.lowercased() }.values
+        .filter { $0.count > 1 }.map { SkillOverlap(kind: .sameName, skills: $0.sorted { $0.id < $1.id }) }
+    let named = Set(out.flatMap { $0.skills.map(\.id) })
+    let rest = skills.filter { !named.contains($0.id) }
+    for (i, a) in rest.enumerated() {
+        for b in rest[(i + 1)...] where descriptionOverlap(a.description, b.description) >= threshold {
+            out.append(SkillOverlap(kind: .similar, skills: [a, b]))
+        }
+    }
+    return out.sorted { $0.id < $1.id }
+}

@@ -1,15 +1,25 @@
 import Foundation
 
 public enum AppSection: String, CaseIterable, Identifiable, Sendable {
-    case health = "Review", mySkills = "Skills", guide = "Guide", context = "Context Budget", analytics = "Analytics"
-    case plugins = "Plugins", skills = "All Skills & Agents", mcp = "MCP Servers", hooks = "Hooks"
-    case instructions = "Instructions & Memory", settings = "Settings", permissions = "Permissions"
-    case storage = "Storage", projects = "Projects & History", discover = "Discover"
+    // Case order is sidebar order within each group.
+    case health = "Review", guide = "Guide", context = "Context Budget"
+    case instructions = "Memory", mySkills = "Skills", skills = "Agents & Commands", plugins = "Plugins", mcp = "MCP Servers", hooks = "Hooks"
+    case settings = "Settings", permissions = "Permissions"
+    case projects = "Projects & History", storage = "Storage", analytics = "Analytics"
+    case discover = "Discover"
     public var id: String { rawValue }
 
-    /// Review, Skills and Guide are the main jobs; every other page sits under "Everything else".
-    public var isPrimary: Bool { self == .health || self == .mySkills || self == .guide }
-    public var group: String { isPrimary ? "" : "Everything else" }
+    /// Sidebar groups, in order.
+    public static let groups = ["Overview", "Context", "Config", "Data", "Discover"]
+    public var group: String {
+        switch self {
+        case .health, .guide, .context: "Overview"
+        case .instructions, .mySkills, .skills, .plugins, .mcp, .hooks: "Context"
+        case .settings, .permissions: "Config"
+        case .projects, .storage, .analytics: "Data"
+        case .discover: "Discover"
+        }
+    }
 
     public var symbol: String {
         switch self {
@@ -105,6 +115,8 @@ public struct Issue: Identifiable, Sendable {
     public var bytes: Int64 = 0
     /// Id of the best-practices rule this finding comes from, if any.
     public var rule: String?
+    /// A file or folder whose removal cleans this up (offered as Delete with backup/undo).
+    public var trashable: URL?
 
     /// What kind of risk this is, in the order Review ranks them.
     public enum Category: Int, CaseIterable, Comparable, Sendable {
@@ -173,6 +185,7 @@ public enum Checks {
         out += projectChecks(s)
         out += storageChecks(s, storage)
         out += settingsChecks(s)
+        out += Failures.detect(s)
         return out.sorted {
             ($0.severity, $0.tokens, $0.bytes) > ($1.severity, $1.tokens, $1.bytes)
         }
