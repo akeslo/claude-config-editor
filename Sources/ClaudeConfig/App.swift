@@ -96,6 +96,7 @@ struct RootView: View {
         switch model.section {
         case .health: ReviewView()
         case .mySkills: SkillsView()
+        case .guide: GuideView()
         case .context: ContextView()
         case .analytics: AnalyticsView()
         case .storage: StorageView()

@@ -1,20 +1,21 @@
 import Foundation
 
 public enum AppSection: String, CaseIterable, Identifiable, Sendable {
-    case health = "Review", mySkills = "Skills", context = "Context Budget", analytics = "Analytics"
+    case health = "Review", mySkills = "Skills", guide = "Guide", context = "Context Budget", analytics = "Analytics"
     case plugins = "Plugins", skills = "All Skills & Agents", mcp = "MCP Servers", hooks = "Hooks"
     case instructions = "Instructions & Memory", settings = "Settings", permissions = "Permissions"
     case storage = "Storage", projects = "Projects & History", discover = "Discover"
     public var id: String { rawValue }
 
-    /// Review and Skills are the main jobs; every other page sits under "Everything else".
-    public var isPrimary: Bool { self == .health || self == .mySkills }
+    /// Review, Skills and Guide are the main jobs; every other page sits under "Everything else".
+    public var isPrimary: Bool { self == .health || self == .mySkills || self == .guide }
     public var group: String { isPrimary ? "" : "Everything else" }
 
     public var symbol: String {
         switch self {
         case .health: "checklist"
         case .mySkills: "wand.and.rays"
+        case .guide: "book"
         case .context: "gauge.with.dots.needle.50percent"
         case .analytics: "chart.bar.xaxis"
         case .storage: "internaldrive"
@@ -32,7 +33,7 @@ public enum AppSection: String, CaseIterable, Identifiable, Sendable {
 
     public var term: Term {
         switch self {
-        case .health, .context: .contextWindow
+        case .health, .context, .guide: .contextWindow
         case .storage: .scratch
         case .analytics: .transcripts
         case .projects: .project
