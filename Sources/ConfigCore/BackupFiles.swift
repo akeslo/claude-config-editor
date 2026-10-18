@@ -24,47 +24,58 @@ public enum BackupFiles {
         return ns.substring(to: m.range.location)
     }
 
-    /// `a.b.c` → [`a.b.c`, `a.b`, `a`]: a label before the marker (`settings.json.statusline-bak-…`) is dropped by trying shorter names.
-    static func candidates(_ s: String) -> [String] {
-        let parts = s.split(separator: ".", omittingEmptySubsequences: false)
-        return (1...parts.count).reversed().map { parts.prefix($0).joined(separator: ".") }.filter { !$0.isEmpty }
-    }
-
     static func inBackupFolder(_ url: URL) -> Bool { url.deletingLastPathComponent().pathComponents.contains("backups") }
 
+    static func real(_ u: URL) -> String { u.standardizedFileURL.resolvingSymlinksInPath().path }
+    static func within(_ u: URL, _ root: URL) -> Bool { let r = real(root); return real(u) == r || real(u).hasPrefix(r + "/") }
+
     /// The existing original a backup shadows, or nil (unknown). Never a path that does not exist, so a restore cannot create a file.
-    /// Next to the original: the sibling. Inside a `backups/` folder: a manifest/README line naming it, then known-name rules, then a unique same-name file in `index`.
+    /// Only the full stem counts: a labelled leftover (`settings.json.roar.bak`, `x.json.statusline-bak-…`) is not assumed to be a copy of the live file.
+    /// Next to the original: the sibling. Under `~/.claude/backups/` (resolved): the folder's MANIFEST/README, then known-name rules,
+    /// then a unique same-name file in `index`, each target confined to ~/.claude, ~/.claude.json or a known project.
+    /// Any other `backups/` folder resolves only inside its own project, never by manifest or global rules.
     public static func original(of url: URL, home: URL = Paths.home, projects: [URL] = [], index: [String: [URL]] = [:]) -> URL? {
-        guard let s = stem(url.lastPathComponent) else { return nil }
-        let names = candidates(s)
+        guard let n = stem(url.lastPathComponent) else { return nil }
+        let dir = url.deletingLastPathComponent()
         guard inBackupFolder(url) else {
-            return names.lazy.map { url.deletingLastPathComponent().appending(path: $0) }.first(where: exists)
+            let sib = dir.appending(path: n)
+            // A sibling symlink pointing elsewhere is not the original.
+            return exists(sib) && real(sib.deletingLastPathComponent()) == real(dir) && within(sib, dir) ? sib : nil
         }
-        if let m = fromManifest(url, home: home) { return m }
-        for n in names { if let r = rule(n, home: home, projects: projects), exists(r) { return r } }
-        for n in names {
-            let hits = (index[n] ?? []).filter { !inBackupFolder($0) && exists($0) }
-            if hits.count == 1 { return hits[0] }
-            if hits.count > 1 { return nil }   // ambiguous
+        let claude = home.appending(path: ".claude"), claudeJSON = home.appending(path: ".claude.json")
+        if within(url, claude.appending(path: "backups")) {
+            let allowed = { (u: URL) in exists(u) && (within(u, claude) || real(u) == real(claudeJSON) || projects.contains { within(u, $0) }) }
+            let ruled = rule(n, home: home, projects: projects)
+            let names = Set([n, ruled?.lastPathComponent].compactMap { $0 })
+            if let m = fromManifest(url, home: home).first(where: { names.contains($0.lastPathComponent) && allowed($0) }) { return m }
+            if let r = ruled, allowed(r) { return r }
+            return unique(n, index) { allowed($0) && !within($0, claude.appending(path: "backups")) }
         }
-        return nil
+        guard let project = projects.filter({ within(url, $0) }).max(by: { $0.path.count < $1.path.count }) else { return nil }
+        return unique(n, index) { exists($0) && within($0, project) && !inBackupFolder($0) }
     }
 
-    /// A MANIFEST*/README* in the backup folder with a line naming this file and an absolute or ~ path.
-    static func fromManifest(_ url: URL, home: URL) -> URL? {
+    /// The one file named `n` passing `ok`; nil when none or several (ambiguous).
+    static func unique(_ n: String, _ index: [String: [URL]], _ ok: (URL) -> Bool) -> URL? {
+        let hits = (index[n] ?? []).filter(ok)
+        return hits.count == 1 ? hits[0] : nil
+    }
+
+    /// Paths named on a MANIFEST*/README* line that mentions this backup. Callers filter them; nothing here is trusted.
+    static func fromManifest(_ url: URL, home: URL) -> [URL] {
         let pathRE = try! NSRegularExpression(pattern: #"(~/|/)[^\s"'`,()<>]+"#)
+        var out: [URL] = []
         for f in children(url.deletingLastPathComponent()) where ["manifest", "readme"].contains(where: { f.lastPathComponent.lowercased().hasPrefix($0) }) {
             for line in (readText(f) ?? "").split(whereSeparator: \.isNewline) where line.contains(url.lastPathComponent) {
                 let l = String(line), ns = l as NSString
                 for m in pathRE.matches(in: l, range: NSRange(location: 0, length: ns.length)) {
                     var p = ns.substring(with: m.range)
                     if p.hasPrefix("~/") { p = home.path + p.dropFirst(1) }
-                    let u = URL(filePath: p)
-                    if u.lastPathComponent != url.lastPathComponent, exists(u) { return u }
+                    if (p as NSString).lastPathComponent != url.lastPathComponent { out.append(URL(filePath: p)) }
                 }
             }
         }
-        return nil
+        return out
     }
 
     /// Where Claude keeps a file by this name (names as backups in `~/.claude/backups/<date>/` were written).
