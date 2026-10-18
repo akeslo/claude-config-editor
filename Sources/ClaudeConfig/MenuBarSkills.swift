@@ -78,7 +78,7 @@ struct MenuBarSkills: View {
             }
             .frame(height: 360)
             .bulkKeys($picked, visible: shown.map(\.id))
-            .overlay { if shown.isEmpty && catalog.isEmpty { Text(all.isEmpty ? "Loading skills…" : "No matches").foregroundStyle(.secondary) } }
+            .overlay { if shown.isEmpty && catalog.isEmpty { Text(!all.isEmpty ? "No matches" : model.loading ? "Loading skills…" : "No skills yet. Open Claude Config to set up your first one.").foregroundStyle(.secondary) } }
             HStack {
                 SelectAllBox(sel: $picked, visible: shown.map(\.id))
                 if !picked.isEmpty { Text(picked.label(shown.map(\.id))).font(.caption).foregroundStyle(.secondary) }

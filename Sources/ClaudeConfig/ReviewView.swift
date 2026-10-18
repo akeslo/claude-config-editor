@@ -89,6 +89,11 @@ struct FindingsList: View {
             .sorted { ($0.category, -$0.severity.rawValue, -$0.tokens) < ($1.category, -$1.severity.rawValue, -$1.tokens) }
     }
 
+    /// Nothing of the user's own yet: no personal skills and no settings file.
+    private var isFirstRun: Bool {
+        !exists(Paths.userSettings) && !model.snapshot.components.contains { $0.kind == .skill && $0.scope == .user }
+    }
+
     var body: some View {
         let findings = findings
         let visible = findings.map(\.id)
@@ -115,9 +120,11 @@ struct FindingsList: View {
         .bulkSelectable($sel, visible: visible, actions: issueActions(model, findings.filter { sel.contains($0.id) }))
         .overlay {
             if findings.isEmpty && !model.loading {
-                ContentUnavailableView("Your setup follows best practice", systemImage: "checkmark.seal",
-                                       description: Text("No security, broken-config or context-cost findings."))
-                    .padding(.top, 120)
+                if isFirstRun { FirstRunCard().padding(.top, 120) } else {
+                    ContentUnavailableView("Your setup follows best practice", systemImage: "checkmark.seal",
+                                           description: Text("No security, broken-config or context-cost findings."))
+                        .padding(.top, 120)
+                }
             }
         }
     }
@@ -204,4 +211,41 @@ struct FindingRow: View {
             copy(Issue.aiPrompt(for: picked))
         },
     ]
+}
+
+/// First run: nothing to fix, so give the user something to act on instead of an "all clear" with nothing behind it.
+struct FirstRunCard: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let always = uniqueSkills(model.snapshot.components).filter { $0.kind == .skill && $0.state == .always }
+        VStack(alignment: .leading, spacing: Space.m) {
+            Label("Nothing set up yet", systemImage: "sparkles").font(.title2.weight(.semibold))
+            Text("This Mac has no personal Claude Code skills or settings yet, so there's nothing to check. Start with a skill.")
+                .foregroundStyle(.secondary)
+            if always.isEmpty {
+                Text("No skills are always available yet.").font(.callout).foregroundStyle(.secondary)
+            } else {
+                Text("Already always available (\(always.count))").font(.headline)
+                ForEach(always.prefix(5)) { s in
+                    (Text("/" + s.name).font(.body.monospaced()) + Text("  " + s.description).foregroundStyle(.secondary))
+                        .lineLimit(1).help(s.description)
+                }
+                if always.count > 5 { Button("See all \(always.count)") { open(.states) }.buttonStyle(.link) }
+            }
+            HStack {
+                Button("Set up your first skill") { UserDefaults.standard.set("community", forKey: "discoverTab"); model.section = .discover }
+                    .buttonStyle(.borderedProminent)
+                Button("My on-demand skills") { open(.cheatSheet) }
+                Button("Skill map") { open(.map) }
+            }
+        }
+        .padding(Space.l)
+        .frame(maxWidth: 560, alignment: .leading)
+    }
+
+    private func open(_ page: SkillsView.Page) {
+        UserDefaults.standard.set(page.rawValue, forKey: "skillsPage2")
+        model.section = .mySkills
+    }
 }
