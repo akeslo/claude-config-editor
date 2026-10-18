@@ -1,25 +1,20 @@
 import Foundation
 
 public enum AppSection: String, CaseIterable, Identifiable, Sendable {
-    case health = "Health", context = "Context Budget", analytics = "Analytics"
-    case plugins = "Plugins", skills = "Skills & Agents", mcp = "MCP Servers", hooks = "Hooks"
+    case health = "Review", mySkills = "Skills", context = "Context Budget", analytics = "Analytics"
+    case plugins = "Plugins", skills = "All Skills & Agents", mcp = "MCP Servers", hooks = "Hooks"
     case instructions = "Instructions & Memory", settings = "Settings", permissions = "Permissions"
     case storage = "Storage", projects = "Projects & History", discover = "Discover"
     public var id: String { rawValue }
 
-    /// Sidebar heading this page sits under.
-    public var group: String {
-        switch self {
-        case .health, .context, .analytics: "Overview"
-        case .plugins, .skills, .mcp, .hooks: "What Claude Can Do"
-        case .instructions, .settings, .permissions: "What Claude Knows"
-        case .storage, .projects, .discover: "Housekeeping"
-        }
-    }
+    /// Review and Skills are the main jobs; every other page sits under "Everything else".
+    public var isPrimary: Bool { self == .health || self == .mySkills }
+    public var group: String { isPrimary ? "" : "Everything else" }
 
     public var symbol: String {
         switch self {
-        case .health: "stethoscope"
+        case .health: "checklist"
+        case .mySkills: "wand.and.rays"
         case .context: "gauge.with.dots.needle.50percent"
         case .analytics: "chart.bar.xaxis"
         case .storage: "internaldrive"
@@ -43,7 +38,7 @@ public enum AppSection: String, CaseIterable, Identifiable, Sendable {
         case .projects: .project
         case .permissions: .permissions
         case .mcp: .mcpServer
-        case .skills: .skill
+        case .skills, .mySkills: .skill
         case .plugins, .discover: .plugin
         case .hooks: .hook
         case .instructions: .claudeMD
@@ -62,9 +57,17 @@ public enum Fix: Sendable {
     case settingsKey(file: URL, path: [String], value: String?)
     /// Removes hook entries from settings files.
     case removeHooks([HookRef])
+    /// Sets (or removes, when nil) one frontmatter key in a Markdown file such as SKILL.md.
+    case frontmatter(file: URL, key: String, value: String?)
+    /// Several fixes applied in order, under one preview.
+    case many([Fix])
 
     public var editsSettings: Bool {
-        switch self { case .settingsKey, .removeHooks: true; default: false }
+        switch self {
+        case .settingsKey, .removeHooks, .frontmatter: true
+        case .many(let fs): fs.contains(where: \.editsSettings)
+        default: false
+        }
     }
 
     public var summary: String {
@@ -72,6 +75,8 @@ public enum Fix: Sendable {
         case .cli(let args, _, _): "claude " + args.map { $0.contains(" ") ? "\"\($0)\"" : $0 }.joined(separator: " ")
         case .trash(let urls): "Move \(urls.count) item\(urls.count == 1 ? "" : "s") to the Trash"
         case .removeHooks(let refs): "Remove \(refs.count) hook\(refs.count == 1 ? "" : "s") from " + Set(refs.map { $0.file.path.replacingOccurrences(of: Paths.home.path, with: "~") }).sorted().joined(separator: ", ")
+        case .frontmatter(let file, let key, let value): "Set \(key): \(value ?? "(removed)") in \(file.path.replacingOccurrences(of: Paths.home.path, with: "~"))"
+        case .many(let fs): fs.count <= 3 ? fs.map(\.summary).joined(separator: "\n") : "\(fs.count) changes"
         case .settingsKey(let file, let path, let value): "Set \(path.joined(separator: ".")) = \(value.map { "\"\($0)\"" } ?? "(removed)") in \(file.path.replacingOccurrences(of: Paths.home.path, with: "~"))"
         }
     }
@@ -94,6 +99,34 @@ public struct Issue: Identifiable, Sendable {
     /// Rough cost so the list can rank by impact: tokens per session, or bytes on disk.
     public var tokens = 0
     public var bytes: Int64 = 0
+
+    /// What kind of risk this is, in the order Review ranks them.
+    public enum Category: Int, CaseIterable, Comparable, Sendable {
+        case security, broken, context, tidy
+        public var title: String {
+            switch self {
+            case .security: "Security"
+            case .broken: "Broken"
+            case .context: "Context cost"
+            case .tidy: "Tidying"
+            }
+        }
+        public var symbol: String {
+            switch self {
+            case .security: "lock.trianglebadge.exclamationmark"
+            case .broken: "wrench.adjustable"
+            case .context: "gauge.with.dots.needle.67percent"
+            case .tidy: "sparkles"
+            }
+        }
+        public static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
+    }
+
+    public var category: Category {
+        if term == .env || title.localizedCaseInsensitiveContains("unencrypted") || (section == .permissions && severity == .problem) { return .security }
+        if severity == .problem || section == .hooks || title.contains("not installed") || title.contains("cut off") || title.contains("several scopes") { return .broken }
+        return tokens > 0 ? .context : .tidy
+    }
 
     /// A self-contained prompt to paste into Claude Code so it can fix this issue. Never includes secret values.
     public var aiPrompt: String {
@@ -156,16 +189,19 @@ public enum Checks {
         let listing = skills.reduce(0) { $0 + $1.listingTokens }
         // shortcut: assumes a 200k context (1% ≈ 2,000 tokens); 1M-context models get 5x more room.
         if listing > 2_000 {
-            out.append(Issue(severity: .warning, section: .skills, title: "Skill descriptions exceed the listing budget",
+            out.append(Issue(severity: .warning, section: .mySkills, title: "Skill descriptions exceed the listing budget",
                              subject: "\(skills.count) skills",
-                             detail: "Skill descriptions total \(formatTokens(listing)). The listing gets about 1% of the context window (≈2k tokens at 200k), so the least-used skills lose their description and Claude may not pick them. Hide unused ones below.",
+                             detail: "Skill descriptions total \(formatTokens(listing)). The listing gets about 1% of the context window (≈2k tokens at 200k), so the least-used skills lose their description and Claude may not pick them. Switch rarely used ones to On demand on the Skills page.",
                              term: .skillListing, tokens: listing))
         }
-        for c in s.components where c.kind == .skill && c.listingTokens > 0 && c.usageCount == 0 && c.scope != .plugin {
-            out.append(Issue(severity: .info, section: .skills, title: "Never-used skill is always listed", subject: c.name,
-                             detail: "\(c.name) has never been used but its description costs \(formatTokens(c.listingTokens)) every session. Making it user-invocable-only keeps /\(c.name) working by hand.",
-                             term: .skill, fix: .settingsKey(file: Paths.userSettings, path: ["skillOverrides", c.name], value: "user-invocable-only"),
-                             file: c.file, tokens: c.listingTokens))
+        let triage = skillSuggestions(s.components, projects: s.projects.map(\.path))
+        let suggested = skills.filter { triage[$0.id]?.state != nil }
+        if !suggested.isEmpty {
+            let saving = suggested.reduce(0) { $0 + $1.listingTokens }
+            out.append(Issue(severity: .warning, section: .mySkills, title: "\(suggested.count) skill\(suggested.count == 1 ? "" : "s") you rarely use \(suggested.count == 1 ? "has" : "have") a suggested state",
+                             subject: suggested.prefix(4).map(\.name).joined(separator: ", ") + (suggested.count > 4 ? "…" : ""),
+                             detail: "Accepting the suggestions saves \(formatTokens(saving)) per session. You still call each one with /name, and the cheat sheet on the Skills page keeps them findable.",
+                             term: .skill, fix: .many(suggested.compactMap { c in triage[c.id]?.state.flatMap(c.fix(to:)) }), tokens: saving))
         }
         for c in s.components where c.kind == .skill {
             if c.lineCount > 500 {

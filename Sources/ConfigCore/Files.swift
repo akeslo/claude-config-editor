@@ -69,7 +69,10 @@ public func safeWrite(_ data: Data, to url: URL, expectedModified: Date?, backup
     if exists(url) {
         try fm.createDirectory(at: backupDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
-        let target = backupDir.appending(path: "\(url.lastPathComponent).\(stamp)")
+        // Many files share a name (every SKILL.md), so same-second backups need a counter.
+        var target = backupDir.appending(path: "\(url.lastPathComponent).\(stamp)")
+        var n = 1
+        while exists(target) { n += 1; target = backupDir.appending(path: "\(url.lastPathComponent).\(stamp)-\(n)") }
         try fm.copyItem(at: url, to: target)
         backup = target
     }
@@ -160,4 +163,12 @@ public func trashRefusal(_ url: URL) -> String? {
         return "not a Claude data folder"
     }
     return nil
+}
+
+/// "owner/repo" for a GitHub URL, else nil.
+public func githubSlug(_ url: URL?) -> String? {
+    guard let u = url, u.host == "github.com" else { return nil }
+    let parts = u.pathComponents.filter { $0 != "/" }
+    guard parts.count >= 2 else { return nil }
+    return parts[0] + "/" + (parts[1].hasSuffix(".git") ? String(parts[1].dropLast(4)) : parts[1])
 }

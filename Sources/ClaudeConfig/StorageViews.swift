@@ -7,31 +7,37 @@ struct StorageView: View {
     @State private var items: [Item] = []
     @State private var picked = Set<Item.ID>()
     @State private var loadingItems = false
+    @State private var search = ""
+    @State private var areaSort = [KeyPathComparator(\StorageArea.bytes, order: .reverse)]
+    @State private var itemSort = [KeyPathComparator(\Item.bytes, order: .reverse)]
 
     struct Item: Identifiable {
         var id: String { url.path }
         let url: URL
         var bytes: Int64
         let modified: Date?
+        var name: String { url.lastPathComponent }
     }
 
     var body: some View {
         let total = max(1, model.storage.reduce(0) { $0 + $1.bytes })
         VSplitView {
-            Table(model.storage, selection: $areaID) {
-                TableColumn("Location") { a in
+            // One filter for both tables: a second .searchable in the same view would fight the first.
+            Table(model.storage.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.url.path.localizedCaseInsensitiveContains(search) }.sorted(using: areaSort),
+                  selection: $areaID, sortOrder: $areaSort) {
+                TableColumn("Location", value: \.name) { a in
                     Label(a.name, systemImage: a.safety == .keep ? "lock" : a.safety == .unknown ? "questionmark.folder" : "folder")
                         .help(a.term.tooltip)
                 }
-                TableColumn("Size") { a in
+                TableColumn("Size", value: \.bytes) { a in
                     HStack {
                         ProgressView(value: Double(a.bytes), total: Double(total)).frame(width: 70)
                         Text(a.bytes == 0 && model.measuringStorage ? "…" : formatBytes(a.bytes)).monospacedDigit()
                     }
                 }.width(150)
-                TableColumn("Items") { Text("\($0.itemCount)").monospacedDigit() }.width(50)
-                TableColumn("Oldest") { Text(relative($0.oldest)) }.width(110)
-                TableColumn("Safety") { a in
+                TableColumn("Items", value: \.itemCount) { Text("\($0.itemCount)").monospacedDigit() }.width(50)
+                TableColumn("Oldest", value: \.oldest, comparator: OptionalDateComparator()) { Text(relative($0.oldest)) }.width(110)
+                TableColumn("Safety", value: \.safety.rawValue) { a in
                     Text(a.safety.rawValue).foregroundStyle(a.safety == .safe ? .green : a.safety == .keep ? .secondary : .orange)
                         .help(safetyHelp(a.safety))
                 }.width(110)
@@ -57,10 +63,10 @@ struct StorageView: View {
                     }
                 }
                 .padding(Space.s)
-                Table(items, selection: $picked) {
-                    TableColumn("Name") { Text($0.url.lastPathComponent).lineLimit(1).truncationMode(.middle).help($0.url.path) }
-                    TableColumn("Size") { Text(formatBytes($0.bytes)).monospacedDigit() }.width(90)
-                    TableColumn("Modified") { Text(relative($0.modified)) }.width(130)
+                Table(items.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }.sorted(using: itemSort), selection: $picked, sortOrder: $itemSort) {
+                    TableColumn("Name", value: \.name) { Text($0.name).lineLimit(1).truncationMode(.middle).help($0.url.path) }
+                    TableColumn("Size", value: \.bytes) { Text(formatBytes($0.bytes)).monospacedDigit() }.width(90)
+                    TableColumn("Modified", value: \.modified, comparator: OptionalDateComparator()) { Text(relative($0.modified)) }.width(130)
                 }
                 .contextMenu(forSelectionType: Item.ID.self) { ids in
                     if let id = ids.first { Button("Reveal in Finder") { reveal(URL(filePath: id)) } }
@@ -71,6 +77,7 @@ struct StorageView: View {
             }
             .frame(minHeight: 200)
         }
+        .searchable(text: $search, prompt: "Filter locations and items")
         .onChange(of: areaID) {
             picked = []
             guard let area else { items = []; return }

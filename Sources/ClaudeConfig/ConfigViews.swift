@@ -5,17 +5,22 @@ struct PermissionsView: View {
     @Environment(AppModel.self) private var model
     @State private var selection: PermissionRule.ID?
     @State private var showProjectApprovals = false
+    @State private var search = ""
+    @State private var sort = [KeyPathComparator(\PermissionRule.kind)]
 
     var body: some View {
         let rules = model.snapshot.permissions.filter { showProjectApprovals || $0.kind != "allowedTools" }
-        Table(rules, selection: $selection) {
-            TableColumn("Type") { r in
+            .filter { search.isEmpty || $0.rule.localizedCaseInsensitiveContains(search) || $0.source.localizedCaseInsensitiveContains(search) || $0.kind.localizedCaseInsensitiveContains(search) }
+            .sorted(using: sort)
+        Table(rules, selection: $selection, sortOrder: $sort) {
+            TableColumn("Type", value: \.kind) { r in
                 Text(r.kind).foregroundStyle(r.kind == "deny" ? .red : r.kind == "ask" ? .orange : .primary)
                     .help(r.kind == "allowedTools" ? Term.allowedTools.tooltip : "\(r.kind): " + Term.permissions.tooltip)
             }.width(90)
-            TableColumn("Rule") { Text($0.rule).font(.system(.body, design: .monospaced)).lineLimit(1).truncationMode(.middle) }
-            TableColumn("Source") { r in Text(r.source).help(shortPath(r.sourceURL)) }.width(200)
+            TableColumn("Rule", value: \.rule) { Text($0.rule).font(.system(.body, design: .monospaced)).lineLimit(1).truncationMode(.middle) }
+            TableColumn("Source", value: \.source) { r in Text(r.source).help(shortPath(r.sourceURL)) }.width(200)
         }
+        .searchable(text: $search, prompt: "Filter rules")
         .toolbar {
             Toggle("Per-project approvals", isOn: $showProjectApprovals).help(Term.allowedTools.tooltip)
         }
@@ -30,26 +35,37 @@ struct PermissionsView: View {
 struct MCPView: View {
     @Environment(AppModel.self) private var model
     @State private var selection: MCPServer.ID?
+    @State private var search = ""
+    @State private var scope: Scope?
+    @State private var sort = [KeyPathComparator(\MCPServer.name)]
 
     var body: some View {
         let servers = model.snapshot.mcpServers
-        Table(servers, selection: $selection) {
-            TableColumn("Name") { m in
+            .filter { scope == nil || $0.scope == scope }
+            .filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.description.localizedCaseInsensitiveContains(search) || $0.command.localizedCaseInsensitiveContains(search) }
+            .sorted(using: sort)
+        Table(servers, selection: $selection, sortOrder: $sort) {
+            TableColumn("Name", value: \.name) { m in
                 VStack(alignment: .leading) {
                     Text(m.name).fontWeight(.medium)
                     if !m.description.isEmpty { Text(m.description).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                 }
                 .explains(.mcpServer, "\(m.description.isEmpty ? "" : m.description + "\n\n")Runs: \(m.command) (\(m.transport))\nFrom: \(m.scope.rawValue)")
             }
-            TableColumn("Scope") { m in Text(m.scope.rawValue).help(Term.mcpScope.tooltip) }.width(110)
-            TableColumn("Where") { m in Text(m.project.map { ($0 as NSString).lastPathComponent } ?? "everywhere").help(m.project ?? "") }.width(140)
-            TableColumn("Type") { Text($0.transport) }.width(60)
-            TableColumn("Command / URL") { Text($0.command).font(.system(.caption, design: .monospaced)).lineLimit(1).truncationMode(.middle) }
+            TableColumn("Scope", value: \.scope.rawValue) { m in Text(m.scope.rawValue).help(Term.mcpScope.tooltip) }.width(110)
+            TableColumn("Where", value: \.place) { m in Text(m.place).help(m.project ?? "") }.width(140)
+            TableColumn("Type", value: \.transport) { Text($0.transport) }.width(60)
+            TableColumn("Command / URL", value: \.command) { Text($0.command).font(.system(.caption, design: .monospaced)).lineLimit(1).truncationMode(.middle) }
         }
         .contextMenu(forSelectionType: MCPServer.ID.self) { ids in
             if let m = servers.first(where: { ids.contains($0.id) }) { removeButton(m) }
         }
+        .searchable(text: $search, prompt: "Filter servers")
         .toolbar {
+            Picker("Scope", selection: $scope) {
+                Text("All scopes").tag(Scope?.none)
+                ForEach(Scope.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
+            }
             if let m = servers.first(where: { $0.id == selection }) { removeButton(m) }
         }
         .onChange(of: selection) {
@@ -163,17 +179,23 @@ struct ComponentsView: View {
 
     private var selected: Component? { model.snapshot.components.first { selection.contains($0.id) } }
     /// A skill is its whole folder; agents and commands are single files.
-    private func trashURL(_ c: Component) -> URL { c.kind == .skill && c.file.lastPathComponent == "SKILL.md" ? c.file.deletingLastPathComponent() : c.file }
 }
+
+/// A skill is its whole folder; other components are one file.
+func trashURL(_ c: Component) -> URL { c.kind == .skill && c.file.lastPathComponent == "SKILL.md" ? c.file.deletingLastPathComponent() : c.file }
 
 struct PluginsView: View {
     @Environment(AppModel.self) private var model
     @State private var selection = Set<Plugin.ID>()
+    @State private var search = ""
+    @State private var sort = [KeyPathComparator(\Plugin.id)]
 
     var body: some View {
         let plugins = model.snapshot.plugins
-        Table(plugins, selection: $selection) {
-            TableColumn("Plugin") { p in
+            .filter { search.isEmpty || $0.id.localizedCaseInsensitiveContains(search) || $0.description.localizedCaseInsensitiveContains(search) }
+            .sorted(using: sort)
+        Table(plugins, selection: $selection, sortOrder: $sort) {
+            TableColumn("Plugin", value: \.id) { p in
                 HStack {
                     Image(systemName: p.enabled ? "checkmark.circle.fill" : "circle").foregroundStyle(p.enabled ? .green : .secondary)
                         .help(p.enabled ? "Enabled" : "Disabled: costs no context")
@@ -185,7 +207,7 @@ struct PluginsView: View {
                     if !p.notes.isEmpty { Image(systemName: "exclamationmark.bubble").foregroundStyle(.orange).help(p.notes.joined(separator: "\n")) }
                 }
             }
-            TableColumn("Version") { p in
+            TableColumn("Version", value: \.version) { p in
                 if let v = p.latestVersion {
                     Label("\(p.version.prefix(12)) → \(v)", systemImage: "arrow.up.circle.fill").foregroundStyle(.blue).lineLimit(1)
                         .help("Update available: select it and press Update…")
@@ -195,9 +217,10 @@ struct PluginsView: View {
                 Text(p.enabled ? model.pluginTokens[p.id].map(formatTokens) ?? "…" : "—").monospacedDigit()
                     .help("Context added to every session, from claude plugin details")
             }.width(90)
-            TableColumn("Uses") { Text("\($0.usageCount)").monospacedDigit() }.width(50)
-            TableColumn("Last used") { Text(relative($0.lastUsed)) }.width(110)
+            TableColumn("Uses", value: \.usageCount) { Text("\($0.usageCount)").monospacedDigit() }.width(50)
+            TableColumn("Last used", value: \.lastUsed, comparator: OptionalDateComparator()) { Text(relative($0.lastUsed)) }.width(110)
         }
+        .searchable(text: $search, prompt: "Filter plugins")
         .contextMenu(forSelectionType: Plugin.ID.self) { ids in
             let outdated = plugins.filter { ids.contains($0.id) && $0.latestVersion != nil }
             if outdated.count == 1, let p = outdated.first {
@@ -229,9 +252,11 @@ struct PluginsView: View {
 struct HooksView: View {
     @Environment(AppModel.self) private var model
     @State private var selection = Set<Hook.ID>()
+    @State private var search = ""
 
     var body: some View {
         let hooks = model.snapshot.hooks
+            .filter { search.isEmpty || $0.command.localizedCaseInsensitiveContains(search) || $0.event.localizedCaseInsensitiveContains(search) || $0.source.localizedCaseInsensitiveContains(search) || ($0.matcher ?? "").localizedCaseInsensitiveContains(search) }
         // Group by who added the hook: you (settings files) or a plugin.
         let groups = Dictionary(grouping: hooks, by: \.source).sorted { ($0.key.hasPrefix("Plugin") ? 1 : 0, $0.key) < ($1.key.hasPrefix("Plugin") ? 1 : 0, $1.key) }
         List(selection: $selection) {
@@ -263,6 +288,7 @@ struct HooksView: View {
             }
             TrashButton(urls: Array(Set(picked.compactMap(\.scriptPath).filter(exists))), label: "Move Script to Trash…")
         }
+        .searchable(text: $search, prompt: "Filter hooks by command, event or source")
         .onChange(of: selection) {
             guard let h = hooks.first(where: { selection.contains($0.id) }) else { return }
             model.info = InfoItem("\(h.event) hook", term: .hook, facts: [
@@ -380,29 +406,36 @@ struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var selection: String?
     @State private var doctor: String?
+    @State private var search = ""
+    @State private var sort = [KeyPathComparator(\Row.key)]
 
     struct Row: Identifiable {
         var id: String { source.id + "|" + key }
         let source: SettingsSource
         let key: String
         let value: String
+        var scope: String { source.scope.rawValue }
+        var file: String { shortPath(source.url) }
     }
 
     var body: some View {
         let rows = model.snapshot.settings.flatMap { s in
             s.root.keys.sorted().map { Row(source: s, key: $0, value: compact(s.root[$0])) }
         } + keybindingRows
-        Table(rows, selection: $selection) {
-            TableColumn("Key") { r in
+        let shown = rows.filter { search.isEmpty || $0.key.localizedCaseInsensitiveContains(search) || $0.value.localizedCaseInsensitiveContains(search) }
+            .sorted(using: sort)
+        Table(shown, selection: $selection, sortOrder: $sort) {
+            TableColumn("Key", value: \.key) { r in
                 HStack {
                     if r.source.scope == .managed { Image(systemName: "lock.fill").help(Term.managedSettings.tooltip) }
                     Text(r.key).fontWeight(.medium).help(term(r.key).tooltip)
                 }
             }.width(200)
-            TableColumn("Value") { Text($0.value).font(.system(.caption, design: .monospaced)).lineLimit(1).truncationMode(.tail) }
-            TableColumn("Scope") { r in Text(r.source.scope.rawValue).help(Term.precedence.tooltip) }.width(110)
-            TableColumn("File") { r in Text(shortPath(r.source.url)).lineLimit(1).truncationMode(.head) }.width(220)
+            TableColumn("Value", value: \.value) { Text($0.value).font(.system(.caption, design: .monospaced)).lineLimit(1).truncationMode(.tail) }
+            TableColumn("Scope", value: \.scope) { r in Text(r.scope).help(Term.precedence.tooltip) }.width(110)
+            TableColumn("File", value: \.file) { r in Text(r.file).lineLimit(1).truncationMode(.head) }.width(220)
         }
+        .searchable(text: $search, prompt: "Filter by key or value")
         .toolbar {
             Button("Run claude doctor") { Task { doctor = await ClaudeCLI.run(["doctor"]).output } }
                 .help("Claude's own read-only diagnostics, including invalid settings files.")
@@ -463,25 +496,27 @@ struct DiscoverView: View {
     @State private var search = ""
     @State private var hideInstalled = true
     @State private var selection: AvailablePlugin.ID?
+    @State private var sort = [KeyPathComparator(\AvailablePlugin.installCount, order: .reverse)]
 
     var body: some View {
         let list = model.available
             .filter { !hideInstalled || !$0.installed }
             .filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.description.localizedCaseInsensitiveContains(search) }
+            .sorted(using: sort)
         Group {
             if model.available.isEmpty {
                 ProgressView("Loading marketplaces…")
             } else {
-                Table(list, selection: $selection) {
-                    TableColumn("Plugin") { p in
+                Table(list, selection: $selection, sortOrder: $sort) {
+                    TableColumn("Plugin", value: \.name) { p in
                         VStack(alignment: .leading) {
                             Text(p.name).fontWeight(.medium)
                             Text(p.description).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                         }
                         .explains(.plugin, p.description)
                     }
-                    TableColumn("Marketplace") { p in Text(p.marketplace).help(Term.marketplace.tooltip) }.width(170)
-                    TableColumn("Installs") { Text($0.installCount.formatted()).monospacedDigit() }.width(80)
+                    TableColumn("Marketplace", value: \.marketplace) { p in Text(p.marketplace).help(Term.marketplace.tooltip) }.width(170)
+                    TableColumn("Installs", value: \.installCount) { Text($0.installCount.formatted()).monospacedDigit() }.width(80)
                     TableColumn("") { p in Text(p.installed ? "Installed" : "").foregroundStyle(.secondary) }.width(70)
                 }
             }
@@ -500,6 +535,10 @@ struct DiscoverView: View {
             model.info = InfoItem(p.name, term: .marketplace, facts: [("ID", p.id), ("Marketplace", p.marketplace), ("Installs", p.installCount.formatted())], link: p.repoURL, text: p.description)
         }
     }
+}
+
+extension MCPServer {
+    var place: String { project.map { ($0 as NSString).lastPathComponent } ?? "everywhere" }
 }
 
 extension ComponentKind {

@@ -66,6 +66,9 @@ public struct Component: Identifiable, Sendable {
     public var lastUsed: Date?
     /// skillOverrides value from user settings: "user-invocable-only" hides it from the listing, "name-only" drops the description.
     public var override: String?
+    /// Where it came from on GitHub (skills CLI lock file, the folder's git remote, or its plugin), when known.
+    public var repoURL: URL?
+    public var installedAt: Date?
     public var listingTokens: Int {
         guard alwaysLoaded, override != "user-invocable-only" else { return 0 }
         return override == "name-only" ? estimateTokens(name) + 4 : estimateTokens(name + description) + 4

@@ -4,6 +4,7 @@ import SwiftUI
 @main
 struct ClaudeConfigApp: App {
     @State private var model = AppModel()
+    @AppStorage("showSkillsMenuBar") private var showMenuBar = false
 
     var body: some Scene {
         WindowGroup("Claude Config") {
@@ -11,7 +12,10 @@ struct ClaudeConfigApp: App {
                 .environment(model)
                 .tint(.brand)
                 .frame(minWidth: 980, minHeight: 600)
-                .task { await model.refresh() }
+                .task {
+                    await model.refresh()
+                    if UserDefaults.standard.object(forKey: "analyzeOnLaunch") as? Bool ?? true { await model.analyzeSkillsIfNeeded() }
+                }
                 .task { await model.checkForAppUpdate() }
         }
         .defaultSize(width: 1440, height: 900)
@@ -21,25 +25,28 @@ struct ClaudeConfigApp: App {
                 Button("Toggle Explanations") { model.showInspector.toggle() }.keyboardShortcut("i", modifiers: [.command, .option])
             }
         }
+        Settings { AppSettingsView() }
+        MenuBarExtra("Skills", systemImage: "wand.and.stars", isInserted: $showMenuBar) {
+            MenuBarSkills().environment(model).tint(.brand)
+        }
+        .menuBarExtraStyle(.window)
     }
 }
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @State private var search = ""
+    @AppStorage("everythingElseExpanded") private var everythingElseExpanded = false
 
     var body: some View {
         @Bindable var model = model
         NavigationSplitView {
             List(selection: $model.section) {
-                ForEach(["Overview", "What Claude Can Do", "What Claude Knows", "Housekeeping"], id: \.self) { g in
-                    Section(g) {
-                        ForEach(AppSection.allCases.filter { $0.group == g }) { s in
-                            Label(s.rawValue, systemImage: s.symbol)
-                                .badge(badge(for: s))
-                                .help(s.term.tooltip)
-                                .tag(s)
-                        }
-                    }
+                Section {
+                    ForEach(AppSection.allCases.filter(\.isPrimary)) { sidebarRow($0) }
+                }
+                Section("Everything else", isExpanded: $everythingElseExpanded) {
+                    ForEach(AppSection.allCases.filter { !$0.isPrimary }) { sidebarRow($0) }
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -53,8 +60,10 @@ struct RootView: View {
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)
         } detail: {
-            detail
-                .navigationTitle(model.section.rawValue)
+            Group {
+                if search.isEmpty { detail } else { SearchResultsView(query: search) { search = "" } }
+            }
+                .navigationTitle(search.isEmpty ? model.section.rawValue : "Search")
                 .toolbar {
                     ToolbarItemGroup {
                         let issues = model.issues.filter { model.section == .health || $0.section == model.section }
@@ -74,13 +83,18 @@ struct RootView: View {
                         .inspectorColumnWidth(min: 260, ideal: 320, max: 420)
                 }
         }
-        .onChange(of: model.section) { model.info = nil }
+        .searchable(text: $search, placement: .sidebar, prompt: "Search everything")
+        .onChange(of: model.section) {
+            model.info = nil
+            if !model.section.isPrimary { everythingElseExpanded = true }
+        }
         .sheet(item: $model.pendingFix) { FixSheet(pending: $0) }
     }
 
     @ViewBuilder private var detail: some View {
         switch model.section {
-        case .health: HealthView()
+        case .health: ReviewView()
+        case .mySkills: SkillsView()
         case .context: ContextView()
         case .analytics: AnalyticsView()
         case .storage: StorageView()
@@ -94,6 +108,13 @@ struct RootView: View {
         case .settings: SettingsView()
         case .discover: DiscoverView()
         }
+    }
+
+    private func sidebarRow(_ s: AppSection) -> some View {
+        Label(s.rawValue, systemImage: s.symbol)
+            .badge(badge(for: s))
+            .help(s.term.tooltip)
+            .tag(s)
     }
 
     private func badge(for s: AppSection) -> Int {
@@ -147,6 +168,61 @@ struct InfoPanel: View {
             }
             .padding(Space.l)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// One search across every page: issues, skills, agents, MCP servers, hooks, plugins and permission rules.
+struct SearchResultsView: View {
+    @Environment(AppModel.self) private var model
+    let query: String
+    let done: () -> Void
+
+    private struct Hit: Identifiable {
+        let id = UUID()
+        let section: AppSection
+        let title: String
+        let detail: String
+    }
+
+    private var hits: [Hit] {
+        let s = model.snapshot
+        var all: [Hit] = model.issues.map { Hit(section: $0.section, title: $0.title, detail: $0.subject) }
+        all += s.components.map { Hit(section: $0.kind == .skill ? .mySkills : .skills, title: $0.name, detail: $0.description) }
+        all += s.mcpServers.map { Hit(section: .mcp, title: $0.name, detail: $0.command) }
+        all += s.hooks.map { Hit(section: .hooks, title: $0.event, detail: $0.command) }
+        all += s.plugins.map { Hit(section: .plugins, title: $0.id, detail: $0.description) }
+        all += s.permissions.map { Hit(section: .permissions, title: $0.rule, detail: "\($0.kind) · \($0.source)") }
+        all += AppSection.allCases.map { Hit(section: $0, title: $0.rawValue, detail: $0.group) }
+        return all.filter { $0.title.localizedCaseInsensitiveContains(query) || $0.detail.localizedCaseInsensitiveContains(query) }
+    }
+
+    var body: some View {
+        let hits = hits
+        if hits.isEmpty {
+            ContentUnavailableView.search(text: query)
+        } else {
+            List {
+                ForEach(AppSection.allCases) { sec in
+                    let group = hits.filter { $0.section == sec }
+                    if !group.isEmpty {
+                        SwiftUI.Section(sec.rawValue) {
+                            ForEach(group) { h in
+                                Button { model.section = sec; done() } label: {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(h.title).lineLimit(1)
+                                        if !h.detail.isEmpty { Text(h.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                                    }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .help("Open \(sec.rawValue)")
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

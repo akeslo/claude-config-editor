@@ -244,3 +244,124 @@ struct UsageTests {
     #expect(trashRefusal(URL(filePath: "/tmp/proj/CLAUDE.md")) == nil)
     #expect(trashRefusal(Paths.claudeDir.appending(path: "settings.json.bak")) == nil)
 }
+
+struct SkillStateTests {
+    let dir: URL = {
+        let d = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try! FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }()
+
+    func skill(_ text: String, uses: Int = 0) throws -> Component {
+        let folder = dir.appending(path: "skills/demo")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appending(path: "SKILL.md")
+        try Data(text.utf8).write(to: file)
+        var c = Scanner.component(.skill, file, "demo", .user, nil, "")
+        c.usageCount = uses
+        return c
+    }
+
+    @Test func onDemandWritesFrontmatterAndDropsCost() throws {
+        let c = try skill("---\nname: demo\ndescription: Does a demo thing for testing.\n---\n\nBody\n")
+        #expect(c.state == .always && c.listingTokens > 0)
+        #expect(skillSuggestions([c])[c.id]?.state == .onDemand)
+        guard case .frontmatter(let file, let key, let value)? = c.fix(to: .onDemand) else { Issue.record("expected a frontmatter fix"); return }
+        let backup = try setFrontmatterKey(file, key: key, value: value, backupDir: dir.appending(path: "b"))
+        #expect(backup != nil)
+        #expect(readText(file) == "---\nname: demo\ndescription: Does a demo thing for testing.\ndisable-model-invocation: true\n---\n\nBody\n")
+        let after = Scanner.component(.skill, file, "demo", .user, nil, "")
+        #expect(after.state == .onDemand && after.listingTokens == 0)
+        // And back: the key is removed, nothing else changes.
+        guard case .frontmatter(_, _, let v2)? = after.fix(to: .always) else { Issue.record("expected removal"); return }
+        _ = try setFrontmatterKey(file, key: "disable-model-invocation", value: v2, backupDir: dir)
+        #expect(readText(file) == "---\nname: demo\ndescription: Does a demo thing for testing.\n---\n\nBody\n")
+    }
+
+    @Test func pluginSkillsAndUsedSkillsGetNoSuggestion() throws {
+        var c = try skill("---\nname: demo\ndescription: x\n---\n", uses: 3)
+        c.lastUsed = Date()
+        #expect(skillSuggestions([c])[c.id] == nil)
+        let p = Component(kind: .skill, name: "p:demo", scope: .plugin, owner: "p@m", file: c.file, description: "x", lineCount: 1, alwaysLoaded: true, frontmatterKeys: [])
+        #expect(skillSuggestions([p])[p.id] == nil && p.fix(to: .onDemand) == nil)
+    }
+
+    @Test func offUsesSkillOverrides() throws {
+        let c = try skill("---\nname: demo\ndescription: x\n---\n")
+        guard case .settingsKey(_, let path, let value)? = c.fix(to: .off) else { Issue.record("expected settings"); return }
+        #expect(path == ["skillOverrides", "demo"] && value == "off")
+    }
+
+    @Test func addsFrontmatterWhenMissing() {
+        #expect(frontmatterSetting("Body", key: "k", value: "v") == "---\nk: v\n---\nBody")
+        #expect(frontmatterSetting("Body", key: "k", value: nil) == "Body")
+    }
+}
+
+@Test func crlfFrontmatterIsEditedInPlace() {
+    #expect(frontmatterSetting("---\r\nname: a\r\n---\r\nBody", key: "k", value: "v") == "---\r\nname: a\r\nk: v\n---\r\nBody")
+}
+
+@Test func githubSlugs() {
+    #expect(githubSlug(URL(string: "https://github.com/vercel-labs/skills.git")) == "vercel-labs/skills")
+    #expect(githubSlug(URL(string: "https://github.com/a/b/tree/main/x")) == "a/b")
+    #expect(githubSlug(URL(string: "https://gitlab.com/a/b")) == nil)
+}
+
+@Test func readsGitRemoteWithoutGit() throws {
+    let d = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+    try FileManager.default.createDirectory(at: d.appending(path: ".git"), withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: d.appending(path: "skills/x"), withIntermediateDirectories: true)
+    try Data("[core]\n\tbare = false\n[remote \"origin\"]\n\turl = git@github.com:a/b.git\n".utf8).write(to: d.appending(path: ".git/config"))
+    #expect(githubSlug(Scanner.gitRemote(d.appending(path: "skills/x"))) == "a/b")
+}
+
+/// One test per triage rule in skillSuggestions.
+struct SkillTriageTests {
+    let now = Date()
+    func make(_ name: String, _ scope: Scope = .user, owner: String? = nil, desc: String = "Formats tables nicely", uses: Int = 5, daysAgo: Double? = 1) -> Component {
+        var c = Component(kind: .skill, name: name, scope: scope, owner: owner, file: URL(filePath: "/tmp/\(scope.rawValue)/\(owner ?? "")/\(name)/SKILL.md"),
+                          description: desc, lineCount: 10, alwaysLoaded: true, frontmatterKeys: [])
+        c.usageCount = uses
+        c.lastUsed = daysAgo.map { now.addingTimeInterval(-$0 * 86_400) }
+        return c
+    }
+
+    @Test func shadowedProjectCopyIsAdvisedForRemoval() {
+        let p = make("lint", .project, owner: "/code/app"), u = make("lint")
+        #expect(skillSuggestions([p, u], now: now)[p.id]?.action == .removeDuplicate)
+        #expect(skillSuggestions([p, u], now: now)[u.id] == nil)
+    }
+
+    @Test func personalSkillNamingOneProjectIsAdvisedToMove() {
+        let c = make("deploy", desc: "Deploys the fitness-dashboard service to the server")
+        let s = skillSuggestions([c], projects: ["/code/fitness-dashboard", "/code/other"], now: now)[c.id]
+        #expect(s?.action == .moveToProject("/code/fitness-dashboard") && s?.state == nil)
+    }
+
+    @Test func neverUsedGoesOnDemand() {
+        let c = make("x", uses: 0, daysAgo: nil)
+        #expect(skillSuggestions([c], now: now)[c.id]?.state == .onDemand)
+    }
+
+    @Test func staleGoesOnDemand() {
+        let c = make("x", daysAgo: 90)
+        #expect(skillSuggestions([c], now: now)[c.id]?.state == .onDemand)
+        #expect(skillSuggestions([make("y", daysAgo: 10)], now: now).isEmpty)
+    }
+
+    @Test func overlapKeepsTheMoreUsedOne() {
+        let a = make("pdf-tools", desc: "Extract text tables images from PDF documents and merge pages", uses: 20)
+        let b = make("pdf-helper", desc: "Extract text tables images from PDF documents and split pages", uses: 2)
+        let s = skillSuggestions([a, b], now: now)
+        #expect(s[b.id]?.state == .onDemand && s[a.id] == nil)
+    }
+
+    @Test func overBudgetTrimsLeastUsedFirst() {
+        let long = String(repeating: "word ", count: 300)
+        let busy = make("busy", desc: long + "alpha", uses: 50, daysAgo: 20), rare = make("rare", desc: long + "beta", uses: 1, daysAgo: 30)
+        let recent = make("recent", desc: long + "gamma", uses: 1, daysAgo: 1)
+        let s = skillSuggestions([busy, rare, recent], budget: 800, now: now)
+        #expect(s[rare.id]?.state == .onDemand && s[busy.id] == nil && s[recent.id] == nil)
+    }
+}

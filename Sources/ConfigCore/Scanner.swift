@@ -45,7 +45,10 @@ public enum Scanner {
         }
         snap.components = components(projectPaths: repoPaths, plugins: enabledPlugins, usage: claudeJSON["skillUsage"] as? JSON ?? [:])
         let overrides = snap.setting("skillOverrides")?.value as? [String: String] ?? [:]
-        for i in snap.components.indices { snap.components[i].override = overrides[snap.components[i].name] }
+        for i in snap.components.indices {
+            snap.components[i].override = overrides[snap.components[i].name]
+            if let plugin = snap.plugins.first(where: { $0.id == snap.components[i].owner }) { snap.components[i].repoURL = plugin.repoURL }
+        }
         snap.hooks = hooks(settings: snap.settings, plugins: enabledPlugins)
         snap.permissions = permissions(settings: snap.settings, projects: snap.projects)
         snap.instructions = instructions(projects: snap.projects)
@@ -111,6 +114,26 @@ public enum Scanner {
             plugin.lastUsed = (u?["lastUsedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
             return plugin
         }.sorted { $0.id < $1.id }
+    }
+
+    /// The `origin` URL from the nearest enclosing git checkout's config, read without running git.
+    static func gitRemote(_ start: URL) -> URL? {
+        var dir = start
+        for _ in 0..<5 {
+            if let config = readText(dir.appending(path: ".git/config")) {
+                var inOrigin = false
+                for line in config.split(separator: "\n").map({ $0.trimmingCharacters(in: .whitespaces) }) {
+                    if line.hasPrefix("[") { inOrigin = line == #"[remote "origin"]"# }
+                    else if inOrigin, line.hasPrefix("url"), let eq = line.firstIndex(of: "=") {
+                        return URL(string: line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces)
+                        .replacingOccurrences(of: "git@github.com:", with: "https://github.com/"))
+                    }
+                }
+                return nil
+            }
+            dir = dir.deletingLastPathComponent()
+        }
+        return nil
     }
 
     /// Where a plugin's source lives: its plugin.json repository/homepage, else the marketplace it came from.
@@ -248,8 +271,14 @@ public enum Scanner {
             let name = p.id.split(separator: "@").first.map(String.init) ?? p.id
             scan(p.installPath, scope: .plugin, owner: p.id, prefix: "\(name):")
         }
+        let lock = readJSON(Paths.home.appending(path: ".agents/.skill-lock.json"))?["skills"] as? JSON ?? [:]
         return out.map { c in
             var c = c
+            let folder = c.kind == .skill ? c.file.deletingLastPathComponent() : c.file
+            let entry = lock[folder.lastPathComponent] as? JSON
+            c.repoURL = (entry?["sourceUrl"] as? String).flatMap(URL.init(string:)) ?? gitRemote(folder.resolvingSymlinksInPath())
+            c.installedAt = (entry?["installedAt"] as? String).flatMap { try? Date($0, strategy: .iso8601) }
+                ?? (try? folder.resourceValues(forKeys: [.creationDateKey]))?.creationDate
             let u = usage[c.name] as? JSON
             c.usageCount = u?["usageCount"] as? Int ?? 0
             c.lastUsed = (u?["lastUsedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }

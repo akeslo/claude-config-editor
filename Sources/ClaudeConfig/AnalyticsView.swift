@@ -8,6 +8,14 @@ struct AnalyticsView: View {
     @State private var sort = [KeyPathComparator(\SessionStats.start, order: .reverse)]
     @State private var search = ""
     @State private var agent = "all"
+    @State private var modelSort = [KeyPathComparator(\ModelRow.cost, order: .reverse)]
+
+    struct ModelRow: Identifiable {
+        let model: String
+        var id: String { model }
+        let input, output, create, read: Int
+        let cost: Double
+    }
 
     var body: some View {
         Group {
@@ -181,26 +189,20 @@ struct AnalyticsView: View {
 
     private func modelTable(_ rows: [UsageRow]) -> some View {
         let models = Dictionary(grouping: rows, by: \.model)
-            .map { m, r in (model: m, input: r.reduce(0) { $0 + $1.input }, output: r.reduce(0) { $0 + $1.output },
-                            create: r.reduce(0) { $0 + $1.cacheCreate }, read: r.reduce(0) { $0 + $1.cacheRead }, cost: r.reduce(0) { $0 + $1.cost }) }
-            .sorted { $0.cost > $1.cost }
+            .map { m, r in ModelRow(model: m, input: r.reduce(0) { $0 + $1.input }, output: r.reduce(0) { $0 + $1.output },
+                                    create: r.reduce(0) { $0 + $1.cacheCreate }, read: r.reduce(0) { $0 + $1.cacheRead }, cost: r.reduce(0) { $0 + $1.cost }) }
+            .filter { search.isEmpty || $0.model.localizedCaseInsensitiveContains(search) }
+            .sorted(using: modelSort)
         return Card(title: "By model, all time", source: "ccusage") {
-            Grid(alignment: .trailing, horizontalSpacing: Space.xl, verticalSpacing: Space.s) {
-                GridRow {
-                    Text("Model").gridColumnAlignment(.leading)
-                    Text("Input"); Text("Output"); Text("Cache write"); Text("Cache read"); Text("Cost")
-                }
-                .font(.caption).foregroundStyle(.secondary)
-                Divider()
-                ForEach(models, id: \.model) { m in
-                    GridRow {
-                        Text(m.model)
-                        Text(compact(m.input)); Text(compact(m.output)); Text(compact(m.create)); Text(compact(m.read))
-                        Text(usd(m.cost)).fontWeight(.medium)
-                    }
-                    .monospacedDigit()
-                }
+            Table(models, sortOrder: $modelSort) {
+                TableColumn("Model", value: \.model) { Text($0.model) }
+                TableColumn("Input", value: \.input) { Text(compact($0.input)).monospacedDigit() }.width(80)
+                TableColumn("Output", value: \.output) { Text(compact($0.output)).monospacedDigit() }.width(80)
+                TableColumn("Cache write", value: \.create) { Text(compact($0.create)).monospacedDigit() }.width(80)
+                TableColumn("Cache read", value: \.read) { Text(compact($0.read)).monospacedDigit() }.width(80)
+                TableColumn("Cost", value: \.cost) { Text(usd($0.cost)).fontWeight(.medium).monospacedDigit() }.width(80)
             }
+            .frame(height: CGFloat(models.count) * 24 + 32)
         }
     }
 
