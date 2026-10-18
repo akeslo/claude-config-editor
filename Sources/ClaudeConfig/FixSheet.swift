@@ -117,9 +117,15 @@ struct FixSheet: View {
             let backup = try updateSettingsKey(file, path: path, value: value)
             result = "Saved." + (backup.map { "\nBackup: \(shortPath($0))" } ?? "")
         case .installSkills(let cs):
-            var installed = 0
-            for c in cs where try installSkill(c) { installed += 1 }
-            result = "Installed \(installed) skill(s)." + (installed < cs.count ? " Skipped \(cs.count - installed) that already exist." : "")
+            var installed: [String] = [], skipped: [String] = [], errors: [String] = []
+            for c in cs {
+                do { try installSkill(c) ? installed.append(c.name) : skipped.append(c.name) }
+                catch { errors.append("\(c.name): \(error.localizedDescription)") }
+            }
+            if !errors.isEmpty { failed = true }
+            result = ["Installed \(installed.count): \(installed.joined(separator: ", "))",
+                      "Skipped \(skipped.count) (already exist): \(skipped.joined(separator: ", "))",
+                      "Failed \(errors.count):" + errors.map { "\n  " + $0 }.joined()].joined(separator: "\n")
         }
         return result
     }

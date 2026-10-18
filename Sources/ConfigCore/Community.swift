@@ -206,24 +206,56 @@ public func downloadRepo(_ slug: String) async throws -> URL {
         }
         let tarball = tmp.appending(path: "repo.tar.gz")
         try data.write(to: tarball)
-        // shortcut: only the compressed size is capped, not the extracted size; add a walk-and-sum check if tarball bombs show up.
-        let root = tmp.appending(path: String(slug.split(separator: "/")[1]))
+        let root = tmp.appending(path: "src")
         try fm.createDirectory(at: root, withIntermediateDirectories: false)
-        let p = Process()
-        p.executableURL = URL(filePath: "/usr/bin/tar")
-        // bsdtar refuses `..` and absolute member paths by default; strip codeload's `<repo>-<sha>/` top dir.
-        p.arguments = ["-xzf", tarball.path, "-C", root.path, "--strip-components", "1"]
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
-        try p.run()
-        p.waitUntilExit()
+        try extractTarball(tarball, into: root)
         try? fm.removeItem(at: tarball)
-        guard p.terminationStatus == 0 else { throw CommunityError("Couldn't unpack \(slug).") }
         return root
     } catch {
         try? fm.removeItem(at: tmp)
         throw error
     }
+}
+
+/// Runs `/usr/bin/tar` (no shell) and returns its stdout; throws on a non-zero exit or after `timeout` seconds.
+private func runTar(_ args: [String], timeout: TimeInterval) throws -> String {
+    let out = FileManager.default.temporaryDirectory.appending(path: "config-editor-tar-\(UUID().uuidString)")
+    FileManager.default.createFile(atPath: out.path, contents: nil)
+    defer { try? FileManager.default.removeItem(at: out) }
+    let p = Process()
+    p.executableURL = URL(filePath: "/usr/bin/tar")
+    p.arguments = args
+    p.standardOutput = try FileHandle(forWritingTo: out)  // a file, not a pipe, so a long listing can't block tar
+    p.standardError = FileHandle.nullDevice
+    try p.run()
+    let deadline = Date().addingTimeInterval(timeout)
+    while p.isRunning {
+        if Date() > deadline { p.terminate(); p.waitUntilExit(); throw CommunityError("Unpacking took too long.") }
+        Thread.sleep(forTimeInterval: 0.05)
+    }
+    guard p.terminationStatus == 0 else { throw CommunityError("Couldn't unpack the repo.") }
+    return readText(out) ?? ""
+}
+
+/// Lists the archive first and refuses it when unpacked it would exceed `maxBytes` or `maxEntries`
+/// (or has a member we can't size, an absolute path, or `..`), then extracts it into `dir`,
+/// dropping codeload's `<repo>-<sha>/` top folder.
+func extractTarball(_ tarball: URL, into dir: URL, maxBytes: Int = 200 * 1024 * 1024, maxEntries: Int = 20_000,
+                    timeout: TimeInterval = 60) throws {
+    let lines = try runTar(["-tvzf", tarball.path], timeout: timeout).split(separator: "\n")
+    guard lines.count <= maxEntries else { throw CommunityError("The repo has too many files.") }
+    var total = 0
+    for line in lines {
+        // `-rw-r--r--  0 user group  1234 Oct 17 23:07 path`: the size is the 5th field.
+        let f = line.split(separator: " ", maxSplits: 8, omittingEmptySubsequences: true)
+        guard f.count == 9, let size = Int(f[4]) else { throw CommunityError("Couldn't read the repo archive.") }
+        let name = f[8].split(separator: " -> ").first.map(String.init) ?? ""
+        if name.hasPrefix("/") || name.split(separator: "/").contains("..") { throw CommunityError("The repo archive has unsafe paths.") }
+        total += size
+        if total > maxBytes { throw CommunityError("The repo is over 200 MB unpacked.") }
+    }
+    // bsdtar also refuses `..` and absolute member paths by default.
+    _ = try runTar(["-xzf", tarball.path, "-C", dir.path, "--strip-components", "1"], timeout: timeout)
 }
 
 private let scriptExtensions: Set<String> = ["sh", "py", "js", "ts", "rb", "pl", "ps1", "bash", "zsh", "mjs", "cjs"]

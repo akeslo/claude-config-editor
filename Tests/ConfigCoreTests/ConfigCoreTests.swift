@@ -623,6 +623,43 @@ struct CommunityTests {
         #expect(!FileManager.default.fileExists(atPath: skills.appending(path: "s").path))
     }
 
+    private func tarball(_ r: URL, _ extra: [String] = []) throws -> URL {
+        let p = Process()
+        p.executableURL = URL(filePath: "/usr/bin/tar")
+        p.currentDirectoryURL = r
+        p.arguments = ["-czf", "x.tgz"] + extra + ["top"]
+        try p.run(); p.waitUntilExit()
+        #expect(p.terminationStatus == 0)
+        return r.appending(path: "x.tgz")
+    }
+
+    @Test func extractsAndStripsTopDir() throws {
+        let r = try tmp(); defer { try? FileManager.default.removeItem(at: r) }
+        try put(r, "top/s/SKILL.md", "hi")
+        let out = r.appending(path: "out"); try FileManager.default.createDirectory(at: out, withIntermediateDirectories: false)
+        try extractTarball(try tarball(r), into: out)
+        #expect(readText(out.appending(path: "s/SKILL.md")) == "hi")
+    }
+
+    @Test func rejectsOversizedArchive() throws {
+        let r = try tmp(); defer { try? FileManager.default.removeItem(at: r) }
+        try put(r, "top/a", String(repeating: "x", count: 2000)); try put(r, "top/b")
+        let t = try tarball(r), out = r.appending(path: "out")
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: false)
+        #expect(throws: (any Error).self) { try extractTarball(t, into: out, maxBytes: 1000) }
+        #expect(throws: (any Error).self) { try extractTarball(t, into: out, maxEntries: 2) }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: out.path).isEmpty)
+    }
+
+    @Test func rejectsDotDotMember() throws {
+        let r = try tmp(); defer { try? FileManager.default.removeItem(at: r) }
+        try put(r, "top/a")
+        let t = try tarball(r, ["-s", ",^top/a$,top/../../evil,"]), out = r.appending(path: "out")
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: false)
+        #expect(throws: (any Error).self) { try extractTarball(t, into: out) }
+        #expect(!FileManager.default.fileExists(atPath: r.appending(path: "evil").path))
+    }
+
     @Test func rejectsBadSlug() async {
         await #expect(throws: (any Error).self) { try await downloadRepo("a/b;rm") }
         await #expect(throws: (any Error).self) { try await downloadRepo("../x") }
