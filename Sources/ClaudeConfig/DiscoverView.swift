@@ -33,7 +33,16 @@ struct DiscoverView: View {
             .filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.description.localizedCaseInsensitiveContains(search) }
             .sorted(using: sort)
         Group {
-            if let loadError, model.available.isEmpty {
+            if loadError != nil, model.available.isEmpty, !CatalogStatus.marketplacesSetUp() {
+                ContentUnavailableView {
+                    Label("No plugin marketplaces yet", systemImage: "shippingbox")
+                } description: {
+                    Text("Plugins come from marketplaces. Add one with `claude plugin marketplace add <owner/repo>`, or browse Community skills in the meantime.")
+                } actions: {
+                    Button("Browse community skills") { tab = "community" }
+                    Button("Check again") { Task { await load() } }
+                }
+            } else if let loadError, model.available.isEmpty {
                 ContentUnavailableView {
                     Label("Couldn't list plugins", systemImage: "exclamationmark.triangle")
                 } description: { Text(loadError).textSelection(.enabled) } actions: {

@@ -73,7 +73,7 @@ struct MenuBarSkills: View {
                 }
             }
             .frame(height: 360)
-            .overlay { if shown.isEmpty && catalog.isEmpty { Text(all.isEmpty ? "Loading skills…" : "No matches").foregroundStyle(.secondary) } }
+            .overlay { if shown.isEmpty && catalog.isEmpty { Text(!all.isEmpty ? "No matches" : model.loading ? "Loading skills…" : "No skills yet. Open Claude Config to set up your first one.").foregroundStyle(.secondary) } }
             CopyPromptButton(skills: all.filter { picked.contains($0.id) }, picked: $picked)
             if let copied { Label("Copied \(copied)", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(Color.accentColor) }
         }

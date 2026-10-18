@@ -19,10 +19,20 @@ struct CommunityView: View {
             if let busy = model.communityBusy { ProgressView(busy).controlSize(.small).padding(6) }
             if let error = model.communityError { Text(error).foregroundStyle(.red).font(.callout).padding(6).textSelection(.enabled) }
             if model.community.isEmpty {
-                if model.communityLoaded {
-                    ContentUnavailableView("Couldn't load community lists.", systemImage: "wifi.exclamationmark")
-                } else {
-                    ProgressView("Loading community lists…").frame(maxHeight: .infinity)
+                switch model.communityStatus {
+                case .connecting, .connected: ProgressView("Fetching community skill lists…").frame(maxHeight: .infinity)
+                case .notSetUp:
+                    ContentUnavailableView {
+                        Label("No community lists yet", systemImage: "books.vertical")
+                    } description: {
+                        Text("Community skill lists download from GitHub the first time you open this tab. Fetch them now to browse skills other people share.")
+                    } actions: { Button("Fetch lists") { Task { await model.loadCommunity(force: true) } } }
+                case .disconnected:
+                    ContentUnavailableView {
+                        Label("Can't reach the community lists", systemImage: "wifi.exclamationmark")
+                    } description: {
+                        Text("These lists loaded before but GitHub didn't answer this time. Check your connection, then try again.")
+                    } actions: { Button("Try again") { Task { await model.loadCommunity(force: true) } } }
                 }
             } else {
                 Table(list, selection: $selection) {

@@ -70,6 +70,11 @@ final class AppModel {
     /// Discover's search box, kept here so Ask Claude can send it.
     var discoverSearch = ""
     private var communityLoading = false
+    private var communityWasConnected = false
+    var communityStatus: CatalogStatus {
+        .resolve(loading: communityLoading || !communityLoaded, rows: community.count,
+                 setUp: CatalogStatus.communityCached(), wasConnected: communityWasConnected)
+    }
     /// Repo downloads behind a pending skill install; deleted when the sheet closes or the next install starts.
     var communityDownloads: [URL] = []
     /// One community install at a time; set before its task starts so a second click can't race cleanup.
@@ -321,7 +326,8 @@ final class AppModel {
         let lists = await withTaskGroup(of: (CommunityList, [CommunitySkill]).self) { group in
             for list in CommunityList.allCases {
                 let cache = dir.appending(path: list.rawValue)
-                let fresh = (d.object(forKey: "communityCheckedAt.\(list.rawValue)") as? Date).map { Date().timeIntervalSince($0) < 86_400 } ?? false
+                // The timestamp is app-wide but the cache is per profile: a fresh profile must fetch.
+                let fresh = exists(cache) && ((d.object(forKey: "communityCheckedAt.\(list.rawValue)") as? Date).map { Date().timeIntervalSince($0) < 86_400 } ?? false)
                 group.addTask {
                     if !fresh, let (data, resp) = try? await URLSession.shared.data(from: list.url),
                        (resp as? HTTPURLResponse)?.statusCode == 200, let rows = list.parse(data) {
@@ -337,6 +343,7 @@ final class AppModel {
             return out
         }
         community = CommunityCatalog.merge(CommunityList.allCases.map { lists[$0] ?? [] })
+        if !community.isEmpty { communityWasConnected = true }
     }
 
     func clearCommunityDownloads() {
