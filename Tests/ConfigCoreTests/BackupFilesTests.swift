@@ -27,11 +27,50 @@ struct BackupFilesTests {
         _ = try put(".claude/settings.json")
         let s = try put(".claude/settings.json.statusline-bak-20261018")
         #expect(BackupFiles.original(of: s)?.lastPathComponent == "settings.json")
+        _ = try put("skills/x/SKILL.md"); _ = try put("hooks/register.tsx")
         let k = try put("skills/x/SKILL.md.bak-20261018b")
         #expect(BackupFiles.original(of: k)?.lastPathComponent == "SKILL.md")
         let r = try put("hooks/register.tsx.bak-20261018")
         #expect(BackupFiles.original(of: r)?.lastPathComponent == "register.tsx")
+        _ = try put("CLAUDE.md")
         #expect(BackupFiles.original(of: dir.appending(path: "CLAUDE.md~"))?.lastPathComponent == "CLAUDE.md")
+        #expect(BackupFiles.original(of: dir.appending(path: "gone.md.bak")) == nil)
+    }
+
+    /// Dated folders under ~/.claude/backups map to the real files, never to a sibling inside the backup folder.
+    @Test func datedBackupFolderRules() throws {
+        let home = dir, b = ".claude/backups/20261018/"
+        let cj = try put(".claude.json"), hist = try put(".claude/history.jsonl"), ip = try put(".claude/plugins/installed_plugins.json")
+        let st = try put(".claude/settings.json"), skill = try put(".claude/skills/fluidplan/SKILL.md")
+        let hermit = dir.appending(path: "hermit"), hs = try put("hermit/.claude/settings.local.json")
+        let o = { (rel: String) throws -> URL? in BackupFiles.original(of: try put(b + rel), home: home, projects: [hermit]) }
+        #expect(try o("claude.json.bak") == cj)
+        #expect(try o("history.jsonl.bak") == hist)
+        #expect(try o("installed_plugins.json.bak") == ip)
+        #expect(try o("installed_plugins.json.pre-item2.bak") == ip)
+        #expect(try o("settings.json.roar.bak") == st)
+        #expect(try o("hermit.settings.local.json.bak") == hs)
+        #expect(try o("skills/fluidplan.SKILL.md.bak") == skill)
+        #expect(BackupFiles.original(of: try put(".claude/backups/.claude.json.backup.1792340868531"), home: home) == cj)
+    }
+
+    @Test func manifestAndUniqueSearch() throws {
+        let real = try put("elsewhere/odd.yaml")
+        _ = try put("bk/backups/x/MANIFEST.txt", "odd.yaml.bak  <-  \(real.path)")
+        #expect(BackupFiles.original(of: try put("bk/backups/x/odd.yaml.bak"), home: dir) == real)
+        let u = try put("p/.claude/agents/solo.md")
+        #expect(BackupFiles.original(of: try put("bk/backups/y/solo.md.bak"), home: dir, index: ["solo.md": [u]]) == u)
+    }
+
+    @Test func ambiguousIsUnknownAndRestoreRefusesWithoutCreating() throws {
+        let a = try put("p1/.claude/agents/dup.md"), c = try put("p2/.claude/agents/dup.md")
+        let claude = dir.appending(path: ".claude")
+        _ = try put(".claude/backups/20261018/dup.md.bak", "old")
+        let bf = try #require(BackupFiles.scan(deep: [claude, dir.appending(path: "p1/.claude"), dir.appending(path: "p2/.claude")], shallow: [], home: dir).first)
+        #expect(bf.original == nil)
+        #expect(throws: (any Error).self) { try BackupFiles.restore(bf, home: dir) }
+        #expect(!exists(dir.appending(path: ".claude/backups/20261018/dup.md")))
+        #expect(readText(a) == "x" && readText(c) == "x")
     }
 
     @Test func scanExcludesCacheModulesBinariesAndSymlinks() throws {

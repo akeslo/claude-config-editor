@@ -4,8 +4,8 @@ import Foundation
 public struct BackupFile: Identifiable, Sendable, Hashable {
     public var id: String { url.path }
     public let url: URL
-    /// The file it shadows; may not exist any more.
-    public let original: URL
+    /// The existing file it shadows; nil when no location resolves uniquely, and then Restore is disabled.
+    public let original: URL?
     public let size: Int64
     public let modified: Date?
 }
@@ -24,15 +24,65 @@ public enum BackupFiles {
         return ns.substring(to: m.range.location)
     }
 
-    /// The original a backup shadows. A label before `-bak` (`settings.json.statusline-bak-…`) is dropped by trying
-    /// shorter dot-prefixes and taking the first that exists; with none on disk, the full stem.
-    public static func original(of url: URL) -> URL? {
-        guard let s = stem(url.lastPathComponent) else { return nil }
-        let dir = url.deletingLastPathComponent()
+    /// `a.b.c` → [`a.b.c`, `a.b`, `a`]: a label before the marker (`settings.json.statusline-bak-…`) is dropped by trying shorter names.
+    static func candidates(_ s: String) -> [String] {
         let parts = s.split(separator: ".", omittingEmptySubsequences: false)
-        let candidates = (1...parts.count).reversed().map { parts.prefix($0).joined(separator: ".") }.filter { !$0.isEmpty }
-        if let hit = candidates.first(where: { exists(dir.appending(path: $0)) }) { return dir.appending(path: hit) }
-        return dir.appending(path: s)
+        return (1...parts.count).reversed().map { parts.prefix($0).joined(separator: ".") }.filter { !$0.isEmpty }
+    }
+
+    static func inBackupFolder(_ url: URL) -> Bool { url.deletingLastPathComponent().pathComponents.contains("backups") }
+
+    /// The existing original a backup shadows, or nil (unknown). Never a path that does not exist, so a restore cannot create a file.
+    /// Next to the original: the sibling. Inside a `backups/` folder: a manifest/README line naming it, then known-name rules, then a unique same-name file in `index`.
+    public static func original(of url: URL, home: URL = Paths.home, projects: [URL] = [], index: [String: [URL]] = [:]) -> URL? {
+        guard let s = stem(url.lastPathComponent) else { return nil }
+        let names = candidates(s)
+        guard inBackupFolder(url) else {
+            return names.lazy.map { url.deletingLastPathComponent().appending(path: $0) }.first(where: exists)
+        }
+        if let m = fromManifest(url, home: home) { return m }
+        for n in names { if let r = rule(n, home: home, projects: projects), exists(r) { return r } }
+        for n in names {
+            let hits = (index[n] ?? []).filter { !inBackupFolder($0) && exists($0) }
+            if hits.count == 1 { return hits[0] }
+            if hits.count > 1 { return nil }   // ambiguous
+        }
+        return nil
+    }
+
+    /// A MANIFEST*/README* in the backup folder with a line naming this file and an absolute or ~ path.
+    static func fromManifest(_ url: URL, home: URL) -> URL? {
+        let pathRE = try! NSRegularExpression(pattern: #"(~/|/)[^\s"'`,()<>]+"#)
+        for f in children(url.deletingLastPathComponent()) where ["manifest", "readme"].contains(where: { f.lastPathComponent.lowercased().hasPrefix($0) }) {
+            for line in (readText(f) ?? "").split(whereSeparator: \.isNewline) where line.contains(url.lastPathComponent) {
+                let l = String(line), ns = l as NSString
+                for m in pathRE.matches(in: l, range: NSRange(location: 0, length: ns.length)) {
+                    var p = ns.substring(with: m.range)
+                    if p.hasPrefix("~/") { p = home.path + p.dropFirst(1) }
+                    let u = URL(filePath: p)
+                    if u.lastPathComponent != url.lastPathComponent, exists(u) { return u }
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Where Claude keeps a file by this name (names as backups in `~/.claude/backups/<date>/` were written).
+    static func rule(_ n: String, home: URL, projects: [URL]) -> URL? {
+        let claude = home.appending(path: ".claude")
+        switch n {
+        case "claude.json", ".claude.json": return home.appending(path: ".claude.json")
+        case "history.jsonl", "settings.json", "settings.local.json", "CLAUDE.md", "keybindings.json": return claude.appending(path: n)
+        case "installed_plugins.json", "known_marketplaces.json": return claude.appending(path: "plugins/\(n)")
+        default: break
+        }
+        if n.hasSuffix(".SKILL.md") { return claude.appending(path: "skills/\(n.dropLast(9))/SKILL.md") }
+        for file in ["settings.local.json", "settings.json"] where n.hasSuffix("." + file) {
+            let repo = String(n.dropLast(file.count + 1))
+            let hits = projects.filter { $0.lastPathComponent == repo }
+            return hits.count == 1 ? hits[0].appending(path: ".claude/\(file)") : nil
+        }
+        return nil
     }
 
     /// Default roots: ~/.claude, each known project's .claude/ plus its root-level CLAUDE*.md siblings, and Claude Desktop's folder.
@@ -44,14 +94,13 @@ public enum BackupFiles {
     }
 
     /// Finds backups under `deep` (recursive) and directly inside `shallow`, without following symlinks or reading binaries.
-    public static func scan(deep: [URL], shallow: [URL]) -> [BackupFile] {
-        var seen = Set<String>(), out: [BackupFile] = []
+    /// `projects` (repo roots) and every non-backup file seen feed the original lookup.
+    public static func scan(deep: [URL], shallow: [URL], home: URL = Paths.home, projects: [URL] = []) -> [BackupFile] {
+        var seen = Set<String>(), found: [URL] = [], index: [String: [URL]] = [:]
         func consider(_ u: URL) {
             let v = try? u.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-            guard v?.isRegularFile == true, v?.isSymbolicLink != true, isBackupName(u.lastPathComponent),
-                  !skipped.contains(where: { u.path.contains($0) }), isText(u), seen.insert(u.path).inserted,
-                  let orig = original(of: u) else { return }
-            out.append(BackupFile(url: u, original: orig, size: fileSize(u), modified: modificationDate(u)))
+            guard v?.isRegularFile == true, v?.isSymbolicLink != true, !skipped.contains(where: { u.path.contains($0) }), seen.insert(u.path).inserted else { return }
+            if isBackupName(u.lastPathComponent) { if isText(u) { found.append(u) } } else { index[u.lastPathComponent, default: []].append(u) }
         }
         for root in deep {
             // The enumerator does not descend into symlinked folders, so nothing outside the root is reached.
@@ -62,7 +111,8 @@ public enum BackupFiles {
             }
         }
         for root in shallow { children(root).forEach(consider) }
-        return out.sorted { ($0.modified ?? .distantPast) > ($1.modified ?? .distantPast) }
+        return found.map { BackupFile(url: $0, original: original(of: $0, home: home, projects: projects, index: index), size: fileSize($0), modified: modificationDate($0)) }
+            .sorted { ($0.modified ?? .distantPast) > ($1.modified ?? .distantPast) }
     }
 
     /// Config-shaped text only: no NUL in the first 8KB (rules out SQLite and other binaries).
@@ -76,7 +126,7 @@ public enum BackupFiles {
     public static func diff(_ b: BackupFile) -> String {
         let p = Process(), pipe = Pipe()
         p.executableURL = URL(filePath: "/usr/bin/diff")
-        p.arguments = ["-u", exists(b.original) ? b.original.path : "/dev/null", b.url.path]
+        p.arguments = ["-u", b.original?.path ?? "/dev/null", b.url.path]
         p.standardOutput = pipe
         p.standardError = pipe
         guard (try? p.run()) != nil else { return "diff failed to run" }
@@ -88,8 +138,9 @@ public enum BackupFiles {
     /// Copies the backup over its original after snapshotting the current original (returned for undo). The backup is kept.
     @discardableResult
     public static func restore(_ b: BackupFile, home: URL = Paths.home, now: Date = Date()) throws -> Backup.Record? {
-        let snap = exists(b.original) ? try Backup.snapshot(b.original, home: home, now: now) : nil
-        try Backup.restore(Backup.Record(original: b.original, copy: b.url, date: now, removed: false))
+        guard let orig = b.original, exists(orig) else { throw Backup.BackupError.refused("original location unknown") }
+        let snap = try Backup.snapshot(orig, home: home, now: now)
+        try Backup.restore(Backup.Record(original: orig, copy: b.url, date: now, removed: false))
         return snap
     }
 }

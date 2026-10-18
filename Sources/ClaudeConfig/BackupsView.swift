@@ -41,10 +41,10 @@ struct BackupsView: View {
         .searchable(text: $search, prompt: "Filter by path")
         .toolbar { Button("Scan again", systemImage: "arrow.clockwise") { Task { await load() } } }
         .task(id: model.snapshot.scannedAt) { await load() }
-        .confirmationDialog("Restore \(restoring?.original.lastPathComponent ?? "")?", isPresented: Binding(get: { restoring != nil }, set: { if !$0 { restoring = nil } }), presenting: restoring) { b in
+        .confirmationDialog("Restore \(restoring?.original?.lastPathComponent ?? "")?", isPresented: Binding(get: { restoring != nil }, set: { if !$0 { restoring = nil } }), presenting: restoring) { b in
             Button("Restore", role: .destructive) { restore(b) }
         } message: { b in
-            Text("Overwrites \(shortPath(b.original)) with \(b.url.lastPathComponent). The current file is backed up to ~/.claude/backups/config-editor first.")
+            Text("Overwrites \(b.original.map(shortPath) ?? "?") with \(b.url.lastPathComponent). The current file is backed up to ~/.claude/backups/config-editor first.")
         }
     }
 
@@ -62,7 +62,7 @@ struct BackupsView: View {
     }
 
     @ViewBuilder private func actions(_ b: BackupFile) -> some View {
-        Button("Restore…") { restoring = b }
+        Button("Restore…") { restoring = b }.disabled(b.original == nil).help(b.original == nil ? "Original location unknown" : "Copy this backup over its original")
         Button("Reveal in Finder") { reveal(b.url) }
         Button("Move to Trash…", role: .destructive) {
             model.proposeBulk("Move \(b.url.lastPathComponent) to the Trash", bulkPlan([b], label: { shortPath($0.url) }, skip: { trashRefusal($0.url) }) { .trash([$0.url]) })
@@ -75,7 +75,7 @@ struct BackupsView: View {
                 VStack(alignment: .leading, spacing: Space.m) {
                     Text(b.url.lastPathComponent).font(.title2.weight(.semibold))
                     Text(shortPath(b.url)).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                    Text("Shadows " + shortPath(b.original) + (exists(b.original) ? "" : " (missing)")).font(.callout)
+                    Text(b.original.map { "Shadows " + shortPath($0) } ?? "Original location unknown").font(.callout).foregroundStyle(b.original == nil ? .orange : .primary)
                     Text("\(formatBytes(b.size)) · \(b.modified?.formatted(date: .abbreviated, time: .shortened) ?? "unknown date")").font(.caption).foregroundStyle(.secondary)
                     HStack { actions(b) }
                     GroupBox("Diff: current original → this backup") {
@@ -98,7 +98,7 @@ struct BackupsView: View {
     private func restore(_ b: BackupFile) {
         do {
             let snap = try BackupFiles.restore(b)
-            model.didAct("Restored \(b.original.lastPathComponent) from \(b.url.lastPathComponent)", snap.map { [$0] } ?? [])
+            model.didAct("Restored \(b.original?.lastPathComponent ?? "") from \(b.url.lastPathComponent)", snap.map { [$0] } ?? [])
         } catch { model.actionError = error.localizedDescription }
     }
 
@@ -113,7 +113,8 @@ struct BackupsView: View {
     private func load() async {
         loading = true
         let r = BackupFiles.roots(projects: model.snapshot.projects.map(\.path))
-        files = await Task.detached(priority: .utility) { BackupFiles.scan(deep: r.deep, shallow: r.shallow) }.value
+        let projects = model.snapshot.projects.map { URL(filePath: $0.path) }
+        files = await Task.detached(priority: .utility) { BackupFiles.scan(deep: r.deep, shallow: r.shallow, projects: projects) }.value
         loading = false
     }
 }

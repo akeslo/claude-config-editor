@@ -5,7 +5,9 @@ import Foundation
 if CommandLine.arguments.dropFirst().first == "--backups" {
     let projects = ((readJSON(Paths.claudeJSON)?["projects"] as? JSON) ?? [:]).keys.sorted()
     let r = BackupFiles.roots(projects: projects)
-    for b in BackupFiles.scan(deep: r.deep, shallow: r.shallow) { print("\(shortPath(b.url))\t→ \(shortPath(b.original))\t\(b.size)") }
+    for b in BackupFiles.scan(deep: r.deep, shallow: r.shallow, projects: projects.map { URL(filePath: $0) }) {
+        print("\(shortPath(b.url))\t→ \(b.original.map(shortPath) ?? "unknown")\t\(b.size)")
+    }
     exit(0)
 }
 
