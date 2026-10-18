@@ -7,6 +7,7 @@ struct AskClaudeBar: View {
     let section: AppSection
     @State private var question = ""
     @State private var answer: String?
+    @State private var picks: [Recommendations.Item] = []
     @State private var failed = false
     @State private var asking = false
     @State private var task: Task<Void, Never>?
@@ -25,6 +26,10 @@ struct AskClaudeBar: View {
                 Text("Claude didn't answer. Is the `claude` command installed?").font(.caption).foregroundStyle(.secondary)
             } else if let answer {
                 Text(answer).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                if !picks.isEmpty {
+                    VStack(alignment: .leading, spacing: 0) { ForEach(picks) { RecommendationRow(item: $0) } }
+                        .padding(.vertical, 4)
+                }
                 Text("AI suggestion — not verified").font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -37,12 +42,17 @@ struct AskClaudeBar: View {
     private func submit() {
         let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty, !asking else { return }
-        asking = true; answer = nil; failed = false
+        asking = true; answer = nil; picks = []; failed = false
         task = Task {
             let a = await model.askWithScreen(q, about: section)
             guard !Task.isCancelled else { return }
             asking = false
-            answer = a; failed = a == nil
+            failed = a == nil
+            if let a, section == .discover {
+                let parsed = Recommendations.parse(a)
+                answer = parsed.prose
+                picks = Recommendations.match(parsed.picks, available: model.available, community: model.community)
+            } else { answer = a }
             if UserDefaults.standard.string(forKey: "autoAsk") != nil { print("ASK-ANSWER:\n" + (a ?? "<none>")); fflush(stdout) }
         }
     }
@@ -58,6 +68,7 @@ extension AppModel {
                                          discover: discover, analytics: analytics, question: question)
         let prompt = askPrompt(question: question, screen: screen, section: section, cap: ScreenContext.defaultBudget + 10_000)
             + "\nYou may read files under \(Paths.claudeDir.path) (and paths listed above) with Read, Grep and Glob for detail. Do not modify anything. Answer in plain short paragraphs or bullets, citing item names."
+            + (section == .discover ? "\n" + Recommendations.instruction : "")
         guard let exe = ClaudeCLI.executable else { return nil }
         let args = ["-p", prompt, "--model", "sonnet", "--settings", #"{"disableAllHooks":true}"#, "--no-session-persistence",
                     "--add-dir", Paths.claudeDir.path, "--tools", "Read,Grep,Glob", "--allowedTools", "Read", "Grep", "Glob",
@@ -95,6 +106,49 @@ extension AppModel {
             if s.marketplace { return knownRepos.contains(s.slug.lowercased()) }
             let folder: Substring = (s.path ?? s.slug).split(separator: "/").last ?? ""
             return installedSkills.contains(s.name) || installedSkills.contains(String(folder))
+        }
+    }
+}
+
+extension AppModel {
+    /// The one plugin install path (Discover table, Ask recommendations, menu bar search).
+    func installPlugin(_ p: AvailablePlugin) { propose("Install \(p.id)", .cli(args: ["plugin", "install", p.id], dryRun: nil, cwd: nil)) }
+    func isInstalled(_ p: AvailablePlugin) -> Bool { p.installed || snapshot.plugins.contains { $0.id == p.id } }
+}
+
+/// One installable catalog item: name, source, a one-line reason and the same Install action as Discover's tables.
+struct RecommendationRow: View {
+    @Environment(AppModel.self) private var model
+    let item: Recommendations.Item
+
+    var body: some View {
+        let installed = model.communityInstalled()
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                switch item {
+                case .plugin(let p, let reason):
+                    (Text(p.name).fontWeight(.medium) + Text("  " + p.marketplace).foregroundStyle(.secondary).font(.caption))
+                    if !reason.isEmpty { Text(reason).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                case .community(let s, let reason):
+                    (Text(s.name).fontWeight(.medium) + Text("  " + s.slug).foregroundStyle(.secondary).font(.caption))
+                    if !reason.isEmpty { Text(reason).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                }
+            }
+            Spacer()
+            switch item {
+            case .plugin(let p, _):
+                if model.isInstalled(p) { Text("Installed").foregroundStyle(.secondary) }
+                else { Button("Install…") { model.installPlugin(p) }.help("Runs claude plugin install. Only install plugins you trust: they can run code on your machine.") }
+            case .community(let s, _):
+                if installed(s) { Text("Installed").foregroundStyle(.secondary) }
+                else if model.communityBusy != nil { ProgressView().controlSize(.small).help(model.communityBusy ?? "") }
+                else { Button("Install…") { model.startCommunityInstall(s) }.help("Only install skills you trust: scripts in a skill can run on your machine.") }
+            }
+        }
+        .controlSize(.small)
+        .padding(.vertical, 3)
+        .overlay(alignment: .bottomLeading) {
+            if case .community = item, let e = model.communityError { Text(e).font(.caption2).foregroundStyle(.red).offset(y: 10).lineLimit(1) }
         }
     }
 }

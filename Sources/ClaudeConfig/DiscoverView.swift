@@ -71,7 +71,7 @@ struct DiscoverView: View {
         }
     }
 
-    private func install(_ p: AvailablePlugin) { model.propose("Install \(p.id)", .cli(args: ["plugin", "install", p.id], dryRun: nil, cwd: nil)) }
+    private func install(_ p: AvailablePlugin) { model.installPlugin(p) }
 
     /// A failed or empty CLI call used to leave the spinner up forever, which read as "nothing happened".
     private func load() async {

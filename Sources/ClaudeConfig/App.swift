@@ -4,7 +4,7 @@ import SwiftUI
 @main
 struct ClaudeConfigApp: App {
     @State private var model = AppModel()
-    @AppStorage("showSkillsMenuBar") private var showMenuBar = false
+    @AppStorage("showSkillsMenuBar") private var showMenuBar = true
 
     var body: some Scene {
         WindowGroup("Claude Config") {

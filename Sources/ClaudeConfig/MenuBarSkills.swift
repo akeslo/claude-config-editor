@@ -3,7 +3,7 @@ import SwiftUI
 
 /// ⌘, window. Only app preferences live here; Claude Code's own settings are on the Settings page.
 struct AppSettingsView: View {
-    @AppStorage("showSkillsMenuBar") private var showMenuBar = false
+    @AppStorage("showSkillsMenuBar") private var showMenuBar = true
     @AppStorage("analyzeOnLaunch") private var analyzeOnLaunch = true
 
     var body: some View {
@@ -41,9 +41,10 @@ struct MenuBarSkills: View {
 
     var body: some View {
         let all = skills
+        let catalog = Recommendations.search(search, available: model.available, community: model.community)
         let shown = all.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.description.localizedCaseInsensitiveContains(search) }
         VStack(alignment: .leading, spacing: Space.s) {
-            TextField("Search \(all.count) skills", text: $search).textFieldStyle(.roundedBorder)
+            TextField("Search \(all.count) skills, plugins and community", text: $search).textFieldStyle(.roundedBorder)
             HStack {
                 TextField("Ask AI: what do you want to do?", text: $useCase).textFieldStyle(.roundedBorder).onSubmit(ask)
                 if asking { ProgressView().controlSize(.small) } else {
@@ -60,15 +61,24 @@ struct MenuBarSkills: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(shown) { row($0) }
+                    if !catalog.isEmpty {
+                        Text("Available to install").font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, Space.s)
+                        ForEach(catalog) { RecommendationRow(item: $0) }
+                    }
                 }
             }
             .frame(height: 360)
-            .overlay { if shown.isEmpty { Text(all.isEmpty ? "Loading skills…" : "No matches").foregroundStyle(.secondary) } }
+            .overlay { if shown.isEmpty && catalog.isEmpty { Text(all.isEmpty ? "Loading skills…" : "No matches").foregroundStyle(.secondary) } }
             if let copied { Label("Copied \(copied)", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(Color.accentColor) }
         }
         .padding(Space.m)
         .frame(width: 380)
-        .task { if model.snapshot.components.isEmpty { await model.refresh() } }
+        .task {
+            if model.snapshot.components.isEmpty { await model.refresh() }
+            // Loaded once per popover open, never per keystroke.
+            if model.available.isEmpty { model.available = await Scanner.available() }
+            await model.loadCommunity()
+        }
     }
 
     private func row(_ s: Component) -> some View {
@@ -79,7 +89,7 @@ struct MenuBarSkills: View {
                     HStack {
                         Text("/" + s.name).font(.body.monospaced())
                         Spacer()
-                        Text(s.state == .always ? "Always" : s.state.rawValue).font(.caption).foregroundStyle(.secondary)
+                        Text("Installed · \(s.owner.map { "plugin \($0)" } ?? s.scope.rawValue) · " + (s.state == .always ? "Always" : s.state.rawValue)).font(.caption).foregroundStyle(.secondary)
                     }
                     Text(open ? s.description : purpose(s)).font(.caption).foregroundStyle(.secondary)
                         .lineLimit(open ? nil : 1).fixedSize(horizontal: false, vertical: open)
