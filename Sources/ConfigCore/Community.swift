@@ -196,7 +196,7 @@ func skillName(_ raw: String) -> String? {
 
 /// Downloads `owner/repo` at HEAD and returns its extracted root (a fresh dir; its parent temp dir is the caller's to delete).
 public func downloadRepo(_ slug: String) async throws -> URL {
-    guard slug.wholeMatch(of: /[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+/) != nil,
+    guard slug.wholeMatch(of: /[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*/) != nil,
           !slug.split(separator: "/").contains(where: { $0.allSatisfy { $0 == "." } }),
           let url = URL(string: "https://codeload.github.com/\(slug)/tar.gz/HEAD") else { throw CommunityError("Not a GitHub repo: \(slug)") }
     let cap = 50 * 1024 * 1024

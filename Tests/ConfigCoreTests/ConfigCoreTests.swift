@@ -687,5 +687,7 @@ struct CommunityTests {
     @Test func rejectsBadSlug() async {
         await #expect(throws: (any Error).self) { try await downloadRepo("a/b;rm") }
         await #expect(throws: (any Error).self) { try await downloadRepo("../x") }
+        await #expect(throws: (any Error).self) { try await downloadRepo("-x/y") }
+        await #expect(throws: (any Error).self) { try await downloadRepo("x/-y") }
     }
 }
