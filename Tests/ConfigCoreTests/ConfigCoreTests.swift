@@ -365,3 +365,25 @@ struct SkillTriageTests {
         #expect(s[rare.id]?.state == .onDemand && s[busy.id] == nil && s[recent.id] == nil)
     }
 }
+
+struct AdviceTests {
+    let good = #"{"id":"skill-500","area":"skills","kind":"official","text":"Keep SKILL.md under 500 lines","source":"https://code.claude.com/docs/en/skills"}"#
+    @Test func dropsOnlyInvalidRules() {
+        let a = Advice.decode(Data(#"{"version":1,"rules":[\#(good),{"id":"x","area":"skills"},{"id":"y","area":"skills","kind":"blog","text":"t","source":"https://a.b"}]}"#.utf8))
+        #expect(a?.rules.map(\.id) == ["skill-500"])
+        #expect(a?.rules(for: .mySkills).count == 1)
+    }
+    @Test func hidesRetired() {
+        let r = good.replacingOccurrences(of: "}", with: #","retired":true}"#)
+        #expect(Advice.decode(Data(#"{"version":1,"rules":[\#(r)]}"#.utf8)) == nil)
+    }
+    @Test func fallsBackWhenFetchedIsGarbage() {
+        let bundled = Data(#"{"version":1,"rules":[\#(good)]}"#.utf8)
+        #expect(Advice.pick(fetched: Data("<html>".utf8), cached: nil, bundled: bundled).rule("skill-500") != nil)
+    }
+    @Test func bundledSeedIsValid() throws {
+        let url = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "../../Resources/best-practices.json")
+        let a = try #require(Advice.decode(Data(contentsOf: url)))
+        #expect(a.rules.count >= 12)
+    }
+}
