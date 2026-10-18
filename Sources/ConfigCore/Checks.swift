@@ -213,7 +213,7 @@ public enum Checks {
             }
             if c.description.count > 1_536 {
                 out.append(Issue(severity: .warning, section: .skills, title: "Description is cut off", subject: c.name,
-                                 detail: "description + when_to_use is \(c.description.count) characters; Claude truncates at 1,536.", term: .skillListing, file: c.file, rule: "skill-description-specific"))
+                                 detail: "description + when_to_use is \(c.description.count) characters; Claude truncates at 1,536.", term: .skillListing, file: c.file, rule: "skill-listing-budget"))
             }
         }
         let byName = Dictionary(grouping: s.components.filter { $0.kind == .skill || $0.kind == .command }, by: \.name)

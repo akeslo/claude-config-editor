@@ -9,6 +9,7 @@ struct AskClaudeBar: View {
     @State private var answer: String?
     @State private var failed = false
     @State private var asking = false
+    @State private var task: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -18,7 +19,7 @@ struct AskClaudeBar: View {
                     .onSubmit(submit)
                 if asking { ProgressView().controlSize(.small) }
                 Button("Ask", action: submit)
-                    .disabled(asking || question.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(asking || question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             if failed {
                 Text("Claude didn't answer. Is the `claude` command installed?").font(.caption).foregroundStyle(.secondary)
@@ -28,14 +29,16 @@ struct AskClaudeBar: View {
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
+        .onDisappear { task?.cancel() }
     }
 
     private func submit() {
-        let q = question.trimmingCharacters(in: .whitespaces)
+        let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty, !asking else { return }
         asking = true; answer = nil; failed = false
-        Task {
+        task = Task {
             let a = await model.ask(q, about: section)
+            guard !Task.isCancelled else { return }
             asking = false
             answer = a; failed = a == nil
         }

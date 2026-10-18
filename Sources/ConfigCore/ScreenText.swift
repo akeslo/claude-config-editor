@@ -8,7 +8,7 @@ public func redact(_ s: String) -> String { Redactor.post(Redactor.run(s)) }
 private enum Redactor {
     static let keyed = try! NSRegularExpression(pattern: #"^([\[{(,]*-{0,2}["']?)([\w.-]+)(["']?)(=|:)(.*)$"#, options: [.dotMatchesLineSeparators])
     static let url = try! NSRegularExpression(pattern: #"[A-Za-z][\w+.-]*://"#)
-    static let netTool = try! NSRegularExpression(pattern: #"^(?:.*[(/])?(curl|wget)$"#)
+    static let netTool = try! NSRegularExpression(pattern: #"(?:^|[|(/;&])(curl|wget)$"#)
 
     /// Capture groups of a match anchored to the whole string, or nil.
     static func groups(_ re: NSRegularExpression, _ t: String) -> [String]? {
@@ -16,15 +16,13 @@ private enum Redactor {
         guard let m = re.firstMatch(in: t, range: NSRange(location: 0, length: ns.length)) else { return nil }
         return (0..<m.numberOfRanges).map { m.range(at: $0).location == NSNotFound ? "" : ns.substring(with: m.range(at: $0)) }
     }
-    static let wrappers: Set<String> = ["env", "sudo", "timeout", "nohup", "exec", "command"]
-    static let assign = try! NSRegularExpression(pattern: #"^\w+="#)
     // Fail-closed second pass over the output: secret KEY=/KEY: anywhere in a word, auth headers, bearer tokens, query strings.
     static let post: [(NSRegularExpression, String)] = [
         (try! NSRegularExpression(pattern: #"(?i)(authorization:\s*)(?:(bearer|basic|token|digest|apikey)\s+)?[^\s"']+"#), "$1$2 ***"),
         (try! NSRegularExpression(pattern: #"(?i)\bbearer\s+[^\s"']+"#), "Bearer ***"),
         (try! NSRegularExpression(pattern: #"\?[^\s"']+"#), "?***"),
     ]
-    static let anyKey = try! NSRegularExpression(pattern: #"([\w.-]+)[=:](?=([^\s,;&]+))"#)
+    static let anyKey = try! NSRegularExpression(pattern: #"([\w.-]+)[=:](?=((?i:(?:bearer|basic|token|digest|apikey)\s+))?([^\s"']+))"#)
     static func post(_ s: String) -> String {
         var t = s
         for (re, tpl) in post { t = re.stringByReplacingMatches(in: t, range: NSRange(t.startIndex..., in: t), withTemplate: tpl) }
@@ -32,7 +30,7 @@ private enum Redactor {
         var out = "", last = 0
         // The value is a lookahead so `--opt=API_KEY=x` still finds API_KEY; already-masked values and auth schemes stay.
         for m in anyKey.matches(in: t, range: NSRange(location: 0, length: ns.length)) where m.range.location >= last {
-            let v = m.range(at: 2), val = ns.substring(with: v).lowercased()
+            let v = m.range(at: 3), val = ns.substring(with: v).lowercased()
             guard looksSecret(ns.substring(with: m.range(at: 1))), !val.hasPrefix("***"), !schemes.contains(val) else { continue }
             out += ns.substring(with: NSRange(location: last, length: v.location - last)) + "***"
             last = v.location + v.length
@@ -56,13 +54,11 @@ private enum Redactor {
 
     static func run(_ s: String) -> String {
         let toks = tokens(s)
-        var maskNext = false, maskRest = false, out = "", net = false, segStart = true
+        var maskNext = false, maskRest = false, out = "", net = false
         for (t, space) in toks {
             if space { out += t; continue }
-            // curl/wget is tracked per shell segment, looking past env/sudo/timeout and VAR=x wrappers.
-            if [";", "&&", "||", "|"].contains(t) { net = false; segStart = true; out += t; continue }
-            if segStart, !wrappers.contains(t), groups(assign, t) == nil { net = groups(netTool, t) != nil; segStart = false }
-            if t.hasSuffix(";") { segStart = true }
+            // Fail closed: once curl/wget appears anywhere (xargs, -exec, time, x|curl), -u/--user stay masked to the end.
+            if groups(netTool, t) != nil { net = true }
             if maskRest { out += "***"; continue }
             if maskNext {
                 if schemes.contains(t.lowercased()) { out += t } else { out += "***"; maskNext = false }

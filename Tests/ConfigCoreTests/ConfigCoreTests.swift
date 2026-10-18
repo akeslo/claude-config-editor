@@ -470,8 +470,11 @@ struct ScreenTextTests {
             ("sudo curl -u a:LEAK24", []), ("cd x && curl -u a:LEAK25", []),
             ("x,TOKEN=LEAK26", ["x,TOKEN=***"]), (#"curl -H"Authorization: Bearer LEAK27""#, ["Bearer ***"]),
             ("--opt=API_KEY=LEAK28", []), ("foo?token=LEAK29", ["foo?***"]), ("--api-key=LEAK30", ["--api-key=***"]),
-            ("TOKEN=Bearer LEAK31", []), ("curl -s x; git push -u origin main", ["git push -u origin main"]),
+            ("TOKEN=Bearer LEAK31", []), ("curl -s x; git push -u origin main", ["git push -u ***"]),
             ("env A=1 sudo curl -u a:LEAK32", []),
+            (#"find . -exec curl -u u:LEAK33 {} \;"#, []), ("xargs curl -u a:LEAK34", []), ("time curl -u a:LEAK35", []),
+            ("watch curl -u a:LEAK36", []), ("x|curl -u a:LEAK37", []), (#"find . -exec true \; -exec curl -u a:LEAK38 {} \;"#, []),
+            ("--opt=TOKEN=ab,LEAK39", []), ("--opt=TOKEN=bearer LEAK40", ["TOKEN=Bearer ***"]), ("--opt=TOKEN=basic LEAK41", ["TOKEN=basic ***"]),
         ]
         for (input, keep) in cases {
             let out = redact(input)
