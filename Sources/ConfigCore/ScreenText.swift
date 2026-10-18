@@ -3,7 +3,7 @@ import Foundation
 /// Masks inline secrets in commands, rules and issue text. Fails closed: a shell-like tokenizer finds secret-looking
 /// KEY=value / KEY: value / --key value, secret headers, cookies, bearer tokens and curl/wget credentials, and shrinks
 /// every URL to scheme://host. Quoted arguments are redacted recursively. Run on stripped text, before capping.
-public func redact(_ s: String) -> String { Redactor.run(s) }
+public func redact(_ s: String) -> String { Redactor.post(Redactor.run(s)) }
 
 private enum Redactor {
     static let keyed = try! NSRegularExpression(pattern: #"^([\[{(,]*-{0,2}["']?)([\w.-]+)(["']?)(=|:)(.*)$"#, options: [.dotMatchesLineSeparators])
@@ -15,6 +15,29 @@ private enum Redactor {
         let ns = t as NSString
         guard let m = re.firstMatch(in: t, range: NSRange(location: 0, length: ns.length)) else { return nil }
         return (0..<m.numberOfRanges).map { m.range(at: $0).location == NSNotFound ? "" : ns.substring(with: m.range(at: $0)) }
+    }
+    static let wrappers: Set<String> = ["env", "sudo", "timeout", "nohup", "exec", "command"]
+    static let assign = try! NSRegularExpression(pattern: #"^\w+="#)
+    // Fail-closed second pass over the output: secret KEY=/KEY: anywhere in a word, auth headers, bearer tokens, query strings.
+    static let post: [(NSRegularExpression, String)] = [
+        (try! NSRegularExpression(pattern: #"(?i)(authorization:\s*)(?:(bearer|basic|token|digest|apikey)\s+)?[^\s"']+"#), "$1$2 ***"),
+        (try! NSRegularExpression(pattern: #"(?i)\bbearer\s+[^\s"']+"#), "Bearer ***"),
+        (try! NSRegularExpression(pattern: #"\?[^\s"']+"#), "?***"),
+    ]
+    static let anyKey = try! NSRegularExpression(pattern: #"([\w.-]+)[=:](?=([^\s,;&]+))"#)
+    static func post(_ s: String) -> String {
+        var t = s
+        for (re, tpl) in post { t = re.stringByReplacingMatches(in: t, range: NSRange(t.startIndex..., in: t), withTemplate: tpl) }
+        let ns = t as NSString
+        var out = "", last = 0
+        // The value is a lookahead so `--opt=API_KEY=x` still finds API_KEY; already-masked values and auth schemes stay.
+        for m in anyKey.matches(in: t, range: NSRange(location: 0, length: ns.length)) where m.range.location >= last {
+            let v = m.range(at: 2), val = ns.substring(with: v).lowercased()
+            guard looksSecret(ns.substring(with: m.range(at: 1))), !val.hasPrefix("***"), !schemes.contains(val) else { continue }
+            out += ns.substring(with: NSRange(location: last, length: v.location - last)) + "***"
+            last = v.location + v.length
+        }
+        return out + ns.substring(from: last)
     }
     static let schemes: Set<String> = ["bearer", "basic", "token", "digest", "apikey"]
 
@@ -33,25 +56,32 @@ private enum Redactor {
 
     static func run(_ s: String) -> String {
         let toks = tokens(s)
-        let first = toks.first { !$0.space }?.text ?? ""
-        let net = groups(netTool, first) != nil
-        var maskNext = false, maskRest = false, out = ""
+        var maskNext = false, maskRest = false, out = "", net = false, segStart = true
         for (t, space) in toks {
             if space { out += t; continue }
+            // curl/wget is tracked per shell segment, looking past env/sudo/timeout and VAR=x wrappers.
+            if [";", "&&", "||", "|"].contains(t) { net = false; segStart = true; out += t; continue }
+            if segStart, !wrappers.contains(t), groups(assign, t) == nil { net = groups(netTool, t) != nil; segStart = false }
+            if t.hasSuffix(";") { segStart = true }
             if maskRest { out += "***"; continue }
             if maskNext {
                 if schemes.contains(t.lowercased()) { out += t } else { out += "***"; maskNext = false }
                 continue
             }
             let l = t.lowercased()
-            if let q = t.first, q == "\"" || q == "'" {
+            let m = groups(keyed, t)
+            let secretKey = m.map { looksSecret($0[2]) || ["cookie", "set-cookie"].contains($0[2].lowercased())
+                || (net && $0[1].hasSuffix("--") && ["user", "proxy-user"].contains($0[2].lowercased())) } ?? false
+            // `"key": v` (quote closes right after the key) is a key, not a quoted argument.
+            if let q = t.first, q == "\"" || q == "'", !(secretKey && m?[3].isEmpty == false) {
                 // A quoted argument (e.g. -H "Cookie: …") is redacted on its own, so its rules end at the closing quote.
                 let inner = t.dropFirst(), closed = inner.last == q && inner.count > 0
                 out += String(q) + run(String(closed ? inner.dropLast() : inner)) + (closed ? String(q) : "")
-            } else if let m = groups(keyed, t), looksSecret(m[2]) || ["cookie", "set-cookie"].contains(m[2].lowercased()) {
+            } else if let m, secretKey {
                 let head = m[1] + m[2] + m[3] + m[4]
                 if m[2].lowercased().hasSuffix("cookie") { out += head + (m[5].isEmpty ? "" : "***"); maskRest = true; continue }
-                if m[5].isEmpty { out += head; maskNext = true } else { out += head + "***" }
+                if m[5].isEmpty { out += head; maskNext = true }
+                else if schemes.contains(m[5].lowercased()) { out += head + m[5]; maskNext = true } else { out += head + "***" }
             } else if t.contains("://") {
                 out += shrinkURL(t)
             } else if l == "bearer" {

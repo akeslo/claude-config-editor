@@ -464,6 +464,14 @@ struct ScreenTextTests {
             ("https://h.io?x=a@b", ["https://h.io/…"]),
             ("Authorization: Bearer LEAK16 tail", ["Authorization: Bearer ***", "tail"]),
             ("Bearer LEAK17", ["Bearer ***"]),
+            (#""X-Api-Key": "LEAK18""#, []), (#""api_key": "LEAK19""#, []),
+            ("curl --user=LEAK20:x", []), ("curl --proxy-user=LEAK21:x", []),
+            ("Authorization:Bearer LEAK22", ["Bearer ***"]), (#"curl -H "Authorization:Bearer LEAK23""#, ["Bearer ***"]),
+            ("sudo curl -u a:LEAK24", []), ("cd x && curl -u a:LEAK25", []),
+            ("x,TOKEN=LEAK26", ["x,TOKEN=***"]), (#"curl -H"Authorization: Bearer LEAK27""#, ["Bearer ***"]),
+            ("--opt=API_KEY=LEAK28", []), ("foo?token=LEAK29", ["foo?***"]), ("--api-key=LEAK30", ["--api-key=***"]),
+            ("TOKEN=Bearer LEAK31", []), ("curl -s x; git push -u origin main", ["git push -u origin main"]),
+            ("env A=1 sudo curl -u a:LEAK32", []),
         ]
         for (input, keep) in cases {
             let out = redact(input)
