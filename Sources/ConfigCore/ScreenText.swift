@@ -1,57 +1,95 @@
 import Foundation
 
-/// Masks inline secrets in commands and rules: secret-looking KEY=value / --key value (quoted or not), secret headers, cookies,
-/// bearer tokens, URL userinfo and query strings. Callers run `c()` first so newlines can't split a key from its value.
-public func redact(_ s: String) -> String {
-    let q = #"("[^"]*"|'[^']*'|[^\s"']+)"#
-    let rules: [(NSRegularExpression, (String, [String]) -> String)] = Redactor.rules(q)
-    var t = s
-    for (re, make) in rules {
-        let ns = t as NSString
-        var out = "", last = 0
-        for m in re.matches(in: t, range: NSRange(location: 0, length: ns.length)) {
-            let groups = (0..<m.numberOfRanges).map { i in m.range(at: i).location == NSNotFound ? "" : ns.substring(with: m.range(at: i)) }
-            out += ns.substring(with: NSRange(location: last, length: m.range.location - last)) + make(ns.substring(with: m.range), groups)
-            last = m.range.location + m.range.length
-        }
-        t = out + ns.substring(from: last)
-    }
-    return t
-}
+/// Masks inline secrets in commands, rules and issue text. Fails closed: a shell-like tokenizer finds secret-looking
+/// KEY=value / KEY: value / --key value, secret headers, cookies, bearer tokens and curl/wget credentials, and shrinks
+/// every URL to scheme://host. Quoted arguments are redacted recursively. Run on stripped text, before capping.
+public func redact(_ s: String) -> String { Redactor.run(s) }
 
 private enum Redactor {
-    // Compiled once; the patterns are constants.
-    nonisolated(unsafe) private static var cache: [(NSRegularExpression, (String, [String]) -> String)]?
-    static func rules(_ q: String) -> [(NSRegularExpression, (String, [String]) -> String)] {
-        if let cache { return cache }
-        func re(_ p: String) -> NSRegularExpression { try! NSRegularExpression(pattern: p, options: [.caseInsensitive]) }
-        let r: [(NSRegularExpression, (String, [String]) -> String)] = [
-            (re(#"authorization:\s*(?:\w+\s+)?"# + q), { _, _ in "Authorization: ***" }),
-            (re(#"(?:set-)?cookie:\s*[^"'\n]+"#), { _, _ in "Cookie: ***" }),
-            (re(#"bearer\s+"# + q), { _, _ in "Bearer ***" }),
-            (re(#"([\w-]+):[ \t]*"# + q), { m, g in looksSecret(g[1]) ? g[1] + ": ***" : m }),
-            // URLs shrink to scheme://host: userinfo, path, query and fragment can all carry secrets.
-            (re(#"([a-z][\w+.-]*://)(?:[^/\s@"']*@)?([^/\s?#"')]+)([^\s"')]*)"#), { _, g in g[1] + g[2] + (g[3].isEmpty ? "" : "/…") }),
-            (re(#"\?[^\s"')]*"#), { _, _ in "?***" }),
-            (re(#"(?<![\w-])(-u|--user)(=|\s+)"# + q), { _, g in g[1] + g[2] + "***" }),
-            (re(#"(--[\w-]+)(=|\s+)"# + q), { m, g in looksSecret(g[1]) ? g[1] + g[2] + "***" : m }),
-            (re(#"([\w.-]+)=\s*"# + q), { m, g in looksSecret(g[1]) ? g[1] + "=***" : m }),
-        ]
-        cache = r
-        return r
+    static let keyed = try! NSRegularExpression(pattern: #"^([\[{(,]*-{0,2}["']?)([\w.-]+)(["']?)(=|:)(.*)$"#, options: [.dotMatchesLineSeparators])
+    static let url = try! NSRegularExpression(pattern: #"[A-Za-z][\w+.-]*://"#)
+    static let netTool = try! NSRegularExpression(pattern: #"^(?:.*[(/])?(curl|wget)$"#)
+
+    /// Capture groups of a match anchored to the whole string, or nil.
+    static func groups(_ re: NSRegularExpression, _ t: String) -> [String]? {
+        let ns = t as NSString
+        guard let m = re.firstMatch(in: t, range: NSRange(location: 0, length: ns.length)) else { return nil }
+        return (0..<m.numberOfRanges).map { m.range(at: $0).location == NSNotFound ? "" : ns.substring(with: m.range(at: $0)) }
+    }
+    static let schemes: Set<String> = ["bearer", "basic", "token", "digest", "apikey"]
+
+    /// Splits into alternating whitespace runs and tokens; quotes group, `\"` stays inside, an open quote runs to the end.
+    static func tokens(_ s: String) -> [(text: String, space: Bool)] {
+        var out: [(text: String, space: Bool)] = [], quote: Character? = nil, esc = false
+        for ch in s {
+            let space = quote == nil && ch.isWhitespace
+            if out.last?.space == space { out[out.count - 1].text.append(ch) } else { out.append((String(ch), space)) }
+            if space { continue }
+            if esc { esc = false } else if quote == "\"", ch == "\\" { esc = true }
+            else if let q = quote { if ch == q { quote = nil } } else if ch == "\"" || ch == "'" { quote = ch }
+        }
+        return out
+    }
+
+    static func run(_ s: String) -> String {
+        let toks = tokens(s)
+        let first = toks.first { !$0.space }?.text ?? ""
+        let net = groups(netTool, first) != nil
+        var maskNext = false, maskRest = false, out = ""
+        for (t, space) in toks {
+            if space { out += t; continue }
+            if maskRest { out += "***"; continue }
+            if maskNext {
+                if schemes.contains(t.lowercased()) { out += t } else { out += "***"; maskNext = false }
+                continue
+            }
+            let l = t.lowercased()
+            if let q = t.first, q == "\"" || q == "'" {
+                // A quoted argument (e.g. -H "Cookie: …") is redacted on its own, so its rules end at the closing quote.
+                let inner = t.dropFirst(), closed = inner.last == q && inner.count > 0
+                out += String(q) + run(String(closed ? inner.dropLast() : inner)) + (closed ? String(q) : "")
+            } else if let m = groups(keyed, t), looksSecret(m[2]) || ["cookie", "set-cookie"].contains(m[2].lowercased()) {
+                let head = m[1] + m[2] + m[3] + m[4]
+                if m[2].lowercased().hasSuffix("cookie") { out += head + (m[5].isEmpty ? "" : "***"); maskRest = true; continue }
+                if m[5].isEmpty { out += head; maskNext = true } else { out += head + "***" }
+            } else if t.contains("://") {
+                out += shrinkURL(t)
+            } else if l == "bearer" {
+                out += t; maskNext = true
+            } else if t.hasPrefix("-"), !t.contains("=") {
+                let name = String(t.drop { $0 == "-" })
+                if looksSecret(name) || (net && ["--user", "--proxy-user", "-u"].contains(l)) { out += t; maskNext = true }
+                else if net && t.hasPrefix("-u") && !t.hasPrefix("--") { out += "-u***" }
+                else { out += t }
+            } else {
+                out += t
+            }
+        }
+        return out
+    }
+
+    /// scheme://host, plus "/…" if anything followed; the host is after the last @ so userinfo never survives.
+    static func shrinkURL(_ t: String) -> String {
+        guard let nr = url.firstMatch(in: t, range: NSRange(t.startIndex..., in: t))?.range, let r = Range(nr, in: t) else { return "***" }
+        let prefix = t[..<r.lowerBound], rest = t[r.upperBound...]
+        let auth = rest.prefix { !"/?#\"' ".contains($0) }
+        let host = auth.split(separator: "@", omittingEmptySubsequences: false).last ?? ""
+        let tail = rest.dropFirst(auth.count).drop { "\"')".contains($0) }
+        return redact(String(prefix)) + t[r] + host + (tail.isEmpty ? "" : "/…")
     }
 }
 
 /// One line per row the section shows, for "Ask Claude". Secret values (settings env, MCP env/headers) are never included, only names.
 public func screenText(_ section: AppSection, _ s: Snapshot, issues: [Issue], advice: Advice) -> String {
     // Config-derived text is untrusted: drop control characters so it can't forge the prompt fence.
-    func c(_ v: String) -> String {
-        String(String.UnicodeScalarView(v.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }).prefix(400))
-    }
+    func strip(_ v: String) -> String { String(String.UnicodeScalarView(v.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) })) }
+    func cap(_ v: String) -> String { String(v.prefix(400)) }
+    func c(_ v: String) -> String { cap(strip(v)) }
+    func r(_ v: String) -> String { cap(redact(strip(v))) }
     let lines: [String]
     switch section {
     case .health:
-        lines = issues.map { "\($0.severity) | \(redact(c($0.title))) | \(redact(c($0.subject))) | \(redact(c($0.detail)))" }
+        lines = issues.map { "\($0.severity) | \(r($0.title)) | \(r($0.subject)) | \(r($0.detail))" }
     case .guide:
         lines = advice.rules.filter { $0.retired != true }.map { "\($0.area.rawValue) | \($0.kind.rawValue) | \(c($0.text))" }
     case .mySkills, .skills:
@@ -59,14 +97,14 @@ public func screenText(_ section: AppSection, _ s: Snapshot, issues: [Issue], ad
             .map { "\($0.kind.rawValue) | \(c($0.name)) | \(c($0.description)) | \($0.listingTokens) tokens | \(c($0.file.path))" }
     case .mcp:
         lines = s.mcpServers.map {
-            "\(c($0.name)) | \(redact(c($0.command))) | \(c($0.transport)) | env: \($0.env.keys.sorted().map(c).joined(separator: ",")) | headers: \($0.headers.keys.sorted().map(c).joined(separator: ","))"
+            "\(c($0.name)) | \(r($0.command)) | \(c($0.transport)) | env: \($0.env.keys.sorted().map(c).joined(separator: ",")) | headers: \($0.headers.keys.sorted().map(c).joined(separator: ","))"
         }
     case .hooks:
-        lines = s.hooks.map { "\(c($0.event)) | \(c($0.matcher ?? "")) | \(redact(c($0.command))) | \(c($0.source))" }
+        lines = s.hooks.map { "\(c($0.event)) | \(c($0.matcher ?? "")) | \(r($0.command)) | \(c($0.source))" }
     case .plugins:
         lines = s.plugins.map { "\(c($0.id)) | \(c($0.description)) | \($0.enabled ? "enabled" : "disabled") | \($0.alwaysOnTokens ?? 0) tokens" }
     case .permissions:
-        lines = s.permissions.map { "\(redact(c($0.rule))) | \($0.kind) · \(c($0.source))" }
+        lines = s.permissions.map { "\(r($0.rule)) | \($0.kind) · \(c($0.source))" }
     case .instructions:
         lines = s.instructions.map { "\($0.kind.rawValue) | \(c($0.url.path)) | \($0.lines) lines | \($0.tokens) tokens" }
     case .settings:

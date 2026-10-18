@@ -451,6 +451,30 @@ struct ScreenTextTests {
             #expect(!screenText(.health, snap, issues: [j], advice: adv).contains("LEAK"), "\(bad)")
         }
     }
+    @Test func redactorCases() {
+        let cases: [(String, [String])] = [
+            ("npx srv --verbose --api-key LEAK1 --port 3000", ["npx srv --verbose --api-key ***", "--port 3000"]),
+            (#"FOO=bar API_KEY="LEAK2 with space""#, ["FOO=bar"]),
+            ("TOKEN='LEAK3'", []), (#"KEY="LEAK4 still open"#, []), (#"PASSWORD="a\"LEAK5""#, []),
+            (#"curl -H "Authorization: Bearer LEAK6" -H "X-Api-Key: LEAK7" -H 'Cookie: sid=LEAK8; x=y' https://u:p@ss@h.io/LEAK9?t=LEAK10#LEAK11"#,
+             ["curl", "Bearer ***", "https://h.io/…"]),
+            ("curl -uUSER:LEAK12 x", ["curl -u*** x"]), (#"curl --user "LEAK13" x"#, ["curl --user *** x"]),
+            ("git push -u origin main", ["git push -u origin main"]),
+            (#"{"api_key": "LEAK14"}"#, []),
+            ("https://h.io?x=a@b", ["https://h.io/…"]),
+            ("Authorization: Bearer LEAK16 tail", ["Authorization: Bearer ***", "tail"]),
+            ("Bearer LEAK17", ["Bearer ***"]),
+        ]
+        for (input, keep) in cases {
+            let out = redact(input)
+            #expect(!out.contains("LEAK"), "\(input) -> \(out)")
+            for k in keep { #expect(out.contains(k), "\(input) -> \(out) missing \(k)") }
+        }
+        // Redact before capping: a value straddling the 400-char cap must not leak its prefix.
+        let long = String(repeating: "a", count: 390) + #" TOKEN="LEAK15"# + String(repeating: "b", count: 200)
+        let i = Issue(severity: .info, section: .mcp, title: "t", subject: "x", detail: long, term: .scratch)
+        #expect(!screenText(.health, Snapshot(), issues: [i], advice: Advice(rules: [])).contains("LEAK"))
+    }
     @Test func omitsSecretValues() {
         var snap = Snapshot()
         snap.mcpServers = [MCPServer(name: "srv", scope: .user, project: nil, source: URL(filePath: "/x"), command: "run", transport: "stdio",
