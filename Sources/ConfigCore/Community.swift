@@ -23,6 +23,12 @@ public struct CommunitySkill: Identifiable, Sendable, Hashable {
     }
 }
 
+/// A relative in-repo path, or nil when it is absolute or has a `..` segment (it would escape the download).
+func safeRepoPath(_ p: String?) -> String? {
+    guard let p, !p.isEmpty, !p.hasPrefix("/"), !p.split(separator: "/").contains("..") else { return nil }
+    return p
+}
+
 /// `owner/repo` plus an optional skill folder, from a github.com repo, tree or blob URL.
 public func githubRef(_ url: String) -> (slug: String, path: String?)? {
     guard let u = URLComponents(string: url.trimmingCharacters(in: .whitespaces)),
@@ -32,7 +38,7 @@ public func githubRef(_ url: String) -> (slug: String, path: String?)? {
     var rest: [String] = []
     if p.count > 4, p[2] == "tree" || p[2] == "blob" { rest = Array(p[4...]) }
     if rest.last == "SKILL.md" { rest.removeLast() }
-    return ("\(p[0])/\(p[1])", rest.isEmpty ? nil : rest.joined(separator: "/"))
+    return ("\(p[0])/\(p[1])", safeRepoPath(rest.joined(separator: "/")))
 }
 
 public enum CommunityList: String, CaseIterable, Sendable {
@@ -78,7 +84,7 @@ public enum CommunityList: String, CaseIterable, Sendable {
         return items.compactMap { s in
             guard let repo = s["repo_full_name"] as? String, let ref = githubRef("https://github.com/" + repo) else { return nil }
             let kind = s["kind"] as? String ?? ""
-            let path = (s["path"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            let path = safeRepoPath(s["path"] as? String)
             return CommunitySkill(name: ref.slug.split(separator: "/").last.map(String.init) ?? ref.slug,
                                   description: s["description"] as? String ?? "", category: labels[kind] ?? kind,
                                   stars: s["stars"] as? Int, slug: ref.slug, path: path, list: self)

@@ -514,6 +514,12 @@ struct CommunityTests {
         #expect(githubRef("https://github.com/a/b/blob/main/skills/x/SKILL.md")?.path == "skills/x")
         #expect(githubRef("https://github.com/a/b#readme")?.path == nil)
         #expect(githubRef("https://example.com/x") == nil)
+        #expect(githubRef("https://github.com/a/b/tree/main/../../etc")?.path == nil)
+    }
+
+    @Test func videoDropsEscapingPath() {
+        let json = #"{"kinds":[],"skills":[{"repo_full_name":"a/b","path":"../../x"},{"repo_full_name":"a/c","path":"/etc"},{"repo_full_name":"a/d","path":"s/k"}]}"#
+        #expect(CommunityList.video.parse(Data(json.utf8))?.map(\.path) == [nil, nil, "s/k"])
     }
 
     @Test func videoParses() throws {
