@@ -7,6 +7,7 @@ let package = Package(
     targets: [
         .target(name: "ConfigCore"),
         .executableTarget(name: "ClaudeConfig", dependencies: ["ConfigCore"]),
+        .executableTarget(name: "claude-config", dependencies: ["ConfigCore"]),
         .testTarget(name: "ConfigCoreTests", dependencies: ["ConfigCore"]),
     ]
 )

@@ -31,3 +31,7 @@ codesign --force --sign - "$APP"
 rm -rf "/Applications/Claude Config.app"
 cp -R "$APP" /Applications/
 echo "Installed /Applications/Claude Config.app"
+# CLI: first PATH dir of these that is writable without sudo.
+for d in "$HOME/.local/bin" /usr/local/bin; do
+  case ":$PATH:" in *":$d:"*) if [ -w "$d" ]; then cp .build/release/claude-config "$d/claude-config"; echo "Installed $d/claude-config"; break; fi;; esac
+done
