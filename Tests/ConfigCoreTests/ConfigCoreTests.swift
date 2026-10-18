@@ -430,6 +430,22 @@ struct ScreenTextTests {
         let p = askPrompt(question: "a", screen: "s", section: .mcp)
         #expect(p.contains(try! Regex("<screen-[0-9a-f]{8}>")))
     }
+    @Test func redactsInlineSecrets() {
+        var snap = Snapshot()
+        snap.mcpServers = [MCPServer(name: "srv", scope: .user, project: nil, source: URL(filePath: "/x"),
+                                     command: "npx srv --api-key sk-LEAK1 https://u:LEAK2@h.io/x?token=LEAK3", transport: "stdio", env: [:], headers: [:], raw: "")]
+        snap.hooks = [Hook(event: "Stop", matcher: nil, matcherIsValid: true, command: "API_TOKEN=LEAK4 ./run.sh", timeout: nil, async: false,
+                           source: "user", sourceURL: URL(filePath: "/s.json"), scriptPath: nil)]
+        snap.permissions = [PermissionRule(kind: "allow", rule: #"Bash(curl -H "Authorization: Bearer LEAK5" *)"#, source: "user", sourceURL: URL(filePath: "/s.json"))]
+        let adv = Advice(rules: [])
+        let m = screenText(.mcp, snap, issues: [], advice: adv)
+        let h = screenText(.hooks, snap, issues: [], advice: adv)
+        let p = screenText(.permissions, snap, issues: [], advice: adv)
+        for t in [m, h, p] { #expect(!t.contains("LEAK")) }
+        #expect(m.contains("npx srv") && m.contains("h.io") && h.contains("./run.sh"))
+        let i = Issue(severity: .info, section: .mcp, title: "t", subject: "x", detail: "uses TOKEN=LEAK6", term: .scratch)
+        #expect(!screenText(.health, snap, issues: [i], advice: adv).contains("LEAK"))
+    }
     @Test func omitsSecretValues() {
         var snap = Snapshot()
         snap.mcpServers = [MCPServer(name: "srv", scope: .user, project: nil, source: URL(filePath: "/x"), command: "run", transport: "stdio",

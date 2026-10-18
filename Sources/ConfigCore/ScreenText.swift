@@ -1,5 +1,31 @@
 import Foundation
 
+/// Masks inline secrets in commands and rules: secret-looking KEY=value / --key value, auth headers, bearer tokens, URL userinfo and query strings.
+public func redact(_ s: String) -> String {
+    func sub(_ t: String, _ pattern: String, _ with: (NSTextCheckingResult, NSString) -> String) -> String {
+        let re = try! NSRegularExpression(pattern: pattern, options: [.caseInsensitive])
+        let ns = t as NSString
+        var out = "", last = 0
+        for m in re.matches(in: t, range: NSRange(location: 0, length: ns.length)) {
+            out += ns.substring(with: NSRange(location: last, length: m.range.location - last)) + with(m, ns)
+            last = m.range.location + m.range.length
+        }
+        return out + ns.substring(from: last)
+    }
+    var t = sub(s, #"authorization:\s*(?:\w+\s+)?[^\s"')]+"#) { _, _ in "Authorization: ***" }
+    t = sub(t, #"bearer\s+[^\s"')]+"#) { _, _ in "Bearer ***" }
+    t = sub(t, #"(://)[^/\s@]+@"#) { m, ns in ns.substring(with: m.range(at: 1)) + "***@" }
+    t = sub(t, #"\?[^\s"')]*"#) { _, _ in "?***" }
+    t = sub(t, #"(--[\w-]+)(=|\s+)([^\s"']+)"#) { m, ns in
+        let k = ns.substring(with: m.range(at: 1))
+        return looksSecret(k) ? k + ns.substring(with: m.range(at: 2)) + "***" : ns.substring(with: m.range)
+    }
+    return sub(t, #"([\w.-]+)=([^\s"']+)"#) { m, ns in
+        let k = ns.substring(with: m.range(at: 1))
+        return looksSecret(k) ? k + "=***" : ns.substring(with: m.range)
+    }
+}
+
 /// One line per row the section shows, for "Ask Claude". Secret values (settings env, MCP env/headers) are never included, only names.
 public func screenText(_ section: AppSection, _ s: Snapshot, issues: [Issue], advice: Advice) -> String {
     // Config-derived text is untrusted: drop control characters so it can't forge the prompt fence.
@@ -9,7 +35,7 @@ public func screenText(_ section: AppSection, _ s: Snapshot, issues: [Issue], ad
     let lines: [String]
     switch section {
     case .health:
-        lines = issues.map { "\($0.severity) | \(c($0.title)) | \(c($0.subject)) | \(c($0.detail))" }
+        lines = issues.map { "\($0.severity) | \(c(redact($0.title))) | \(c(redact($0.subject))) | \(c(redact($0.detail)))" }
     case .guide:
         lines = advice.rules.filter { $0.retired != true }.map { "\($0.area.rawValue) | \($0.kind.rawValue) | \(c($0.text))" }
     case .mySkills, .skills:
@@ -17,14 +43,14 @@ public func screenText(_ section: AppSection, _ s: Snapshot, issues: [Issue], ad
             .map { "\($0.kind.rawValue) | \(c($0.name)) | \(c($0.description)) | \($0.listingTokens) tokens | \(c($0.file.path))" }
     case .mcp:
         lines = s.mcpServers.map {
-            "\(c($0.name)) | \(c($0.command)) | \($0.transport) | env: \($0.env.keys.sorted().map(c).joined(separator: ",")) | headers: \($0.headers.keys.sorted().map(c).joined(separator: ","))"
+            "\(c($0.name)) | \(c(redact($0.command))) | \(c($0.transport)) | env: \($0.env.keys.sorted().map(c).joined(separator: ",")) | headers: \($0.headers.keys.sorted().map(c).joined(separator: ","))"
         }
     case .hooks:
-        lines = s.hooks.map { "\(c($0.event)) | \(c($0.matcher ?? "")) | \(c($0.command)) | \(c($0.source))" }
+        lines = s.hooks.map { "\(c($0.event)) | \(c($0.matcher ?? "")) | \(c(redact($0.command))) | \(c($0.source))" }
     case .plugins:
         lines = s.plugins.map { "\(c($0.id)) | \(c($0.description)) | \($0.enabled ? "enabled" : "disabled") | \($0.alwaysOnTokens ?? 0) tokens" }
     case .permissions:
-        lines = s.permissions.map { "\(c($0.rule)) | \($0.kind) · \(c($0.source))" }
+        lines = s.permissions.map { "\(c(redact($0.rule))) | \($0.kind) · \(c($0.source))" }
     case .instructions:
         lines = s.instructions.map { "\($0.kind.rawValue) | \(c($0.url.path)) | \($0.lines) lines | \($0.tokens) tokens" }
     case .settings:
