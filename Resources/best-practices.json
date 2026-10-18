@@ -6,6 +6,7 @@
   "rules": [
     {
       "id": "skillmd-500-lines",
+      "check": "skillmd-lines",
       "area": "skills",
       "kind": "official",
       "text": "Keep SKILL.md under 500 lines and move detailed reference material into separate files.",
@@ -46,6 +47,7 @@
     },
     {
       "id": "claudemd-concise",
+      "check": "claudemd-lines",
       "area": "instructions",
       "kind": "official",
       "text": "Target under 200 lines per CLAUDE.md file and move instructions that only matter for part of the codebase into path-scoped rules.",
@@ -102,6 +104,7 @@
     },
     {
       "id": "no-secrets-in-settings-env",
+      "check": "no-env-secrets",
       "area": "settings",
       "kind": "official",
       "text": "Commit .claude/settings.json only for what the whole team shares, and keep personal settings in .claude/settings.local.json.",
@@ -126,6 +129,7 @@
     },
     {
       "id": "no-broad-permissions",
+      "check": "no-broad-permissions",
       "area": "permissions",
       "kind": "official",
       "text": "Avoid allow rules like Bash(*) or a bare Bash; allow specific commands such as Bash(git log *) instead.",

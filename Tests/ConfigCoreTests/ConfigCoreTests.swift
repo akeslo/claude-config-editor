@@ -386,6 +386,24 @@ struct AdviceTests {
         let bundled = Data(#"{"version":1,"rules":[\#(good)]}"#.utf8)
         #expect(Advice.pick(fetched: Data("<html>".utf8), cached: nil, bundled: bundled).rule("skill-500") != nil)
     }
+    @Test func measuresClaudeMDLines() throws {
+        func rule(_ check: String?) throws -> AdviceRule {
+            let c = check.map { #","check":"\#($0)""# } ?? ""
+            return try JSONDecoder().decode(AdviceRule.self, from: Data(#"{"id":"r","area":"instructions","kind":"official","text":"t","source":"https://a.b"\#(c)}"#.utf8))
+        }
+        func snap(_ lines: Int) -> Snapshot {
+            var s = Snapshot()
+            s.instructions = [InstructionFile(kind: .claudeMD, url: URL(filePath: "/tmp/CLAUDE.md"), project: nil, lines: lines, tokens: 0, pathScoped: false)]
+            return s
+        }
+        let r = try rule("claudemd-lines")
+        #expect(r.measure(snap(250))?.met == false)
+        #expect(r.measure(snap(50))?.met == true)
+        #expect(r.measure(snap(50))?.note == "yours: 50")
+        #expect(try rule("bogus").measure(snap(50)) == nil)
+        #expect(try rule(nil).measure(snap(50)) == nil)
+        #expect(try rule("no-broad-permissions").measure(Snapshot())?.met == true)
+    }
     @Test func bundledSeedIsValid() throws {
         let url = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "../../Resources/best-practices.json")
         let a = try #require(Advice.decode(Data(contentsOf: url)))

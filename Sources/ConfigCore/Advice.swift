@@ -46,6 +46,25 @@ public struct AdviceRule: Codable, Identifiable, Sendable {
         try c.encodeIfPresent(check, forKey: .check)
         try c.encodeIfPresent(retired, forKey: .retired)
     }
+
+    /// Checks this rule against the scanned setup; nil when it has no (known) `check`.
+    public func measure(_ s: Snapshot) -> (met: Bool, note: String)? {
+        switch check {
+        case "claudemd-lines":
+            let longest = s.instructions.filter { $0.kind == .claudeMD }.map(\.lines).max() ?? 0
+            return (longest <= 200, "yours: \(longest)")
+        case "skillmd-lines":
+            let longest = s.components.filter { $0.kind == .skill }.map(\.lineCount).max() ?? 0
+            return (longest <= 500, "yours: \(longest)")
+        case "no-env-secrets":
+            let n = Checks.settingsChecks(s).filter { $0.title == "Secret in settings env" }.count
+            return (n == 0, n == 0 ? "none found" : "found in \(n) settings file\(n == 1 ? "" : "s")")
+        case "no-broad-permissions":
+            let n = Checks.permissionChecks(s).filter { $0.title == "Very broad permission rule" }.count
+            return (n == 0, n == 0 ? "none found" : "\(n) broad rule\(n == 1 ? "" : "s")")
+        default: return nil
+        }
+    }
 }
 
 public struct Advice: Sendable {
