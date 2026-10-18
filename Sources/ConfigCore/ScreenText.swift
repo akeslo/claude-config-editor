@@ -120,8 +120,9 @@ public func screenText(_ section: AppSection, _ s: Snapshot, issues: [Issue], ad
         lines = issues.map { "\($0.severity) | \(r($0.title)) | \(r($0.subject)) | \(r($0.detail))" }
     case .guide:
         lines = advice.rules.filter { $0.retired != true }.map { "\($0.area.rawValue) | \($0.kind.rawValue) | \(c($0.text))" }
-    case .mySkills, .skills:
-        lines = s.components.filter { (section == .mySkills) == ($0.kind == .skill) }
+    case .mySkills, .skills, .analytics, .context, .discover, .storage:
+        // ScreenContext itemises analytics/context/discover/storage; this fallback still lists items, never just totals.
+        lines = s.components.filter { section != .mySkills && section != .skills || (section == .mySkills) == ($0.kind == .skill) }
             .map { "\($0.kind.rawValue) | \(c($0.name)) | \(c($0.description)) | \($0.listingTokens) tokens | \(c($0.file.path))" }
     case .mcp:
         lines = s.mcpServers.map {
@@ -145,8 +146,6 @@ public func screenText(_ section: AppSection, _ s: Snapshot, issues: [Issue], ad
         }
     case .projects:
         lines = s.projects.map { "\(c($0.path)) | \($0.transcriptCount) transcripts | \($0.dataBytes) bytes" }
-    case .analytics, .context, .discover, .storage:
-        lines = ["(this screen's data is not itemised; \(s.components.count) skills/agents, \(s.mcpServers.count) MCP servers, \(s.plugins.count) plugins, \(s.hooks.count) hooks)"]
     }
     return lines.isEmpty ? "(nothing on this screen)" : lines.joined(separator: "\n")
 }

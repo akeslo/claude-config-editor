@@ -57,9 +57,14 @@ final class AppModel {
     var loading = false
     var measuringStorage = false
     var info: InfoItem?
+    /// Last delete/edit made through EditActions, for the undo toast (see `undoLast()`).
+    var lastAction: (title: String, records: [Backup.Record])?
+    var actionError: String?
     var pendingFix: PendingFix? { didSet { if pendingFix == nil { clearCommunityDownloads() } } }
     var community: [CommunitySkill] = []
     var communityLoaded = false
+    /// Discover's search box, kept here so Ask Claude can send it.
+    var discoverSearch = ""
     private var communityLoading = false
     /// Repo downloads behind a pending skill install; deleted when the sheet closes or the next install starts.
     var communityDownloads: [URL] = []
@@ -174,12 +179,6 @@ final class AppModel {
         let r = await ClaudeCLI.run(["-p", prompt, "--model", model, "--settings", #"{"disableAllHooks":true}"#, "--tools", "", "--no-session-persistence"])
         let text = r.output.trimmingCharacters(in: .whitespacesAndNewlines)
         return r.ok && !text.isEmpty ? text : nil
-    }
-
-    /// Answers a free-form question about the screen the user is on, from its redacted text.
-    func ask(_ question: String, about: AppSection) async -> String? {
-        let screen = screenText(about, snapshot, issues: issues, advice: advice)
-        return await askClaude(askPrompt(question: question, screen: screen, section: about), model: "sonnet")
     }
 
     /// The 1–3 skills that best fit a use case, each with a one-line reason, from `claude -p`.

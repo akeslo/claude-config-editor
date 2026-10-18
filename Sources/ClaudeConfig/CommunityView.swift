@@ -10,15 +10,7 @@ struct CommunityView: View {
     @State private var picked: Set<String> = []
 
     var body: some View {
-        let installedSkills = Set((try? FileManager.default.contentsOfDirectory(atPath: Paths.claudeDir.appending(path: "skills").path)) ?? [])
-        let knownRepos = Set((readJSON(Paths.claudeDir.appending(path: "plugins/known_marketplaces.json")) ?? [:]).values
-            .compactMap { (($0 as? JSON)?["source"] as? JSON)?["repo"] as? String }.map { $0.lowercased() })
-        // The folder name an install would use isn't known before download (SKILL.md `name:`), so match likely ones.
-        let installed = { (s: CommunitySkill) -> Bool in
-            if s.marketplace { return knownRepos.contains(s.slug.lowercased()) }
-            let folder: Substring = (s.path ?? s.slug).split(separator: "/").last ?? ""
-            return installedSkills.contains(s.name) || installedSkills.contains(String(folder))
-        }
+        let installed = model.communityInstalled()
         let list = model.community
             .filter { !hideInstalled || !installed($0) }
             .filter { search.isEmpty || [$0.name, $0.description, $0.category].contains { $0.localizedCaseInsensitiveContains(search) } }
@@ -44,7 +36,11 @@ struct CommunityView: View {
                     TableColumn("Category") { Text($0.category) }.width(150)
                     TableColumn("List") { Text(titles[$0.list] ?? $0.list) }.width(150)
                     TableColumn("Stars") { Text($0.stars?.formatted() ?? "").monospacedDigit() }.width(60)
-                    TableColumn("") { s in Text(installed(s) ? "Installed" : "").foregroundStyle(.secondary) }.width(70)
+                    TableColumn("") { s in
+                        if installed(s) { Text("Installed").foregroundStyle(.secondary) }
+                        else { Button("Install…") { model.startCommunityInstall(s) }.disabled(model.communityBusy != nil)
+                            .help("Only install skills you trust: scripts in a skill can run on your machine.") }
+                    }.width(90)
                 }
             }
         }
