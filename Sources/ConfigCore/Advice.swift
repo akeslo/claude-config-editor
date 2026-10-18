@@ -60,12 +60,14 @@ public struct Advice: Sendable {
     public static func decode(_ data: Data) -> Advice? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? JSON,
               let items = root["rules"] as? [Any] else { return nil }
+        var seen = Set<String>()
         let rules: [AdviceRule] = items.compactMap { item in
             guard JSONSerialization.isValidJSONObject(item),
                   let d = try? JSONSerialization.data(withJSONObject: item),
                   let r = try? JSONDecoder().decode(AdviceRule.self, from: d),
                   r.retired != true, !r.id.isEmpty, !r.text.isEmpty,
-                  ["http", "https"].contains(r.source.scheme), r.source.host != nil else { return nil }
+                  ["http", "https"].contains(r.source.scheme), r.source.host != nil,
+                  seen.insert(r.id).inserted else { return nil }  // keep first of duplicate ids
             return r
         }
         return rules.isEmpty ? nil : Advice(rules: rules)

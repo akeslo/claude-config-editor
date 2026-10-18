@@ -373,6 +373,11 @@ struct AdviceTests {
         #expect(a?.rules.map(\.id) == ["skill-500"])
         #expect(a?.rules(for: .mySkills).count == 1)
     }
+    @Test func dropsDuplicateIds() {
+        let dup = good.replacingOccurrences(of: "Keep SKILL.md under 500 lines", with: "Second")
+        let a = Advice.decode(Data(#"{"version":1,"rules":[\#(good),\#(dup)]}"#.utf8))
+        #expect(a?.rules.map(\.text) == ["Keep SKILL.md under 500 lines"])
+    }
     @Test func hidesRetired() {
         let r = good.replacingOccurrences(of: "}", with: #","retired":true}"#)
         #expect(Advice.decode(Data(#"{"version":1,"rules":[\#(r)]}"#.utf8)) == nil)

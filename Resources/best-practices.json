@@ -80,8 +80,8 @@
       "id": "no-secrets-in-mcp-config",
       "area": "mcp",
       "kind": "official",
-      "text": "Do not write API keys or bearer tokens literally into MCP server headers or env; use ${VAR} expansion.",
-      "why": "A committed .mcp.json is shared with everyone who clones the project; ${VAR} keeps the value on each machine.",
+      "text": "Reference sensitive values such as API keys in .mcp.json with ${VAR} environment variable expansion instead of writing them into the file.",
+      "why": "The MCP docs say ${VAR} expansion lets teams share configurations while keeping machine-specific paths and sensitive values like API keys flexible.",
       "source": "https://code.claude.com/docs/en/mcp"
     },
     {
@@ -104,8 +104,8 @@
       "id": "no-secrets-in-settings-env",
       "area": "settings",
       "kind": "official",
-      "text": "Keep API keys and tokens out of the env block of a committed .claude/settings.json; put personal values in .claude/settings.local.json or your shell environment.",
-      "why": "The committed project settings file is shared with everyone who clones the repository, while settings.local.json is personal and kept out of git.",
+      "text": "Commit .claude/settings.json only for what the whole team shares, and keep personal settings in .claude/settings.local.json.",
+      "why": "Everyone who clones the repository gets the committed .claude/settings.json; settings.local.json is for your personal overrides in one project and is kept out of git.",
       "source": "https://code.claude.com/docs/en/settings"
     },
     {
