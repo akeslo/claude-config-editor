@@ -34,7 +34,7 @@ struct MenuBarSkills: View {
     @State private var asking = false
     @State private var expanded: String?
     @State private var copied: String?
-    @State private var picked: Set<String> = []
+    @State private var picked = BulkSelection<String>()
 
     /// Personal, project and enabled-plugin skills that aren't Off.
     private var skills: [Component] {
@@ -65,7 +65,7 @@ struct MenuBarSkills: View {
             Divider()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(shown) { row($0) }
+                    ForEach(shown) { row($0, shown.map(\.id)) }
                     if !catalog.isEmpty {
                         Text("Available to install").font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, Space.s)
                         ForEach(catalog) { RecommendationRow(item: $0) }
@@ -73,8 +73,14 @@ struct MenuBarSkills: View {
                 }
             }
             .frame(height: 360)
+            .bulkKeys($picked, visible: shown.map(\.id))
             .overlay { if shown.isEmpty && catalog.isEmpty { Text(all.isEmpty ? "Loading skills…" : "No matches").foregroundStyle(.secondary) } }
-            CopyPromptButton(skills: all.filter { picked.contains($0.id) }, picked: $picked)
+            HStack {
+                SelectAllBox(sel: $picked, visible: shown.map(\.id))
+                if !picked.isEmpty { Text(picked.label(shown.map(\.id))).font(.caption).foregroundStyle(.secondary) }
+                Spacer()
+                CopyPromptButton(skills: all.filter { picked.contains($0.id) }, picked: $picked)
+            }
             if let copied { Label("Copied \(copied)", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(Color.accentColor) }
         }
         .padding(Space.m)
@@ -87,11 +93,10 @@ struct MenuBarSkills: View {
         }
     }
 
-    private func row(_ s: Component) -> some View {
+    private func row(_ s: Component, _ visibleIDs: [String]) -> some View {
         let open = expanded == s.id
         return HStack(alignment: .top, spacing: Space.s) {
-            Toggle("Select", isOn: Binding(get: { picked.contains(s.id) }, set: { if $0 { picked.insert(s.id) } else { picked.remove(s.id) } }))
-                .labelsHidden().toggleStyle(.checkbox).help("Select for Copy prompt")
+            SelectBox(sel: $picked, id: s.id, visible: visibleIDs, name: "/" + s.name)
             Button { copy("/" + s.name); flash("/" + s.name) } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {

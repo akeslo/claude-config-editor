@@ -3,7 +3,7 @@ import SwiftUI
 
 struct MCPView: View {
     @Environment(AppModel.self) private var model
-    @State private var selection: MCPServer.ID?
+    @State private var sel = BulkSelection<String>()
     @State private var search = ""
     @State private var scope: Scope?
     @State private var sort = [KeyPathComparator(\MCPServer.name)]
@@ -13,7 +13,11 @@ struct MCPView: View {
             .filter { scope == nil || $0.scope == scope }
             .filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.description.localizedCaseInsensitiveContains(search) || $0.command.localizedCaseInsensitiveContains(search) }
             .sorted(using: sort)
-        Table(servers, selection: $selection, sortOrder: $sort) {
+        let visible = servers.map(\.id)
+        let picked = servers.filter { sel.contains($0.id) } + model.snapshot.mcpServers.filter { sel.contains($0.id) && !visible.contains($0.id) }
+        let noSwitch = BulkCheck(enabled: false, why: "Claude Code has no on/off setting for a server that this app can write; toggle it with /mcp in a session, or Remove it")
+        Table(servers, selection: $sel.ids, sortOrder: $sort) {
+            TableColumn("", value: \MCPServer.name) { (m: MCPServer) in SelectBox(sel: $sel, id: m.id, visible: visible, name: m.name) }.width(22)
             TableColumn("Name", value: \.name) { m in
                 VStack(alignment: .leading) {
                     Text(m.name).fontWeight(.medium)
@@ -35,10 +39,18 @@ struct MCPView: View {
                 Text("All scopes").tag(Scope?.none)
                 ForEach(Scope.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
             }
-            if let m = servers.first(where: { $0.id == selection }) { removeButton(m) }
         }
-        .onChange(of: selection) {
-            guard let m = servers.first(where: { $0.id == selection }) else { return }
+        .bulkSelectable($sel, visible: visible, actions: [
+            BulkAction(title: "Enable…", icon: "play.circle", check: noSwitch) {},
+            BulkAction(title: "Disable…", icon: "pause.circle", check: noSwitch) {},
+            BulkAction(title: "Remove…", icon: "trash", check: bulkCheck(picked) { cliScope($0) == nil ? "are defined by a plugin or managed settings (remove them there)" : nil }) {
+                model.proposeBulk("Remove \(picked.count) MCP server\(picked.count == 1 ? "" : "s")", bulkPlan(picked, label: { "\($0.name) (\($0.scope.rawValue))" }) { m in
+                    cliScope(m).map { .cli(args: ["mcp", "remove", m.name, "-s", $0], dryRun: nil, cwd: m.project) }
+                })
+            },
+        ])
+        .onChange(of: sel.ids) {
+            guard sel.count == 1, let m = servers.first(where: { sel.contains($0.id) }) else { return }
             model.info = InfoItem(m.name, term: .mcpServer, facts: [
                 ("Scope", m.scope.rawValue), ("Project", m.project ?? "—"), ("Type", m.transport),
                 ("Defined in", shortPath(m.source)),
@@ -47,13 +59,17 @@ struct MCPView: View {
         }
     }
 
-    @ViewBuilder private func removeButton(_ m: MCPServer) -> some View {
-        let cliScope: String? = switch m.scope {
+    private func cliScope(_ m: MCPServer) -> String? {
+        switch m.scope {
         case .user: "user"
         case .local: "local"
         case .project: "project"
         default: nil
         }
+    }
+
+    @ViewBuilder private func removeButton(_ m: MCPServer) -> some View {
+        let cliScope = cliScope(m)
         Button("Remove \(m.name)…") {
             model.propose("Remove MCP server \(m.name)", .cli(args: ["mcp", "remove", m.name, "-s", cliScope!], dryRun: nil, cwd: m.project))
         }
@@ -73,7 +89,7 @@ struct MCPView: View {
 
 struct ComponentsView: View {
     @Environment(AppModel.self) private var model
-    @State private var selection = Set<Component.ID>()
+    @State private var sel = BulkSelection<String>()
     @State private var kind: ComponentKind? = .skill
     @State private var search = ""
     @State private var sort = [KeyPathComparator(\Row.tokens, order: .reverse)]
@@ -93,7 +109,10 @@ struct ComponentsView: View {
             .filter { kind == nil || $0.kind == kind }
             .filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.description.localizedCaseInsensitiveContains(search) }
             .map(Row.init).sorted(using: sort)
-        Table(rows, selection: $selection, sortOrder: $sort) {
+        let visible = rows.map(\.id)
+        let picked = model.snapshot.components.filter { sel.contains($0.id) }
+        Table(rows, selection: $sel.ids, sortOrder: $sort) {
+            TableColumn("", value: \Row.name) { (r: Row) in SelectBox(sel: $sel, id: r.id, visible: visible, name: r.name) }.width(22)
             TableColumn("Name", value: \.name) { r in
                 VStack(alignment: .leading) {
                     Text(r.name).fontWeight(.medium)
@@ -134,7 +153,22 @@ struct ComponentsView: View {
                 }
             }
         }
-        .onChange(of: selection) {
+        .bulkSelectable($sel, visible: visible, actions: [
+            BulkAction(title: "Move to Trash…", icon: "trash", check: bulkCheck(picked) { $0.ownsFile ? nil : "come from plugins or other agents" }) {
+                model.proposeBulk("Move \(picked.count) item\(picked.count == 1 ? "" : "s") to the Trash", bulkPlan(picked, label: { "\($0.kind.rawValue): \($0.name)" }) { .trash([trashURL($0)]) })
+            },
+            BulkAction(title: "Hide from listing…", icon: "eye.slash", check: bulkCheck(picked) { $0.kind != .skill ? "are not skills" : nil }) {
+                model.proposeBulk("Hide \(picked.count) from the skill listing", bulkPlan(picked, label: { "/" + $0.name }, skip: { $0.override == "user-invocable-only" ? "already hidden" : nil }) {
+                    .settingsKey(file: Paths.userSettings, path: ["skillOverrides", $0.name], value: "user-invocable-only")
+                })
+            },
+            BulkAction(title: "Show in listing…", icon: "eye", check: bulkCheck(picked) { $0.kind != .skill ? "are not skills" : nil }) {
+                model.proposeBulk("Show \(picked.count) in the skill listing", bulkPlan(picked, label: { "/" + $0.name }, skip: { $0.override == nil ? "already shown" : nil }) {
+                    .settingsKey(file: Paths.userSettings, path: ["skillOverrides", $0.name], value: nil)
+                })
+            },
+        ])
+        .onChange(of: sel.ids) {
             guard let c = selected else { return }
             model.info = InfoItem(c.name, term: c.kind.term, facts: [
                 ("Scope", c.scope.rawValue), ("From", c.owner ?? "personal"),
@@ -146,16 +180,14 @@ struct ComponentsView: View {
         }
     }
 
-    private var selected: Component? { model.snapshot.components.first { selection.contains($0.id) } }
+    private var selected: Component? { sel.count == 1 ? model.snapshot.components.first { sel.contains($0.id) } : nil }
     /// A skill is its whole folder; agents and commands are single files.
 }
 
-/// A skill is its whole folder; other components are one file.
-func trashURL(_ c: Component) -> URL { c.kind == .skill && c.file.lastPathComponent == "SKILL.md" ? c.file.deletingLastPathComponent() : c.file }
 
 struct PluginsView: View {
-    @Environment(AppModel.self) private var model
-    @State private var selection = Set<Plugin.ID>()
+    @Environment(AppModel.self) var model
+    @State private var sel = BulkSelection<String>()
     @State private var search = ""
     @State private var sort = [KeyPathComparator(\Plugin.id)]
 
@@ -163,7 +195,11 @@ struct PluginsView: View {
         let plugins = model.snapshot.plugins
             .filter { search.isEmpty || $0.id.localizedCaseInsensitiveContains(search) || $0.description.localizedCaseInsensitiveContains(search) }
             .sorted(using: sort)
-        Table(plugins, selection: $selection, sortOrder: $sort) {
+        let visible = plugins.map(\.id)
+        let picked = model.snapshot.plugins.filter { sel.contains($0.id) }
+        let anyPicked = bulkCheck(picked) { _ in nil }
+        Table(plugins, selection: $sel.ids, sortOrder: $sort) {
+            TableColumn("", value: \Plugin.id) { (p: Plugin) in SelectBox(sel: $sel, id: p.id, visible: visible, name: p.id) }.width(22)
             TableColumn("Plugin", value: \.id) { p in
                 HStack {
                     Image(systemName: p.enabled ? "checkmark.circle.fill" : "circle").foregroundStyle(p.enabled ? .green : .secondary)
@@ -197,9 +233,15 @@ struct PluginsView: View {
             }
             TrashButton(urls: plugins.filter { ids.contains($0.id) }.map(\.installPath))
         }
+        .bulkSelectable($sel, visible: visible, actions: [
+            BulkAction(title: "Enable…", icon: "checkmark.circle", check: anyPicked, run: cli(picked, "enable") { $0.enabled ? "already enabled" : nil }),
+            BulkAction(title: "Disable…", icon: "circle", check: anyPicked, run: cli(picked, "disable") { $0.enabled ? nil : "already disabled" }),
+            BulkAction(title: "Update…", icon: "arrow.up.circle", check: anyPicked, run: cli(picked, "update")),
+            BulkAction(title: "Uninstall…", icon: "trash", check: anyPicked, run: cli(picked, "uninstall")),
+        ])
         .toolbar {
-            if let p = plugins.first(where: { selection.contains($0.id) }) { TrashButton(url: p.installPath) }
-            if let p = plugins.first(where: { selection.contains($0.id) }) {
+            if sel.count == 1, let p = plugins.first(where: { sel.contains($0.id) }) { TrashButton(url: p.installPath) }
+            if sel.count == 1, let p = plugins.first(where: { sel.contains($0.id) }) {
                 Button(p.enabled ? "Disable…" : "Enable…") {
                     model.propose("\(p.enabled ? "Disable" : "Enable") \(p.id)", .cli(args: ["plugin", p.enabled ? "disable" : "enable", p.id], dryRun: nil, cwd: nil))
                 }
@@ -207,8 +249,8 @@ struct PluginsView: View {
                 Button("Uninstall…") { model.propose("Uninstall \(p.id)", .cli(args: ["plugin", "uninstall", p.id], dryRun: nil, cwd: nil)) }
             }
         }
-        .onChange(of: selection) {
-            guard let p = plugins.first(where: { selection.contains($0.id) }) else { return }
+        .onChange(of: sel.ids) {
+            guard let p = plugins.first(where: { sel.contains($0.id) }) else { return }
             let parts = model.snapshot.components.filter { $0.owner == p.id }
             model.info = InfoItem(p.id, term: .plugin, facts: [
                 ("Enabled", p.enabled ? "Yes" : "No"), ("Version", p.version), ("Scope", p.scope), ("Marketplace", p.marketplace),
@@ -218,9 +260,15 @@ struct PluginsView: View {
     }
 }
 
+extension PluginsView {
+    func cli(_ picked: [Plugin], _ verb: String, skip: @escaping (Plugin) -> String? = { _ in nil }) -> () -> Void {
+        { model.proposeBulk("\(verb.capitalized) \(picked.count) plugin\(picked.count == 1 ? "" : "s")", bulkPlan(picked, label: \.id, skip: skip) { .cli(args: ["plugin", verb, $0.id], dryRun: nil, cwd: nil) }) }
+    }
+}
+
 struct HooksView: View {
     @Environment(AppModel.self) private var model
-    @State private var selection = Set<Hook.ID>()
+    @State private var sel = BulkSelection<UUID>()
     @State private var search = ""
 
     var body: some View {
@@ -228,12 +276,17 @@ struct HooksView: View {
             .filter { search.isEmpty || $0.command.localizedCaseInsensitiveContains(search) || $0.event.localizedCaseInsensitiveContains(search) || $0.source.localizedCaseInsensitiveContains(search) || ($0.matcher ?? "").localizedCaseInsensitiveContains(search) }
         // Group by who added the hook: you (settings files) or a plugin.
         let groups = Dictionary(grouping: hooks, by: \.source).sorted { ($0.key.hasPrefix("Plugin") ? 1 : 0, $0.key) < ($1.key.hasPrefix("Plugin") ? 1 : 0, $1.key) }
-        List(selection: $selection) {
+        // One row per (source, command); its id is its first hook's.
+        let rowsByID = Dictionary(uniqueKeysWithValues: groups.flatMap { _, items in Dictionary(grouping: items, by: \.command).values.map { ($0[0].id, $0) } })
+        let visible = groups.flatMap { _, items in Dictionary(grouping: items, by: \.command).values.sorted { $0[0].command < $1[0].command }.map(\.[0].id) }
+        let pickedRows = sel.ids.compactMap { rowsByID[$0] }
+        let noSwitch = BulkCheck(enabled: false, why: "Claude Code has no per-hook on/off switch. Remove backs the settings file up first, so it can be undone from the backup.")
+        List(selection: $sel.ids) {
             ForEach(groups, id: \.key) { source, items in
                 Section(source.hasPrefix("Plugin · ") ? "From plugin \(source.dropFirst(9))" : "Added by you · \(source)") {
                     // One row per program: the same command on several events is one tool reporting several moments.
                     ForEach(Dictionary(grouping: items, by: \.command).values.sorted { $0[0].command < $1[0].command }, id: \.[0].id) { same in
-                        row(same)
+                        row(same, visible)
                     }
                 }
             }
@@ -258,8 +311,17 @@ struct HooksView: View {
             TrashButton(urls: Array(Set(picked.compactMap(\.scriptPath).filter(exists))), label: "Move Script to Trash…")
         }
         .searchable(text: $search, prompt: "Filter hooks by command, event or source")
-        .onChange(of: selection) {
-            guard let h = hooks.first(where: { selection.contains($0.id) }) else { return }
+        .bulkSelectable($sel, visible: visible, actions: [
+            BulkAction(title: "Disable…", icon: "pause.circle", check: noSwitch) {},
+            BulkAction(title: "Enable…", icon: "play.circle", check: noSwitch) {},
+            BulkAction(title: "Remove…", icon: "trash", check: bulkCheck(pickedRows) { $0[0].source.hasPrefix("Plugin") ? "come from plugins (turn the plugin off in Plugins)" : nil }) {
+                model.proposeBulk("Remove \(pickedRows.count) hook\(pickedRows.count == 1 ? "" : "s")", bulkPlan(pickedRows, label: { ($0[0].scriptPath?.lastPathComponent ?? $0[0].command) + " · " + $0[0].source }) { same in
+                    .removeHooks(same.map { HookRef(file: $0.sourceURL, event: $0.event, command: $0.command) })
+                })
+            },
+        ])
+        .onChange(of: sel.ids) {
+            guard let h = hooks.first(where: { sel.contains($0.id) }) else { return }
             model.info = InfoItem("\(h.event) hook", term: .hook, facts: [
                 ("Event", h.event), ("Matcher", h.matcher ?? "all"), ("Source", h.source), ("Async", h.async ? "Yes" : "No"),
                 ("Adds to context", ["SessionStart", "UserPromptSubmit"].contains(h.event) ? "Can (its output)" : "No"),
@@ -272,10 +334,12 @@ struct HooksView: View {
         model.snapshot.plugins.first { h.source == "Plugin · \($0.id)" }
     }
 
-    private func row(_ same: [Hook]) -> some View {
+    private func row(_ same: [Hook], _ visibleRowIDs: [UUID]) -> some View {
         let h = same[0]
         let waits = same.filter { !$0.async }  // background hooks can't block or add context
-        return VStack(alignment: .leading, spacing: 3) {
+        return HStack(alignment: .top) {
+        SelectBox(sel: $sel, id: h.id, visible: visibleRowIDs, name: h.scriptPath?.lastPathComponent ?? h.command)
+        VStack(alignment: .leading, spacing: 3) {
             Text(h.scriptPath?.lastPathComponent ?? h.command).fontWeight(.medium).lineLimit(1).truncationMode(.middle)
             Text("Runs: " + same.map { when($0).lowercased() }.joined(separator: " · ")).font(.caption).lineLimit(2)
             if model.explaining.contains(model.explanationKey(h)) {
@@ -307,6 +371,7 @@ struct HooksView: View {
                 }
                 if let s = h.scriptPath, !exists(s) { badge("Broken: script missing", "xmark.octagon", .red) }
             }
+        }
         }
         .padding(.vertical, 2)
         .tag(h.id)

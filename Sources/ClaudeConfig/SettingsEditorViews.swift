@@ -251,7 +251,7 @@ private struct AddKeySheet: View {
 
 struct PermissionsView: View {
     @Environment(AppModel.self) private var model
-    @State private var selection = Set<PermissionRule.ID>()
+    @State private var sel = BulkSelection<UUID>()
     @State private var showProjectApprovals = false
     @State private var search = ""
     @State private var sort = [KeyPathComparator(\PermissionRule.kind)]
@@ -262,15 +262,22 @@ struct PermissionsView: View {
         let rules = model.snapshot.permissions.filter { showProjectApprovals || $0.kind != "allowedTools" }
             .filter { search.isEmpty || $0.rule.localizedCaseInsensitiveContains(search) || $0.source.localizedCaseInsensitiveContains(search) || $0.kind.localizedCaseInsensitiveContains(search) }
             .sorted(using: sort)
+        let selection = sel.ids
         let picked = rules.filter { selection.contains($0.id) && editable($0) }
-        Table(rules, selection: $selection, sortOrder: $sort) {
-            TableColumn("Type", value: \.kind) { r in
+        let pickedAll = model.snapshot.permissions.filter { selection.contains($0.id) }
+        Table(rules, selection: $sel.ids, sortOrder: $sort) {
+            TableColumn("", value: \PermissionRule.rule) { (r: PermissionRule) in SelectBox(sel: $sel, id: r.id, visible: rules.map(\.id), name: r.rule) }.width(22)
+            TableColumn("Type", value: \PermissionRule.kind) { (r: PermissionRule) in
                 Text(r.kind).foregroundStyle(r.kind == "deny" ? .red : r.kind == "ask" ? .orange : .primary)
                     .help(r.kind == "allowedTools" ? Term.allowedTools.tooltip : "\(r.kind): " + Term.permissions.tooltip)
             }.width(90)
-            TableColumn("Rule", value: \.rule) { Text($0.rule).font(.system(.body, design: .monospaced)).lineLimit(1).truncationMode(.middle) }
-            TableColumn("Source", value: \.source) { r in Text(r.source).help(shortPath(r.sourceURL)) }.width(200)
+            TableColumn("Rule", value: \PermissionRule.rule) { (r: PermissionRule) in Text(r.rule).font(.system(.body, design: .monospaced)).lineLimit(1).truncationMode(.middle) }
+            TableColumn("Source", value: \PermissionRule.source) { (r: PermissionRule) in Text(r.source).help(shortPath(r.sourceURL)) }.width(200)
         }
+        .bulkSelectable($sel, visible: rules.map(\.id), actions: [
+            BulkAction(title: "Delete…", icon: "trash", check: bulkCheck(pickedAll) { editable($0) ? nil : "are per-project approvals or managed rules" }) { deleting = pickedAll },
+            BulkAction(title: "Copy rules", icon: "doc.on.clipboard", check: bulkCheck(pickedAll) { _ in nil }) { copy(pickedAll.map { "\($0.kind)\t\($0.rule)" }.joined(separator: "\n")) },
+        ])
         .searchable(text: $search, prompt: "Filter rules")
         .contextMenu(forSelectionType: PermissionRule.ID.self) { ids in
             let rs = rules.filter { ids.contains($0.id) && editable($0) }
@@ -299,8 +306,8 @@ struct PermissionsView: View {
                             isPresented: Binding(get: { !deleting.isEmpty }, set: { if !$0 { deleting = [] } })) {
             Button("Delete", role: .destructive) { delete(deleting) }
         } message: { Text("A backup of each settings file is kept; Undo appears below.") }
-        .onChange(of: selection) {
-            guard selection.count == 1, let r = rules.first(where: { selection.contains($0.id) }) else { return }
+        .onChange(of: sel.ids) {
+            guard sel.count == 1, let r = rules.first(where: { sel.contains($0.id) }) else { return }
             model.info = InfoItem(r.rule, term: r.kind == "allowedTools" ? .allowedTools : .permissions,
                                   facts: [("Type", r.kind), ("Source", r.source), ("File", shortPath(r.sourceURL))], file: r.sourceURL)
         }

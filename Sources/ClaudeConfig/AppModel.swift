@@ -53,7 +53,8 @@ final class AppModel {
     /// Skill map state for Ask Claude, set while the map is on screen.
     var skillMapContext: String?
     /// Skills picked for Copy prompt, shared by By category and the map inspector.
-    var pickedSkills: Set<String> = []
+    /// One skill selection shared by the grid, table, map and Copy prompt.
+    var pickedSkills = BulkSelection<String>()
     var storage: [StorageArea] = []
     var projectBytes: [String: Int64] = [:]
     var pluginTokens: [String: Int] = [:]

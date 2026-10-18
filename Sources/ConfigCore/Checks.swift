@@ -74,11 +74,14 @@ public enum Fix: Sendable {
     case many([Fix])
     /// Copies community skill folders into ~/.claude/skills, skipping names that exist.
     case installSkills([SkillCopy])
+    /// Independent per-item changes: each runs even when another fails, and each gets its own result.
+    case bulk([BulkStep])
 
     public var editsSettings: Bool {
         switch self {
         case .settingsKey, .removeHooks, .frontmatter: true
         case .many(let fs): fs.contains(where: \.editsSettings)
+        case .bulk(let ss): ss.contains { $0.fix?.editsSettings == true }
         default: false
         }
     }
@@ -90,6 +93,7 @@ public enum Fix: Sendable {
         case .removeHooks(let refs): "Remove \(refs.count) hook\(refs.count == 1 ? "" : "s") from " + Set(refs.map { $0.file.path.replacingOccurrences(of: Paths.home.path, with: "~") }).sorted().joined(separator: ", ")
         case .frontmatter(let file, let key, let value): "Set \(key): \(value ?? "(removed)") in \(file.path.replacingOccurrences(of: Paths.home.path, with: "~"))"
         case .many(let fs): fs.count <= 3 ? fs.map(\.summary).joined(separator: "\n") : "\(fs.count) changes"
+        case .bulk(let ss): "\(ss.count) item\(ss.count == 1 ? "" : "s"): \(ss.filter { $0.fix != nil }.count) to change, \(ss.filter { $0.fix == nil }.count) skipped"
         case .installSkills(let cs): "Install \(cs.count) skill\(cs.count == 1 ? "" : "s") into \(cs.first.map { shortPath($0.targetDir.deletingLastPathComponent()) } ?? "~/.claude/skills")"
         case .settingsKey(let file, let path, let value): "Set \(path.joined(separator: ".")) = \(value.map { "\"\($0)\"" } ?? "(removed)") in \(file.path.replacingOccurrences(of: Paths.home.path, with: "~"))"
         }

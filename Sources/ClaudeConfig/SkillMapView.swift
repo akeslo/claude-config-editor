@@ -21,6 +21,13 @@ struct SkillMapView: View {
     struct Drill: Hashable { let dim: SkillDimension; let value: String }
 
     private var group: SkillDimension? { SkillDimension(rawValue: groupRaw) }
+
+    /// ⌘-click toggles a skill in the bulk selection, ⇧-click selects a range; a plain click inspects it.
+    private func pick(_ id: String, _ visible: [String]) {
+        let m = NSEvent.modifierFlags
+        if m.contains(.command) || m.contains(.shift) { model.pickedSkills.click(id, visible: visible, m.contains(.shift) ? .range : .toggle) }
+        else { inspected = id }
+    }
     private var filter: SkillFilter {
         get {
             var f = (try? JSONDecoder().decode(SkillFilter.self, from: Data(filterJSON.utf8))) ?? SkillFilter()
@@ -38,10 +45,15 @@ struct SkillMapView: View {
         let f = filter
         let visible = sorted(facts.filter { x in f.matches(x) && drill.allSatisfy { x.keys($0.dim).contains($0.value) } }, now: now)
         let colors = SkillPalette.colors(for: color, facts: facts)
+        let ids = visible.map(\.id)
+        @Bindable var model = model
         VStack(spacing: 0) {
             InsightStrip(insights: skillInsights(facts), active: $insight)
             controls(visible: visible)
             if !drill.isEmpty || insight != nil { breadcrumb }
+            Divider()
+            BulkBar(sel: $model.pickedSkills, visible: ids, actions: model.skillActions(model.pickedSkills.ids))
+                .help("⌘-click or ⇧-click a skill to select it")
             Divider()
             Group {
                 if facts.isEmpty { ProgressView() }
@@ -49,17 +61,18 @@ struct SkillMapView: View {
                 else {
                     switch viz {
                     case .cloud: CloudView(groups: skillGroups(visible, by: group, metric: size, now: now), size: size, color: color, colors: colors, now: now,
-                                           onSkill: { inspected = $0 }, onGroup: groupTap)
+                                           onSkill: { pick($0, visible.map(\.id)) }, onGroup: groupTap)
                     case .treemap: TreemapView(groups: skillGroups(visible, by: group, metric: size, now: now), size: size, color: color, colors: colors, now: now,
-                                               onSkill: { inspected = $0 }, onGroup: groupTap)
-                    case .scatter: ScatterView(facts: visible, color: color, colors: colors, onSkill: { inspected = $0 })
-                    case .table: SkillMapTable(facts: visible, now: now, onSkill: { inspected = $0 })
+                                               onSkill: { pick($0, visible.map(\.id)) }, onGroup: groupTap)
+                    case .scatter: ScatterView(facts: visible, color: color, colors: colors, onSkill: { pick($0, visible.map(\.id)) })
+                    case .table: SkillMapTable(facts: visible, now: now, onSkill: { pick($0, visible.map(\.id)) })
                     case .flow: FlowView(facts: visible, colors: SkillPalette.colors(for: .source, facts: facts),
                                          onNode: { dim, v in drill.append(Drill(dim: dim, value: v)) })
                     }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .bulkKeys($model.pickedSkills, visible: ids)
             Divider()
             legend(colors: colors, visible: visible)
         }
@@ -445,6 +458,7 @@ private struct MapRow: Identifiable {
 }
 
 private struct SkillMapTable: View {
+    @Environment(AppModel.self) private var model
     let facts: [SkillFacts]
     let now: Date
     let onSkill: (String) -> Void
@@ -453,8 +467,11 @@ private struct SkillMapTable: View {
 
     var body: some View {
         let rows = facts.map { MapRow(f: $0, now: now) }.sorted(using: order)
+        let visible = rows.map(\.id)
+        @Bindable var model = model
         Table(rows, selection: $selection, sortOrder: $order) {
             Group {
+                TableColumn("", value: \MapRow.name) { (r: MapRow) in SelectBox(sel: $model.pickedSkills, id: r.id, visible: visible, name: "/" + r.name) }.width(22)
                 TableColumn("Skill", value: \MapRow.name) { (r: MapRow) in Text("/" + r.name).font(.body.monospaced()).lineLimit(1) }.width(min: 140, ideal: 220)
                 TableColumn("Source", value: \MapRow.source) { (r: MapRow) in Text(r.source) }.width(min: 60, ideal: 80)
                 TableColumn("Category", value: \MapRow.category) { (r: MapRow) in Text(r.category) }.width(min: 80, ideal: 120)
@@ -588,7 +605,7 @@ struct SkillInspector: View {
                 HStack {
                     Button("Open in editor") { openFile(s.file) }
                     Button(model.pickedSkills.contains(s.id) ? "Remove from Copy prompt" : "Add to Copy prompt") {
-                        if model.pickedSkills.remove(s.id) == nil { model.pickedSkills.insert(s.id) }
+                        model.pickedSkills.click(s.id, visible: [s.id])
                     }
                     .help("The selection used by Copy prompt on By category")
                 }

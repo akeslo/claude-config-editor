@@ -79,8 +79,12 @@ private struct StatesPage: View {
             .filter { filter.isEmpty || $0.name.localizedCaseInsensitiveContains(filter) || $0.description.localizedCaseInsensitiveContains(filter) }
             .map { SkillRow(skill: $0, suggestion: triage[$0.id], stars: githubSlug($0.repoURL).flatMap { model.stars[$0] }, source: source($0)) }
             .sorted(using: order)
-            Table(rows, sortOrder: $order) {
-                TableColumn("Skill", value: \.name) { r in
+        let visible = rows.map(\.id)
+        @Bindable var model = model
+            Table(rows, selection: $model.pickedSkills.ids, sortOrder: $order) {
+              Group {
+                TableColumn("", value: \SkillRow.name) { (r: SkillRow) in SelectBox(sel: $model.pickedSkills, id: r.id, visible: visible, name: "/" + r.name) }.width(22)
+                TableColumn("Skill", value: \SkillRow.name) { (r: SkillRow) in
                     VStack(alignment: .leading, spacing: 2) {
                         Text("/" + r.name).font(.body.weight(.medium).monospaced())
                         Text(purpose(r.skill)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -93,23 +97,25 @@ private struct StatesPage: View {
                     }
                 }
                 .width(min: 180, ideal: 260)
-                TableColumn("State", value: \.stateRank) { r in StatePicker(model: model, skill: r.skill) }
+                TableColumn("State", value: \SkillRow.stateRank) { (r: SkillRow) in StatePicker(model: model, skill: r.skill) }
                     .width(min: 220, ideal: 230)
-                TableColumn("Tokens", value: \.tokens) { r in
+                TableColumn("Tokens", value: \SkillRow.tokens) { (r: SkillRow) in
                     Text(r.skill.state == .always ? formatTokens(r.tokens) : "0")
                         .monospacedDigit().foregroundStyle(r.skill.state == .always ? .primary : .secondary)
                         .help(r.skill.state == .always ? "Per session" : "Always would cost \(formatTokens(r.skill.tokens(in: .always)))")
                 }
                 .width(min: 50, ideal: 60)
-                TableColumn("Uses", value: \.uses) { r in Text(r.uses == 0 ? "—" : "\(r.uses)").monospacedDigit() }
+                TableColumn("Uses", value: \SkillRow.uses) { (r: SkillRow) in Text(r.uses == 0 ? "—" : "\(r.uses)").monospacedDigit() }
                     .width(min: 40, ideal: 50)
-                TableColumn("Last Used", value: \.lastUsed) { r in Text(relative(r.skill.lastUsed)).foregroundStyle(.secondary) }
+              }
+              Group {
+                TableColumn("Last Used", value: \SkillRow.lastUsed) { (r: SkillRow) in Text(relative(r.skill.lastUsed)).foregroundStyle(.secondary) }
                     .width(min: 70, ideal: 100)
-                TableColumn("Installed", value: \.installed) { r in
+                TableColumn("Installed", value: \SkillRow.installed) { (r: SkillRow) in
                     Text(r.skill.installedAt?.formatted(date: .abbreviated, time: .omitted) ?? "—").foregroundStyle(.secondary)
                 }
                 .width(min: 70, ideal: 100)
-                TableColumn("Stars", value: \.starCount) { r in
+                TableColumn("Stars", value: \SkillRow.starCount) { (r: SkillRow) in
                     if let repo = r.skill.repoURL, let slug = githubSlug(repo) {
                         Link(destination: repo) {
                             Label(r.stars.map { $0.formatted(.number.notation(.compactName)) } ?? "GitHub", systemImage: "star")
@@ -118,9 +124,9 @@ private struct StatesPage: View {
                     }
                 }
                 .width(min: 50, ideal: 70)
-                TableColumn("Source", value: \.source) { r in Text(r.source).foregroundStyle(.secondary).lineLimit(1).help(r.source) }
+                TableColumn("Source", value: \SkillRow.source) { (r: SkillRow) in Text(r.source).foregroundStyle(.secondary).lineLimit(1).help(r.source) }
                     .width(min: 70, ideal: 110)
-                TableColumn("Suggestion", value: \.suggestionText) { r in
+                TableColumn("Suggestion", value: \SkillRow.suggestionText) { (r: SkillRow) in
                     if let s = r.suggestion {
                         VStack(alignment: .leading, spacing: 2) {
                             Label(s.label, systemImage: s.state != nil ? "lightbulb" : s.action == .removeDuplicate ? "doc.on.doc" : "folder").foregroundStyle(Color.accentColor)
@@ -130,7 +136,7 @@ private struct StatesPage: View {
                     }
                 }
                 .width(min: 140, ideal: 240)
-                TableColumn("") { r in
+                TableColumn("") { (r: SkillRow) in
                     if r.skill.ownsFile {
                         Button("Uninstall…", systemImage: "trash") { model.proposeTrash([trashURL(r.skill)]) }
                             .labelStyle(.iconOnly).buttonStyle(.borderless)
@@ -138,7 +144,9 @@ private struct StatesPage: View {
                     }
                 }
                 .width(28)
+              }
             }
+            .bulkKeys($model.pickedSkills, visible: visible)
             .overlay { if rows.isEmpty && !skills.isEmpty { ContentUnavailableView.search(text: filter) } }
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -184,6 +192,8 @@ private struct StatesPage: View {
                 Text("\(rows.count) of \(skills.count)").font(.callout).foregroundStyle(.secondary)
             }
             .padding(.horizontal, Space.l).padding(.bottom, Space.m)
+            Divider()
+            BulkBar(sel: $model.pickedSkills, visible: visible, actions: model.skillActions(model.pickedSkills.ids))
                 }
                 .background(.background)
             }
@@ -223,6 +233,7 @@ struct StatePicker: View {
 
 /// Every on-demand skill with its /command and one-line purpose: searchable and copyable.
 private struct CheatSheet: View {
+    @Environment(AppModel.self) private var model
     let skills: [Component]
     @Binding var filter: String
 
@@ -230,6 +241,8 @@ private struct CheatSheet: View {
         let shown = skills
             .filter { filter.isEmpty || $0.name.localizedCaseInsensitiveContains(filter) || $0.description.localizedCaseInsensitiveContains(filter) }
             .sorted { $0.name < $1.name }
+        @Bindable var model = model
+        let visible = shown.map(\.id)
         VStack(spacing: 0) {
             HStack(spacing: Space.m) {
                 TextField("Filter on-demand skills", text: $filter).textFieldStyle(.roundedBorder).frame(maxWidth: 320)
@@ -239,6 +252,8 @@ private struct CheatSheet: View {
                     .help("Copies every shown /command with its purpose, one per line")
             }
             .padding(Space.l)
+            BulkBar(sel: $model.pickedSkills, visible: visible, actions: model.skillActions(model.pickedSkills.ids))
+            Divider()
             if skills.isEmpty {
                 ContentUnavailableView("No on-demand skills yet", systemImage: "wand.and.rays",
                                        description: Text("Skills you switch to On demand appear here, so you can find them when you need them."))
@@ -247,6 +262,7 @@ private struct CheatSheet: View {
             } else {
                 List(shown) { s in
                     HStack(alignment: .firstTextBaseline, spacing: Space.l) {
+                        SelectBox(sel: $model.pickedSkills, id: s.id, visible: visible, name: "/" + s.name)
                         Text("/" + s.name).font(.body.monospaced()).textSelection(.enabled)
                             .frame(minWidth: 200, alignment: .leading)
                         Text(purpose(s)).foregroundStyle(.secondary).lineLimit(1)
@@ -258,8 +274,34 @@ private struct CheatSheet: View {
                     .padding(.vertical, Space.xs)
                 }
                 .listStyle(.inset)
+                .bulkKeys($model.pickedSkills, visible: visible)
             }
         }
+    }
+}
+
+extension AppModel {
+    func proposeBulk(_ title: String, _ steps: [BulkStep]) { propose(title, .bulk(steps)) }
+
+    /// Bulk actions for selected skills, shared by every Skills page and the map.
+    func skillActions(_ ids: Set<String>) -> [BulkAction] {
+        let picked = snapshot.components.filter { $0.kind == .skill && ids.contains($0.id) }
+        let n = "\(picked.count) skill\(picked.count == 1 ? "" : "s")"
+        let owned = bulkCheck(picked, blocked: skillBlock)
+        func state(_ t: SkillState, _ title: String, _ icon: String) -> BulkAction {
+            BulkAction(title: title, icon: icon, check: owned) { self.proposeBulk("\(title.dropLast()) \(n)", skillStatePlan(picked, to: t)) }
+        }
+        return [
+            state(.onDemand, "Make call-only…", "hand.tap"),
+            state(.always, "Make automatic…", "sparkles"),
+            state(.off, "Disable…", "nosign"),
+            BulkAction(title: "Uninstall…", icon: "trash", check: owned) { self.proposeBulk("Uninstall \(n) (moved to the Trash)", skillUninstallPlan(picked)) },
+            BulkAction(title: "Copy prompt", icon: "doc.on.clipboard", check: bulkCheck(picked) { _ in nil }) { copy(skillPrompt(picked)) },
+            BulkAction(title: "Export list…", icon: "square.and.arrow.up", check: bulkCheck(picked) { _ in nil }) {
+                exportCSV("skills.csv", header: ["name", "state", "tokens", "uses", "last used", "source", "file"],
+                          rows: picked.map { ["/" + $0.name, $0.state.rawValue, "\($0.listingTokens)", "\($0.usageCount)", $0.lastUsed?.formatted() ?? "", $0.belongsTo, $0.file.path] })
+            },
+        ]
     }
 }
 

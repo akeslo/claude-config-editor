@@ -11,6 +11,7 @@ struct AgentFilesView: View {
     @State private var editing: URL?
     @State private var expanded: Set<String> = ["user"]
     @State private var showEmpty = false
+    @State private var bulk = BulkSelection<String>()
 
     var body: some View {
         let all = Memory.groups(instructions: model.snapshot.instructions, agentFiles: agentFiles, projects: model.snapshot.projects.map(\.path))
@@ -22,13 +23,21 @@ struct AgentFilesView: View {
             }
         let emptyCount = all.filter(\.isEmpty).count
         let groups = showEmpty || !search.isEmpty ? all : all.filter { !$0.isEmpty }
-        let selected = groups.flatMap(\.entries).first { $0.id == selection }
+        let entries = groups.flatMap(\.entries)
+        let selected = entries.first { $0.id == selection }
+        let visible = entries.map(\.id)
+        let picked = all.flatMap(\.entries).filter { bulk.contains($0.id) }
         HSplitView {
             List(selection: $selection) {
                 ForEach(groups) { g in
                     DisclosureGroup(isExpanded: Binding(get: { !search.isEmpty || expanded.contains(g.id) },
                                                         set: { if $0 { expanded.insert(g.id) } else { expanded.remove(g.id) } })) {
-                        ForEach(g.entries) { row($0).tag($0.id) }
+                        ForEach(g.entries) { e in
+                            HStack(spacing: 6) {
+                                SelectBox(sel: $bulk, id: e.id, visible: visible, name: relativeName(e))
+                                row(e)
+                            }.tag(e.id)
+                        }
                     } label: {
                         HStack {
                             Label(g.title, systemImage: g.path == nil ? "person.crop.circle" : "folder")
@@ -46,6 +55,12 @@ struct AgentFilesView: View {
                         .frame(maxWidth: .infinity, alignment: .leading).padding(6).background(.bar)
                 }
             }
+            .bulkSelectable($bulk, visible: visible, actions: [
+                BulkAction(title: "Move to Trash…", icon: "trash", check: bulkCheck(picked) { $0.exists ? nil : "are missing" }) {
+                    model.proposeBulk("Move \(picked.count) file\(picked.count == 1 ? "" : "s") to the Trash", bulkPlan(picked, label: { shortPath($0.url) }, skip: { trashRefusal($0.url) }) { .trash([$0.url]) })
+                },
+                BulkAction(title: "Copy paths", icon: "doc.on.clipboard", check: bulkCheck(picked) { _ in nil }) { copy(picked.map(\.url.path).joined(separator: "\n")) },
+            ])
             .overlay { if loading && groups.isEmpty { ProgressView("Searching with Spotlight…") } }
             .frame(minWidth: 460, maxHeight: .infinity)
             detail(selected).frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)

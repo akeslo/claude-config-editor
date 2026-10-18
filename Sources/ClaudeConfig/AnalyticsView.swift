@@ -4,7 +4,7 @@ import SwiftUI
 
 struct AnalyticsView: View {
     @Environment(AppModel.self) private var model
-    @State private var selection = Set<SessionStats.ID>()
+    @State private var sel = BulkSelection<String>()
     @State private var sort = [KeyPathComparator(\SessionStats.start, order: .reverse)]
     @State private var search = ""
     @State private var agent = "all"
@@ -37,6 +37,7 @@ struct AnalyticsView: View {
         let rows = r.sessions
             .filter { search.isEmpty || ($0.title ?? "").localizedCaseInsensitiveContains(search) || $0.project.localizedCaseInsensitiveContains(search) }
             .sorted(using: sort)
+        let picked = r.sessions.filter { sel.contains($0.id) }
         VSplitView {
             ScrollView {
                 VStack(alignment: .leading, spacing: Space.l) {
@@ -88,8 +89,9 @@ struct AnalyticsView: View {
             }
             .frame(minHeight: 300)
 
-            Table(rows, selection: $selection, sortOrder: $sort) {
-                TableColumn("Session") { s in
+            Table(rows, selection: $sel.ids, sortOrder: $sort) {
+                TableColumn("", value: \SessionStats.duration) { (s: SessionStats) in SelectBox(sel: $sel, id: s.id, visible: rows.map(\.id), name: s.title ?? s.id) }.width(22)
+                TableColumn("Session", value: \SessionStats.duration) { (s: SessionStats) in
                     VStack(alignment: .leading) {
                         Text(s.title ?? s.id).lineLimit(1)
                         Text(shortPath(URL(filePath: s.project))).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
@@ -105,11 +107,24 @@ struct AnalyticsView: View {
             .contextMenu(forSelectionType: SessionStats.ID.self) { ids in
                 TrashButton(urls: r.sessions.filter { ids.contains($0.id) }.map { URL(filePath: $0.file) })
             }
+            .bulkSelectable($sel, visible: rows.map(\.id), actions: [
+                BulkAction(title: "Copy resume commands", icon: "doc.on.clipboard", check: bulkCheck(picked) { _ in nil }) {
+                    copy(picked.map { "cd \(shortPath(URL(filePath: $0.project))) && claude --resume \($0.id)" }.joined(separator: "\n"))
+                },
+                BulkAction(title: "Export list…", icon: "square.and.arrow.up", check: bulkCheck(picked) { _ in nil }) {
+                    exportCSV("sessions.csv", header: ["id", "title", "folder", "started", "prompts", "peak context", "compactions", "tokens"],
+                              rows: picked.map { [$0.id, $0.title ?? "", $0.project, $0.start?.formatted() ?? "", "\($0.userPrompts)", "\($0.peakContext)", "\($0.compactions)", "\($0.totalTokens)"] })
+                },
+                BulkAction(title: "Move transcripts to Trash…", icon: "trash", check: bulkCheck(picked) { _ in nil }) {
+                    model.proposeBulk("Move \(picked.count) transcript\(picked.count == 1 ? "" : "s") to the Trash",
+                                      bulkPlan(picked, label: { $0.title ?? $0.id }, skip: { trashRefusal(URL(filePath: $0.file)) }) { .trash([URL(filePath: $0.file)]) })
+                },
+            ])
             .searchable(text: $search, prompt: "Filter sessions by title or folder")
             .frame(minHeight: 200)
         }
-        .onChange(of: selection) {
-            guard let s = r.sessions.first(where: { selection.contains($0.id) }) else { return }
+        .onChange(of: sel.ids) {
+            guard sel.count == 1, let s = r.sessions.first(where: { sel.contains($0.id) }) else { return }
             model.info = InfoItem(s.title ?? s.id, term: .transcripts, facts: [
                 ("Folder", shortPath(URL(filePath: s.project))), ("Model", s.mainModel),
                 ("Requests", "\(s.requests)"), ("Prompts", "\(s.userPrompts)"),

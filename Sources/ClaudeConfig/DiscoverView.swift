@@ -5,7 +5,7 @@ struct DiscoverView: View {
     @Environment(AppModel.self) private var model
     @State private var search = ""
     @State private var hideInstalled = true
-    @State private var selection: AvailablePlugin.ID?
+    @State private var sel = BulkSelection<String>()
     @State private var loadError: String?
     @State private var loading = false
     @State private var sort = [KeyPathComparator(\AvailablePlugin.installCount, order: .reverse)]
@@ -42,32 +42,35 @@ struct DiscoverView: View {
             } else if model.available.isEmpty {
                 ProgressView("Asking claude for marketplace plugins… (runs `claude plugin list --available`, a few seconds)")
             } else {
-                Table(list, selection: $selection, sortOrder: $sort) {
-                    TableColumn("Plugin", value: \.name) { p in
+                Table(list, selection: $sel.ids, sortOrder: $sort) {
+                    TableColumn("", value: \AvailablePlugin.name) { (p: AvailablePlugin) in SelectBox(sel: $sel, id: p.id, visible: list.map(\.id), name: p.name) }.width(22)
+                    TableColumn("Plugin", value: \AvailablePlugin.name) { (p: AvailablePlugin) in
                         VStack(alignment: .leading) {
                             Text(p.name).fontWeight(.medium)
                             Text(p.description).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                         }
                         .explains(.plugin, p.description)
                     }
-                    TableColumn("Marketplace", value: \.marketplace) { p in Text(p.marketplace).help(Term.marketplace.tooltip) }.width(170)
-                    TableColumn("Installs", value: \.installCount) { Text($0.installCount.formatted()).monospacedDigit() }.width(80)
-                    TableColumn("") { p in
+                    TableColumn("Marketplace", value: \AvailablePlugin.marketplace) { (p: AvailablePlugin) in Text(p.marketplace).help(Term.marketplace.tooltip) }.width(170)
+                    TableColumn("Installs", value: \AvailablePlugin.installCount) { (p: AvailablePlugin) in Text(p.installCount.formatted()).monospacedDigit() }.width(80)
+                    TableColumn("", value: \AvailablePlugin.name) { (p: AvailablePlugin) in
                         if p.installed { Text("Installed").foregroundStyle(.secondary) }
                         else { Button("Install…") { install(p) }.help("Runs claude plugin install. Only install plugins you trust: they can run code on your machine.") }
                     }.width(90)
                 }
+                .bulkSelectable($sel, visible: list.map(\.id), actions: [
+                    BulkAction(title: "Install selected…", icon: "arrow.down.circle", check: bulkCheck(model.available.filter { sel.contains($0.id) }) { _ in nil }) {
+                        model.proposePluginInstalls(model.available.filter { sel.contains($0.id) })
+                    },
+                ])
             }
         }
         .toolbar {
             Toggle("Hide installed", isOn: $hideInstalled)
-            if let p = list.first(where: { $0.id == selection }), !p.installed {
-                Button("Install…") { install(p) }
-            }
         }
         .task { if model.available.isEmpty { await load() } }
-        .onChange(of: selection) {
-            guard let p = list.first(where: { $0.id == selection }) else { return }
+        .onChange(of: sel.ids) {
+            guard sel.count == 1, let p = list.first(where: { sel.contains($0.id) }) else { return }
             model.info = InfoItem(p.name, term: .marketplace, facts: [("ID", p.id), ("Marketplace", p.marketplace), ("Installs", p.installCount.formatted())], link: p.repoURL, text: p.description)
         }
     }

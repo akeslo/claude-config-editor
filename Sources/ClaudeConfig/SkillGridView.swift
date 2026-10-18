@@ -17,6 +17,9 @@ struct SkillGridView: View {
             .filter { agent == nil || $0.agents.contains(agent!) }
             .filter { filter.isEmpty || [$0.name, $0.description, $0.category, $0.belongsTo].contains { $0.localizedCaseInsensitiveContains(filter) } }
         let groups = Dictionary(grouping: shown, by: \.category).sorted { $0.key == "Other" ? false : $1.key == "Other" ? true : $0.key < $1.key }
+        // Visible order matches the cards, so ⇧-click ranges follow what's on screen.
+        let ordered = groups.map { ($0.key, $0.value.sorted { ($0.usageCount, $1.name) > ($1.usageCount, $0.name) }) }
+        let visible = ordered.flatMap { $0.1.map(\.id) }
         VStack(spacing: 0) {
             HStack(spacing: Space.m) {
                 TextField("Filter skills", text: $filter).textFieldStyle(.roundedBorder).frame(maxWidth: 280)
@@ -32,17 +35,18 @@ struct SkillGridView: View {
                 }
                 .fixedSize()
                 Spacer()
-                CopyPromptButton(skills: skills.filter { picked.contains($0.id) }, picked: $model.pickedSkills)
                 Text("\(shown.count) skills in \(groups.count) categories").font(.callout).foregroundStyle(.secondary)
             }
             .padding(Space.l)
+            BulkBar(sel: $model.pickedSkills, visible: visible, actions: model.skillActions(picked.ids))
+            Divider()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Space.l, pinnedViews: .sectionHeaders) {
-                    ForEach(groups, id: \.key) { cat, items in
+                    ForEach(ordered, id: \.0) { cat, items in
                         Section {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: Space.m, alignment: .top)], spacing: Space.m) {
-                                ForEach(items.sorted { ($0.usageCount, $1.name) > ($1.usageCount, $0.name) }) { s in
-                                    SkillGridCard(skill: s, picked: Binding(get: { picked.contains(s.id) }, set: { if $0 { model.pickedSkills.insert(s.id) } else { model.pickedSkills.remove(s.id) } }))
+                                ForEach(items) { s in
+                                    SkillGridCard(skill: s, sel: $model.pickedSkills, visible: visible)
                                 }
                             }
                         } header: {
@@ -54,6 +58,8 @@ struct SkillGridView: View {
                 .padding([.horizontal, .bottom], Space.l)
             }
             .overlay { if shown.isEmpty { ContentUnavailableView.search(text: filter) } }
+            .focusable().focusEffectDisabled()
+            .bulkKeys($model.pickedSkills, visible: visible)
         }
     }
 }
@@ -61,14 +67,15 @@ struct SkillGridView: View {
 private struct SkillGridCard: View {
     @Environment(AppModel.self) private var model
     let skill: Component
-    @Binding var picked: Bool
+    @Binding var sel: BulkSelection<String>
+    let visible: [String]
 
     var body: some View {
         VStack(alignment: .leading, spacing: Space.s) {
             HStack(alignment: .firstTextBaseline) {
                 Text("/" + skill.shortName).font(.body.weight(.semibold).monospaced()).lineLimit(1)
                 Spacer()
-                Toggle("Select", isOn: $picked).labelsHidden().toggleStyle(.checkbox).help("Select for Copy prompt")
+                SelectBox(sel: $sel, id: skill.id, visible: visible, name: "/" + skill.name)
                 StaleBadge(Staleness.of(lastUsed: skill.lastUsed ?? skill.installedAt))
             }
             Text(purpose(skill)).font(.callout).lineLimit(2).help(skill.description)
@@ -143,13 +150,13 @@ struct SkillOverlapsView: View {
 /// Copies an agent-neutral prompt naming the selected skills and their SKILL.md paths; flashes "Copied N skills".
 struct CopyPromptButton: View {
     let skills: [Component]
-    @Binding var picked: Set<String>
+    @Binding var picked: BulkSelection<String>
     @State private var copied: Int?
 
     var body: some View {
         HStack(spacing: Space.s) {
             if let copied { Label("Copied \(copied) skill\(copied == 1 ? "" : "s")", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(Color.accentColor) }
-            if !picked.isEmpty { Button("Clear") { picked = [] }.buttonStyle(.link) }
+            if !picked.isEmpty { Button("Clear") { picked.clear() }.buttonStyle(.link) }
             Button("Copy prompt (\(skills.count))", systemImage: "doc.on.clipboard") {
                 copy(skillPrompt(skills))
                 let n = skills.count

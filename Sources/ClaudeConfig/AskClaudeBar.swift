@@ -8,6 +8,7 @@ struct AskClaudeBar: View {
     @State private var question = ""
     @State private var answer: String?
     @State private var picks: [Recommendations.Item] = []
+    @State private var sel = BulkSelection<String>()
     @State private var failed = false
     @State private var asking = false
     @State private var task: Task<Void, Never>?
@@ -27,8 +28,11 @@ struct AskClaudeBar: View {
             } else if let answer {
                 Text(answer).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                 if !picks.isEmpty {
-                    VStack(alignment: .leading, spacing: 0) { ForEach(picks) { RecommendationRow(item: $0) } }
+                    let visible = picks.map(\.id)
+                    BulkBar(sel: $sel, visible: visible, actions: model.installActions(picks.filter { sel.contains($0.id) })).padding(.horizontal, -Space.l)
+                    VStack(alignment: .leading, spacing: 0) { ForEach(picks) { RecommendationRow(item: $0, sel: $sel, visible: visible) } }
                         .padding(.vertical, 4)
+                        .bulkKeys($sel, visible: visible)
                 }
                 Text("AI suggestion — not verified").font(.caption).foregroundStyle(.secondary)
             }
@@ -114,16 +118,41 @@ extension AppModel {
     /// The one plugin install path (Discover table, Ask recommendations, menu bar search).
     func installPlugin(_ p: AvailablePlugin) { propose("Install \(p.id)", .cli(args: ["plugin", "install", p.id], dryRun: nil, cwd: nil)) }
     func isInstalled(_ p: AvailablePlugin) -> Bool { p.installed || snapshot.plugins.contains { $0.id == p.id } }
+
+    func proposePluginInstalls(_ ps: [AvailablePlugin]) {
+        proposeBulk("Install \(ps.count) plugin\(ps.count == 1 ? "" : "s")", bulkPlan(ps, label: \.id, skip: { self.isInstalled($0) ? "already installed" : nil }) {
+            .cli(args: ["plugin", "install", $0.id], dryRun: nil, cwd: nil)
+        })
+    }
+
+    /// "Install selected" for recommendation rows: plugins in one confirm sheet, community skills through one Install to sheet.
+    func installActions(_ items: [Recommendations.Item]) -> [BulkAction] {
+        let plugins = items.compactMap { if case .plugin(let p, _) = $0 { p } else { nil } }
+        let skills = items.compactMap { if case .community(let s, _) = $0 { s } else { nil } }
+        let check = !plugins.isEmpty && !skills.isEmpty
+            ? BulkCheck(enabled: false, why: "\(plugins.count) of \(items.count) are plugins and \(skills.count) are community skills; install each kind separately")
+            : bulkCheck(items) { _ in nil }
+        return [BulkAction(title: "Install selected…", icon: "arrow.down.circle", check: check) {
+            if plugins.isEmpty { self.installCommunity(skills) } else { self.proposePluginInstalls(plugins) }
+        }]
+    }
+}
+
+extension Recommendations.Item {
+    var name: String { switch self { case .plugin(let p, _): p.name; case .community(let s, _): s.name } }
 }
 
 /// One installable catalog item: name, source, a one-line reason and the same Install action as Discover's tables.
 struct RecommendationRow: View {
     @Environment(AppModel.self) private var model
     let item: Recommendations.Item
+    var sel: Binding<BulkSelection<String>>?
+    var visible: [String] = []
 
     var body: some View {
         let installed = model.communityInstalled()
         HStack(alignment: .firstTextBaseline, spacing: 8) {
+            if let sel { SelectBox(sel: sel, id: item.id, visible: visible, name: item.name) }
             VStack(alignment: .leading, spacing: 1) {
                 switch item {
                 case .plugin(let p, let reason):

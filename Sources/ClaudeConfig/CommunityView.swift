@@ -6,7 +6,7 @@ struct CommunityView: View {
     @Environment(AppModel.self) private var model
     let search: String
     @State private var hideInstalled = true
-    @State private var selection: CommunitySkill.ID?
+    @State private var sel = BulkSelection<String>()
     @State private var picked: Set<String> = []
 
     var body: some View {
@@ -25,7 +25,8 @@ struct CommunityView: View {
                     ProgressView("Loading community lists…").frame(maxHeight: .infinity)
                 }
             } else {
-                Table(list, selection: $selection) {
+                Table(list, selection: $sel.ids) {
+                    TableColumn("") { (s: CommunitySkill) in SelectBox(sel: $sel, id: s.id, visible: list.map(\.id), name: s.name) }.width(22)
                     TableColumn("Skill") { s in
                         VStack(alignment: .leading) {
                             Text(s.name).fontWeight(.medium)
@@ -42,18 +43,20 @@ struct CommunityView: View {
                             .help("Only install skills you trust: scripts in a skill can run on your machine.") }
                     }.width(90)
                 }
+                .bulkSelectable($sel, visible: list.map(\.id), actions: [
+                    BulkAction(title: "Install selected…", icon: "arrow.down.circle",
+                               check: model.communityBusy != nil ? BulkCheck(enabled: false, why: "An install is already in progress") : bulkCheck(model.community.filter { sel.contains($0.id) }) { _ in nil }) {
+                        model.installCommunity(model.community.filter { sel.contains($0.id) })
+                    },
+                ])
             }
         }
         .toolbar {
             Toggle("Hide installed", isOn: $hideInstalled)
-            if let s = list.first(where: { $0.id == selection }), !installed(s), model.communityBusy == nil {
-                Button("Install…") { model.startCommunityInstall(s) }
-                    .help("Only install skills you trust: scripts in a skill can run on your machine.")
-            }
         }
         .task { await model.loadCommunity() }
-        .onChange(of: selection) {
-            guard let s = list.first(where: { $0.id == selection }) else { return }
+        .onChange(of: sel.ids) {
+            guard sel.count == 1, let s = list.first(where: { sel.contains($0.id) }) else { return }
             model.info = InfoItem(s.name, term: .skill, facts: [("Repo", s.slug), ("Category", s.category), ("List", titles[s.list] ?? s.list)]
                                   + (s.stars.map { [("Stars", $0.formatted())] } ?? []), link: s.link, text: s.description)
         }
@@ -97,6 +100,33 @@ extension AppModel {
         clearCommunityDownloads()
         communityBusy = "Downloading \(s.slug)…"
         Task { await installCommunity(s); communityBusy = nil }
+    }
+
+    /// Bulk install: downloads every selected repo, then one Install to sheet for every skill found.
+    /// Marketplaces, failed downloads and repos without a SKILL.md are reported as skipped.
+    func installCommunity(_ list: [CommunitySkill]) {
+        guard communityBusy == nil, !list.isEmpty else { return }
+        if list.count == 1 { startCommunityInstall(list[0]); return }
+        communityError = nil
+        clearCommunityDownloads()
+        let installed = communityInstalled()
+        Task {
+            var copies: [SkillCopy] = [], skipped: [String] = []
+            for (i, s) in list.enumerated() {
+                if installed(s) { skipped.append("\(s.name): already installed"); continue }
+                if s.marketplace { skipped.append("\(s.name): a marketplace, add it on its own"); continue }
+                communityBusy = "Downloading \(i + 1) of \(list.count): \(s.slug)…"
+                guard let root = try? await downloadRepo(s.slug) else { skipped.append("\(s.name): download failed"); continue }
+                communityDownloads.append(root)
+                guard let base = skillBase(root: root, path: s.path) else { skipped.append("\(s.name): path missing or leaves the repo"); continue }
+                let found = findSkills(in: base, fallbackName: s.path == nil ? String(s.slug.split(separator: "/").last ?? "") : base.lastPathComponent)
+                if found.isEmpty { skipped.append("\(s.name): no SKILL.md") }
+                copies += found.map { SkillCopy(from: $0.dir, name: $0.name, link: URL(string: "https://github.com/\(s.slug)")) }
+            }
+            communityBusy = nil
+            if !skipped.isEmpty { communityError = "Skipped \(skipped.count): " + skipped.joined(separator: "; ") }
+            if copies.isEmpty { clearCommunityDownloads() } else { propose("Install \(copies.count) skill(s)", .installSkills(copies)) }
+        }
     }
 
     private func installCommunity(_ s: CommunitySkill) async {

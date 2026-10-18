@@ -76,6 +76,13 @@ struct FixSheet: View {
             var parts: [String] = []
             for f in fixes { parts.append(await makePreview(f)) }
             return parts.joined(separator: "\n\n")
+        case .bulk(let steps):
+            var parts: [String] = []
+            for st in steps {
+                guard let f = st.fix else { parts.append("• \(st.label)\n  SKIPPED: \(st.skip ?? "")"); continue }
+                parts.append("• \(st.label)\n" + (await makePreview(f)).split(separator: "\n", omittingEmptySubsequences: false).map { "  " + $0 }.joined(separator: "\n"))
+            }
+            return parts.joined(separator: "\n\n")
         case .frontmatter(let file, let key, let value):
             let before = (readText(file) ?? "").split(separator: "\n").first { $0.hasPrefix(key + ":") }.map(String.init) ?? "(not set)"
             return "File:   \(shortPath(file))\nBefore: \(before)\nAfter:  \(value.map { "\(key): \($0)" } ?? "(removed)")"
@@ -136,6 +143,19 @@ struct FixSheet: View {
                 do { lines.append(try await run(f)) } catch { failed = true; lines.append("Stopped: \(error.localizedDescription)") }
             }
             result = lines.joined(separator: "\n")
+        case .bulk(let steps):
+            // Each item runs on its own: a failure is recorded and the rest still go.
+            var rows: [(label: String, outcome: BulkOutcome)] = []
+            for st in steps {
+                guard let f = st.fix else { rows.append((st.label, .skipped(st.skip ?? "nothing to change"))); continue }
+                failed = false
+                do {
+                    let out = try await run(f).split(whereSeparator: \.isNewline).joined(separator: " ")
+                    rows.append((st.label, failed ? .failed(out) : .done(out)))
+                } catch { rows.append((st.label, .failed(error.localizedDescription))) }
+            }
+            failed = rows.contains { if case .failed = $0.outcome { true } else { false } }
+            result = bulkReport(rows)
         case .frontmatter(let file, let key, let value):
             let backup = try setFrontmatterKey(file, key: key, value: value)
             result = "Saved \(shortPath(file))." + (backup.map { " Backup: \(shortPath($0))" } ?? "")
