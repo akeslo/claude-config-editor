@@ -38,3 +38,13 @@ The user keeps second-guessing their Claude Code setup: what belongs in the conf
 - Which rules get a measured met/not-met state for v1. Start with what the scanner already knows.
 - Choosing the initial community sources, the routine's prompt and schedule (via the `schedule` skill), and the sidebar position/icon for Guide in `AppSection`.
 - Seeding the first version of the file and writing the per-check rule ids.
+
+---
+
+# Follow-on (approved in chat): Ask Claude on every screen
+Built after the Best Practices work above.
+- A one-line "Ask Claude" field at the top of every section screen, Guide included. One question gets one answer, shown below the field; asking again replaces it. Answers aren't kept after leaving the screen.
+- The prompt is the question plus that screen's visible data serialized as text (rows: names, paths, token costs, findings), with no extra file contents. Oversized data is truncated and the answer notes it.
+- Runs the local `claude -p` the same way `AppModel.askHaiku` does (tools off, hooks off, no session persistence), but with `--model sonnet` (Claude's call).
+- Screen data is fenced in a random tag and marked as untrusted data, as in `AppModel.explain`.
+- Answers are labelled as an unverified AI suggestion.
