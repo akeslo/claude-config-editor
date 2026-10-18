@@ -225,43 +225,90 @@ public func downloadRepo(_ slug: String) async throws -> URL {
     }
 }
 
-/// On-disk size and entry count under `dir`, not following symlinks.
+/// On-disk and logical size and entry count under `dir`, not following symlinks.
+/// Both sizes count: sparse files allocate little but a later copy would expand them.
 private func usage(_ dir: URL) -> (bytes: Int, entries: Int) {
-    var bytes = 0, entries = 0
-    for case let f as URL in FileManager.default.enumerator(at: dir, includingPropertiesForKeys: [.totalFileAllocatedSizeKey]) ?? .init() {
+    var allocated = 0, logical = 0, entries = 0
+    let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .fileSizeKey]
+    for case let f as URL in FileManager.default.enumerator(at: dir, includingPropertiesForKeys: keys) ?? .init() {
         entries += 1
-        bytes += (try? f.resourceValues(forKeys: [.totalFileAllocatedSizeKey]).totalFileAllocatedSize) ?? 0
+        let v = try? f.resourceValues(forKeys: Set(keys))
+        allocated += v?.totalFileAllocatedSize ?? 0
+        logical += v?.fileSize ?? 0
     }
-    return (bytes, entries)
+    return (max(allocated, logical), entries)
 }
 
-/// Extracts into `dir` (dropping codeload's `<repo>-<sha>/` top folder) under a watchdog that stops tar
-/// once the unpacked tree exceeds `maxBytes` or `maxEntries`, or after `timeout` seconds; on any failure
-/// `dir` is deleted. bsdtar refuses `..` and absolute member paths by default.
+/// Makes every dir under `dir` u+rwx and every file u+r, so the size walk sees everything and cleanup can delete it.
+/// Symlinks are skipped (chmod would follow them).
+func makeReadable(_ dir: URL) {
+    var st = stat()
+    guard lstat(dir.path, &st) == 0, st.st_mode & S_IFMT == S_IFDIR else { return }
+    chmod(dir.path, st.st_mode & 0o7777 | S_IRWXU)
+    for name in (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [] {
+        let f = dir.appending(path: name)
+        guard lstat(f.path, &st) == 0 else { continue }
+        switch st.st_mode & S_IFMT {
+        case S_IFDIR: makeReadable(f)
+        case S_IFREG: chmod(f.path, st.st_mode & 0o7777 | S_IRUSR)
+        default: break
+        }
+    }
+}
+
+/// Extracts into `dir` (dropping codeload's `<repo>-<sha>/` top folder). `gzip -dc` is piped to `tar` through an
+/// in-process counter that kills both once the decompressed stream passes `maxBytes`; a watchdog also stops them
+/// once the unpacked tree exceeds `maxBytes` or `maxEntries`, or after `timeout` seconds. On any failure `dir`
+/// is deleted. bsdtar refuses `..` and absolute member paths by default.
 func extractTarball(_ tarball: URL, into dir: URL, maxBytes: Int = 200 * 1024 * 1024, maxEntries: Int = 20_000,
                     timeout: TimeInterval = 60) async throws {
-    let p = Process()
-    p.executableURL = URL(filePath: "/usr/bin/tar")
-    p.arguments = ["-xzf", tarball.path, "-C", dir.path, "--strip-components", "1"]
-    p.standardOutput = FileHandle.nullDevice
-    p.standardError = FileHandle.nullDevice
+    signal(SIGPIPE, SIG_IGN)  // a dying tar must surface as a write error, not kill the app
+    let gz = Process(), tar = Process()
+    gz.executableURL = URL(filePath: "/usr/bin/gzip")
+    gz.arguments = ["-dc", tarball.path]
+    tar.executableURL = URL(filePath: "/usr/bin/tar")
+    tar.arguments = ["-xf", "-", "-C", dir.path, "--strip-components", "1", "--no-same-permissions"]
+    let out = Pipe(), into = Pipe()
+    gz.standardOutput = out; gz.standardError = FileHandle.nullDevice
+    tar.standardInput = into; tar.standardOutput = FileHandle.nullDevice; tar.standardError = FileHandle.nullDevice
     func check() throws {
         let u = usage(dir)
         if u.bytes > maxBytes { throw CommunityError("The repo is over 200 MB unpacked.") }
         if u.entries > maxEntries { throw CommunityError("The repo has too many files.") }
     }
+    func stop() {
+        for p in [gz, tar] where p.isRunning { p.terminate(); p.waitUntilExit() }
+    }
     do {
-        try p.run()
+        try tar.run()
+        try gz.run()
+        let (reader, writer) = (out.fileHandleForReading, into.fileHandleForWriting)
+        let (gzPID, tarPID) = (gz.processIdentifier, tar.processIdentifier)
+        // Returns true when the stream went over the cap.
+        let pump = Task.detached { () -> Bool in
+            var total = 0
+            defer { try? writer.close() }
+            while true {
+                let chunk = reader.availableData
+                if chunk.isEmpty { return false }
+                total += chunk.count
+                if total > maxBytes { kill(gzPID, SIGKILL); kill(tarPID, SIGKILL); return true }
+                do { try writer.write(contentsOf: chunk) } catch { kill(gzPID, SIGKILL); return false }
+            }
+        }
         let deadline = Date().addingTimeInterval(timeout)
-        while p.isRunning {
+        while gz.isRunning || tar.isRunning {
             if Date() > deadline { throw CommunityError("Unpacking took too long.") }
             try check()
             try await Task.sleep(for: .milliseconds(250))
         }
-        guard p.terminationStatus == 0 else { throw CommunityError("Couldn't unpack the repo.") }
+        if await pump.value { throw CommunityError("The repo is over 200 MB unpacked.") }
+        guard gz.terminationStatus == 0, tar.terminationStatus == 0 else { throw CommunityError("Couldn't unpack the repo.") }
+        makeReadable(dir)
         try check()
     } catch {
-        if p.isRunning { p.terminate(); p.waitUntilExit() }
+        stop()
+        makeReadable(dir)
         try? FileManager.default.removeItem(at: dir)
         throw error
     }

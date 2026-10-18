@@ -695,6 +695,38 @@ struct CommunityTests {
         #expect(findSkills(in: r).map(\.name) == ["s"])
     }
 
+    @Test func rejectsSparseFileOverLogicalCap() async throws {
+        let r = try tmp(); defer { try? FileManager.default.removeItem(at: r) }
+        try put(r, "top/a")
+        let h = try FileHandle(forWritingTo: r.appending(path: "top/a"))
+        try h.truncate(atOffset: 5_000_000); try h.close()
+        let t = try tarball(r), out = r.appending(path: "out")
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: false)
+        await #expect(throws: (any Error).self) { try await extractTarball(t, into: out, maxBytes: 1_000_000) }
+        #expect(!FileManager.default.fileExists(atPath: out.path))
+    }
+
+    @Test func countsAndCleansUnreadableDir() async throws {
+        let r = try tmp(); defer { makeReadable(r); try? FileManager.default.removeItem(at: r) }
+        let fm = FileManager.default
+        try put(r, "top/open/a", "x")
+        try fm.createDirectory(at: r.appending(path: "top/locked"), withIntermediateDirectories: true)
+        try fm.setAttributes([.posixPermissions: 0], ofItemAtPath: r.appending(path: "top/locked").path)
+        // Archive a mode-000 dir followed by a file inside it (renamed from top/open/a).
+        let p = Process()
+        p.executableURL = URL(filePath: "/usr/bin/tar"); p.currentDirectoryURL = r
+        p.arguments = ["-czf", "x.tgz", "-n", "-s", ",^top/open/a$,top/locked/a,", "top", "top/locked", "top/open/a"]
+        try p.run(); p.waitUntilExit()
+        #expect(p.terminationStatus == 0)
+        let t = r.appending(path: "x.tgz"), out = r.appending(path: "out")
+        try fm.createDirectory(at: out, withIntermediateDirectories: false)
+        try await extractTarball(t, into: out)
+        #expect(readText(out.appending(path: "locked/a")) == "x")
+        try fm.removeItem(at: out); try fm.createDirectory(at: out, withIntermediateDirectories: false)
+        await #expect(throws: (any Error).self) { try await extractTarball(t, into: out, maxEntries: 1) }
+        #expect(!fm.fileExists(atPath: out.path))
+    }
+
     @Test func rootSkillUsesFallbackName() throws {
         let r = try tmp(); defer { try? FileManager.default.removeItem(at: r) }
         try put(r, "SKILL.md"); try put(r, "sub/SKILL.md")
