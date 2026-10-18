@@ -182,6 +182,8 @@ public struct SkillCopy: Sendable, Hashable {
     public let link: URL?
     /// Which agent's skills folder it is copied into.
     public var into: SkillAgent = .claude
+    /// Writes disable-model-invocation: true into the copy, so it runs only when called as /name.
+    public var userInvokedOnly = true
     public init(from: URL, name: String, link: URL? = nil) { self.from = from; self.name = name; self.link = link }
     public var targetDir: URL { (into.skillsDir() ?? Paths.claudeDir.appending(path: "skills")).appending(path: name) }
 }
@@ -426,6 +428,11 @@ public func installSkill(_ c: SkillCopy, into skillsDir: URL? = nil) throws -> B
     } catch {
         try? fm.removeItem(at: target)
         throw error
+    }
+    // Other agents ignore the key; it is harmless there.
+    let md = target.appending(path: "SKILL.md")
+    if c.userInvokedOnly, let text = readText(md) {
+        try Data(frontmatterSetting(text, key: "disable-model-invocation", value: "true").utf8).write(to: md)
     }
     return true
 }

@@ -299,7 +299,7 @@ struct SkillStateTests {
 }
 
 @Test func crlfFrontmatterIsEditedInPlace() {
-    #expect(frontmatterSetting("---\r\nname: a\r\n---\r\nBody", key: "k", value: "v") == "---\r\nname: a\r\nk: v\n---\r\nBody")
+    #expect(frontmatterSetting("---\r\nname: a\r\n---\r\nBody", key: "k", value: "v") == "---\r\nname: a\r\nk: v\r\n---\r\nBody")
 }
 
 @Test func githubSlugs() {
@@ -615,7 +615,7 @@ struct CommunityTests {
         try FileManager.default.createSymbolicLink(atPath: r.appending(path: "src/link.md").path, withDestinationPath: "SKILL.md")
         let skills = r.appending(path: "skills")
         #expect(try installSkill(SkillCopy(from: r.appending(path: "src"), name: "s"), into: skills))
-        #expect(readText(skills.appending(path: "s/SKILL.md")) == "hi" && readText(skills.appending(path: "s/link.md")) == "hi")
+        #expect(readText(skills.appending(path: "s/SKILL.md")) == "---\ndisable-model-invocation: true\n---\nhi" && readText(skills.appending(path: "s/link.md")) == "hi")
         #expect(FileManager.default.isExecutableFile(atPath: skills.appending(path: "s/bin/tool").path))
         #expect(throws: (any Error).self) { try installSkill(SkillCopy(from: r.appending(path: "src"), name: ".."), into: skills) }
     }

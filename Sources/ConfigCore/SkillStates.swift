@@ -139,17 +139,18 @@ public func setFrontmatterKey(_ url: URL, key: String, value: String?, backupDir
 }
 
 func frontmatterSetting(_ text: String, key: String, value: String?) -> String {
+    let eol = text.contains("\r\n") ? "\r" : ""  // keep a CRLF file CRLF
     var lines = text.components(separatedBy: "\n")
     let isKey = { (l: String) in l.hasPrefix(key + ":") }
     // .whitespacesAndNewlines so a CRLF file's "---\r" still counts as a fence instead of getting a second frontmatter.
     guard lines.first?.trimmingCharacters(in: .whitespacesAndNewlines) == "---",
           let end = lines.dropFirst().firstIndex(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines) == "---" }) else {
-        return value.map { "---\n\(key): \($0)\n---\n" + text } ?? text
+        return value.map { "---\(eol)\n\(key): \($0)\(eol)\n---\(eol)\n" + text } ?? text
     }
     if let i = lines[1..<end].firstIndex(where: isKey) {
-        if let value { lines[i] = "\(key): \(value)" } else { lines.remove(at: i) }
+        if let value { lines[i] = "\(key): \(value)" + eol } else { lines.remove(at: i) }
     } else if let value {
-        lines.insert("\(key): \(value)", at: end)
+        lines.insert("\(key): \(value)" + eol, at: end)
     }
     return lines.joined(separator: "\n")
 }

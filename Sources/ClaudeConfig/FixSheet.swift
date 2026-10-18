@@ -12,11 +12,13 @@ struct FixSheet: View {
     @State private var failed = false
     @State private var running = false
     @State private var target = SkillAgent.claude
+    @AppStorage("installUserOnly") private var userOnlyDefault = true
+    @State private var userOnly: Bool?
 
     /// Skill installs go to the agent picked in "Install to"; everything else runs as proposed.
     private var fix: Fix {
         guard case .installSkills(let cs) = pending.fix else { return pending.fix }
-        return .installSkills(cs.map { var c = $0; c.into = target; return c })
+        return .installSkills(cs.map { var c = $0; c.into = target; c.userInvokedOnly = userOnly ?? userOnlyDefault; return c })
     }
 
     var body: some View {
@@ -28,6 +30,12 @@ struct FixSheet: View {
                 }
                 .fixedSize()
                 .help("Skills are SKILL.md folders, so any of these agents can use them. Existing folders are never overwritten.")
+                Toggle("Only when I call it", isOn: Binding(get: { userOnly ?? userOnlyDefault }, set: { userOnly = $0 }))
+                    .help("Adds disable-model-invocation: true, so the skill runs only as /name and Claude never loads it by itself. Turn off to let Claude pick it automatically.")
+            }
+            if case .cli(let args, _, _) = pending.fix, args.starts(with: ["plugin", "install"]), result == nil {
+                Text("Plugin skills may trigger automatically: Claude Code has no setting to make a plugin's skills call-only (skillOverrides skips plugin skills), and editing the plugin cache is undone on update.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Text(fix.summary).font(.system(.body, design: .monospaced)).textSelection(.enabled)
             Text(result == nil ? "Preview" : failed ? "Failed" : "Done").font(.headline)
@@ -59,7 +67,7 @@ struct FixSheet: View {
         }
         .padding(20)
         .frame(width: 620)
-        .task(id: target) { preview = await makePreview(fix) }
+        .task(id: "\(target)\(userOnly ?? userOnlyDefault)") { preview = await makePreview(fix) }
     }
 
     private func makePreview(_ fix: Fix) async -> String {
@@ -95,7 +103,7 @@ struct FixSheet: View {
                 let files = (found?.files ?? []).map { f in
                     "    \(f)" + (refused.contains(f) ? "  ✗ will be refused" : found?.scripts.contains(f) == true ? "  ⚠ runs code" : "")
                 }
-                return (["\(c.name) → \(shortPath(c.targetDir))" + (skipped ? "  SKIPPED (already exists)" : "")]
+                return (["\(c.name) → \(shortPath(c.targetDir))" + (skipped ? "  SKIPPED (already exists)" : c.userInvokedOnly ? "  (only when called: disable-model-invocation: true)" : "  (Claude may load it automatically)")]
                         + (c.link.map { ["  From \($0.absoluteString)"] } ?? []) + ["  Files:"] + files).joined(separator: "\n")
             }.joined(separator: "\n\n") + "\n\nOnly install skills you trust: scripts in a skill can run on your machine."
         }

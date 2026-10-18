@@ -10,13 +10,13 @@ struct DiscoverView: View {
     @State private var loading = false
     @State private var sort = [KeyPathComparator(\AvailablePlugin.installCount, order: .reverse)]
     // Also settable at launch with `-discoverTab community` (screenshots).
-    @AppStorage("discoverTab") private var tab = "plugins"
+    @AppStorage("discoverTab") private var tab = "community"
 
     var body: some View {
         VStack(spacing: 0) {
             Picker("Show", selection: $tab) {
-                Text("Plugins").tag("plugins")
                 Text("Community skills").tag("community")
+                Text("Plugins").tag("plugins")
             }
             .pickerStyle(.segmented).labelsHidden().fixedSize().padding(8)
             if tab == "community" { CommunityView(search: search) } else { plugins }

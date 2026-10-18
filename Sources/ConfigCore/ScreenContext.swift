@@ -122,7 +122,7 @@ public enum ScreenContext {
         }
 
         func discoverData() -> [String] {
-            let d = discover ?? Discover(tab: "plugins", search: "", available: [], community: [], communityInstalled: [])
+            let d = discover ?? Discover(tab: "community", search: "", available: [], community: [], communityInstalled: [])
             let t = terms(d.search + " " + question)
             var l = ["## Discover screen state",
                      "active tab: \(d.tab == "community" ? "Community skills" : "Plugins (marketplace)")",

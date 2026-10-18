@@ -5,6 +5,7 @@ import SwiftUI
 struct AppSettingsView: View {
     @AppStorage("showSkillsMenuBar") private var showMenuBar = true
     @AppStorage("analyzeOnLaunch") private var analyzeOnLaunch = true
+    @AppStorage("installUserOnly") private var installUserOnly = true
 
     var body: some View {
         Form {
@@ -13,6 +14,9 @@ struct AppSettingsView: View {
                 .font(.callout).foregroundStyle(.secondary)
             Toggle("Show skills in the menu bar", isOn: $showMenuBar)
             Text("A searchable list of every skill you can call, for when you can't remember the right /name.")
+                .font(.callout).foregroundStyle(.secondary)
+            Toggle("Install skills as \"Only when I call it\"", isOn: $installUserOnly)
+            Text("New skill installs get disable-model-invocation: true, so they run only as /name. The install sheet can override this per install.")
                 .font(.callout).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)

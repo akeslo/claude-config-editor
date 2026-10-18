@@ -62,7 +62,7 @@ extension AppModel {
     /// Sends the full screen snapshot (ScreenContext) and lets Claude read ~/.claude with read-only tools.
     func askWithScreen(_ question: String, about section: AppSection) async -> String? {
         let discover = section == .discover ? ScreenContext.Discover(
-            tab: UserDefaults.standard.string(forKey: "discoverTab") ?? "plugins", search: discoverSearch,
+            tab: UserDefaults.standard.string(forKey: "discoverTab") ?? "community", search: discoverSearch,
             available: available, community: community, communityInstalled: Set(community.filter(communityInstalled()).map(\.id))) : nil
         let screen = ScreenContext.build(section, snapshot, issues: issues, advice: advice, storage: storage,
                                          discover: discover, analytics: analytics, question: question)

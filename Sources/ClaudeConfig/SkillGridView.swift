@@ -57,6 +57,7 @@ struct SkillGridView: View {
 }
 
 private struct SkillGridCard: View {
+    @Environment(AppModel.self) private var model
     let skill: Component
     @Binding var picked: Bool
 
@@ -75,7 +76,12 @@ private struct SkillGridCard: View {
                 Label(skill.belongsTo, systemImage: skill.ownsFile ? "person" : "shippingbox").lineLimit(1)
                 Spacer()
                 Text(skill.usageCount == 0 ? "never used" : "used \(skill.usageCount)×").monospacedDigit()
-                Text("· " + skill.state.rawValue)
+                if skill.scope == .user, skill.state != .off, let target = Optional(skill.state == .always ? SkillState.onDemand : .always), let fix = skill.fix(to: target) {
+                    Button("· " + (skill.state == .always ? "Automatic" : "Only when called")) { model.propose("Make \(skill.name) \(target.rawValue)", fix) }
+                        .buttonStyle(.link).help("Click to switch to \(target == .always ? "automatic" : "only when called (/name)")")
+                } else {
+                    Text("· " + skill.state.rawValue)
+                }
             }
             .font(.caption).foregroundStyle(.secondary)
             Text(skill.agents.map(\.rawValue).joined(separator: " · ")).font(.caption2).foregroundStyle(.tertiary)
