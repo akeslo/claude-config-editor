@@ -61,6 +61,11 @@ final class AppModel {
     var community: [CommunitySkill] = []
     /// Repo downloads behind a pending skill install; deleted when the sheet closes or the next install starts.
     var communityDownloads: [URL] = []
+    /// One community install at a time; set before its task starts so a second click can't race cleanup.
+    var communityBusy: String?
+    var communityError: String?
+    var communityChoices: [FoundSkill] = []
+    var communityChoicesLink: URL?
     var showInspector = false
     var analytics: AnalyticsReport?
     var analyticsProgress = 0.0
