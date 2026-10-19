@@ -75,7 +75,7 @@
       "area": "mcp",
       "kind": "official",
       "text": "Reference secrets in .mcp.json as ${VAR} environment variables instead of writing the values in the file.",
-      "why": "Claude Code expands ${VAR} in .mcp.json so teams can share a config while keeping API keys out of it.",
+      "why": "Claude Code expands ${VAR} in .mcp.json so teams can share a config while keeping API keys out of it. Credential names Claude Code itself uses (such as ANTHROPIC_API_KEY) read as empty in remote server url/headers, so copy them into a variable with your own name.",
       "source": "https://code.claude.com/docs/en/mcp"
     },
     {
