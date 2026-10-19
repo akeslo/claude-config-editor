@@ -4,7 +4,12 @@ import SwiftUI
 @main
 struct ClaudeConfigApp: App {
     @State private var model = AppModel()
-    @AppStorage("showSkillsMenuBar") private var showMenuBar = true
+    // Not @AppStorage: it re-pushes the status item on every defaults write, and writes made during
+    // window layout then crash AppKit (_postWindowNeedsUpdateConstraints) on Agents & Commands.
+    @State private var showMenuBar = UserDefaults.standard.object(forKey: "showSkillsMenuBar") as? Bool ?? true
+    private var menuBarShown: Binding<Bool> {
+        Binding(get: { showMenuBar }, set: { showMenuBar = $0; UserDefaults.standard.set($0, forKey: "showSkillsMenuBar") })
+    }
 
     var body: some Scene {
         WindowGroup("Claude Config") {
@@ -26,8 +31,8 @@ struct ClaudeConfigApp: App {
                 Button("Toggle Explanations") { model.showInspector.toggle() }.keyboardShortcut("i", modifiers: [.command, .option])
             }
         }
-        Settings { AppSettingsView() }
-        MenuBarExtra("Skills", systemImage: "wand.and.stars", isInserted: $showMenuBar) {
+        Settings { AppSettingsView(showMenuBar: menuBarShown) }
+        MenuBarExtra("Skills", systemImage: "wand.and.stars", isInserted: menuBarShown) {
             MenuBarSkills().environment(model).tint(.brand)
         }
         .menuBarExtraStyle(.window)

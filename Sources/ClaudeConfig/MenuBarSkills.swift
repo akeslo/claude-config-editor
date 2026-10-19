@@ -3,7 +3,7 @@ import SwiftUI
 
 /// ⌘, window. Only app preferences live here; Claude Code's own settings are on the Settings page.
 struct AppSettingsView: View {
-    @AppStorage("showSkillsMenuBar") private var showMenuBar = true
+    @Binding var showMenuBar: Bool
     @AppStorage("analyzeOnLaunch") private var analyzeOnLaunch = true
     @AppStorage("installUserOnly") private var installUserOnly = true
     @AppStorage("askAutoCopyPrompt") private var askAutoCopy = true
