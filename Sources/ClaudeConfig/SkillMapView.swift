@@ -611,7 +611,7 @@ struct SkillInspector: View {
                 }
                 .controlSize(.small)
                 if s.ownsFile {
-                    Button("Uninstall…", systemImage: "trash") { model.proposeTrash([trashURL(s)]) }
+                    Button("Move to Trash", systemImage: "trash") { model.proposeTrash([trashURL(s)]) }
                         .controlSize(.small).help("Moves the skill folder to the Trash after you confirm")
                 }
                 let over = all.filter { facts.overlaps.contains($0.id) }

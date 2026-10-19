@@ -15,7 +15,6 @@ struct MCPView: View {
             .sorted(using: sort)
         let visible = servers.map(\.id)
         let picked = servers.filter { sel.contains($0.id) } + model.snapshot.mcpServers.filter { sel.contains($0.id) && !visible.contains($0.id) }
-        let noSwitch = BulkCheck(enabled: false, why: "Claude Code has no on/off setting for a server that this app can write; toggle it with /mcp in a session, or Remove it")
         Table(servers, selection: $sel.ids, sortOrder: $sort) {
             TableColumn("", value: \MCPServer.name) { (m: MCPServer) in SelectBox(sel: $sel, id: m.id, visible: visible, name: m.name) }.width(22)
             TableColumn("Name", value: \.name) { m in
@@ -25,7 +24,9 @@ struct MCPView: View {
                 }
                 .explains(.mcpServer, "\(m.description.isEmpty ? "" : m.description + "\n\n")Runs: \(m.command) (\(m.transport))\nFrom: \(m.scope.rawValue)")
             }
-            TableColumn("Scope", value: \.scope.rawValue) { m in Text(m.scope.rawValue).help(Term.mcpScope.tooltip) }.width(110)
+            TableColumn("Scope", value: \.scope.rawValue) { m in
+                ScopeMenu(current: ScopeMove.target(of: m), fixedLabel: m.scope.rawValue) { t in model.moveScope(m.name, to: t) { try ScopeMove.move(mcp: m, to: t) } }
+            }.width(min: 110, ideal: 120)
             TableColumn("Where", value: \.place) { m in Text(m.place).help(m.project ?? "") }.width(140)
             TableColumn("Type", value: \.transport) { Text($0.transport) }.width(60)
             TableColumn("Command / URL", value: \.command) { Text($0.command).font(.system(.caption, design: .monospaced)).lineLimit(1).truncationMode(.middle) }
@@ -41,9 +42,7 @@ struct MCPView: View {
             }
         }
         .bulkSelectable($sel, visible: visible, actions: [
-            BulkAction(title: "Enable…", icon: "play.circle", check: noSwitch) {},
-            BulkAction(title: "Disable…", icon: "pause.circle", check: noSwitch) {},
-            BulkAction(title: "Remove…", icon: "trash", check: bulkCheck(picked) { cliScope($0) == nil ? "are defined by a plugin or managed settings (remove them there)" : nil }) {
+            BulkAction(title: "Remove", icon: "trash", check: bulkCheck(picked) { cliScope($0) == nil ? "are defined by a plugin or managed settings (remove them there)" : nil }) {
                 model.proposeBulk("Remove \(picked.count) MCP server\(picked.count == 1 ? "" : "s")", bulkPlan(picked, label: { "\($0.name) (\($0.scope.rawValue))" }) { m in
                     cliScope(m).map { .cli(args: ["mcp", "remove", m.name, "-s", $0], dryRun: nil, cwd: m.project) }
                 })
@@ -70,11 +69,11 @@ struct MCPView: View {
 
     @ViewBuilder private func removeButton(_ m: MCPServer) -> some View {
         let cliScope = cliScope(m)
-        Button("Remove \(m.name)…") {
+        Button("Remove \(m.name)") {
             model.propose("Remove MCP server \(m.name)", .cli(args: ["mcp", "remove", m.name, "-s", cliScope!], dryRun: nil, cwd: m.project))
         }
         .disabled(cliScope == nil)
-        .help(cliScope == nil ? "Defined by \(m.scope.rawValue); remove it there." : "Runs claude mcp remove in the right scope.")
+        .help(cliScope == nil ? "Defined by \(m.scope.rawValue); remove it there." : "Runs claude mcp remove in its scope. You can undo.")
     }
 
     /// Hide literal secret values in the side panel.
@@ -122,7 +121,11 @@ struct ComponentsView: View {
                 .explains(r.c.kind.term, "\(r.c.description)\n\nFrom: \(r.c.owner ?? r.c.scope.rawValue)")
             }
             TableColumn("Type") { Text($0.c.kind.rawValue) }.width(80)
-            TableColumn("Scope") { r in Text(r.c.scope.rawValue).help(r.c.owner ?? "") }.width(70)
+            TableColumn("Scope") { r in
+                ScopeMenu(current: ScopeMove.target(of: r.c), fixedLabel: r.c.scope == .plugin ? "Plugin" : r.c.scope.rawValue, allowLocal: false) { t in
+                    model.moveScope(r.c.name, to: t) { try ScopeMove.move(component: r.c, to: t) }
+                }
+            }.width(min: 100, ideal: 110)
             TableColumn("Listed", value: \.tokens) { r in
                 Text(r.c.override == "user-invocable-only" ? "hidden" : r.tokens == 0 ? "on demand" : formatTokens(r.tokens)).monospacedDigit()
                     .help(Term.skillListing.tooltip)
@@ -144,7 +147,7 @@ struct ComponentsView: View {
             if let c = selected { TrashButton(url: trashURL(c)) }
         }
         .bulkSelectable($sel, visible: visible, actions: [
-            BulkAction(title: "Move to Trash…", icon: "trash", check: bulkCheck(picked) { $0.ownsFile ? nil : "come from plugins or other agents" }) {
+            BulkAction(title: "Move to Trash", icon: "trash", check: bulkCheck(picked) { $0.ownsFile ? nil : "come from plugins or other agents" }) {
                 model.proposeBulk("Move \(picked.count) item\(picked.count == 1 ? "" : "s") to the Trash", bulkPlan(picked, label: { "\($0.kind.rawValue): \($0.name)" }) { .trash([trashURL($0)]) })
             },
         ])
@@ -192,10 +195,13 @@ struct PluginsView: View {
                     if !p.notes.isEmpty { Image(systemName: "exclamationmark.bubble").foregroundStyle(.orange).help(p.notes.joined(separator: "\n")) }
                 }
             }
+            TableColumn("Scope", value: \.scope) { p in
+                ScopeMenu(current: ScopeMove.target(ofPlugin: p), fixedLabel: p.scope.capitalized) { t in model.movePlugin(p, to: t) }
+            }.width(min: 100, ideal: 110)
             TableColumn("Version", value: \.version) { p in
                 if let v = p.latestVersion {
                     Label("\(p.version.prefix(12)) → \(v)", systemImage: "arrow.up.circle.fill").foregroundStyle(.blue).lineLimit(1)
-                        .help("Update available: select it and press Update…")
+                        .help("Update available: select it, then choose Update")
                 } else { Text(p.version).lineLimit(1) }
             }.width(150)
             TableColumn("Always-on") { p in
@@ -204,6 +210,11 @@ struct PluginsView: View {
             }.width(90)
             TableColumn("Uses", value: \.usageCount) { Text("\($0.usageCount)").monospacedDigit() }.width(50)
             TableColumn("Last used", value: \.lastUsed, comparator: OptionalDateComparator()) { Text(relative($0.lastUsed)) }.width(110)
+        }
+        .overlay {
+            if model.snapshot.plugins.isEmpty && !model.loading {
+                ContentUnavailableView("No plugins installed", systemImage: "puzzlepiece.extension", description: Text("Find plugins worth adding in Discover."))
+            }
         }
         .searchable(text: $search, prompt: "Filter plugins")
         .contextMenu(forSelectionType: Plugin.ID.self) { ids in
@@ -214,15 +225,15 @@ struct PluginsView: View {
             TrashButton(urls: plugins.filter { ids.contains($0.id) }.map(\.installPath))
         }
         .bulkSelectable($sel, visible: visible, actions: [
-            BulkAction(title: "Enable…", icon: "checkmark.circle", check: anyPicked, run: cli(picked, "enable") { $0.enabled ? "already enabled" : nil }),
-            BulkAction(title: "Disable…", icon: "circle", check: anyPicked, run: cli(picked, "disable") { $0.enabled ? nil : "already disabled" }),
+            BulkAction(title: "Turn On", icon: "checkmark.circle", check: anyPicked, run: cli(picked, "enable") { $0.enabled ? "already enabled" : nil }),
+            BulkAction(title: "Turn Off", icon: "circle", check: anyPicked, run: cli(picked, "disable") { $0.enabled ? nil : "already disabled" }),
             BulkAction(title: "Update…", icon: "arrow.up.circle", check: anyPicked, run: cli(picked, "update")),
             BulkAction(title: "Uninstall…", icon: "trash", check: anyPicked, run: cli(picked, "uninstall")),
         ])
         .toolbar {
             if sel.count == 1, let p = plugins.first(where: { sel.contains($0.id) }) { TrashButton(url: p.installPath) }
             if sel.count == 1, let p = plugins.first(where: { sel.contains($0.id) }) {
-                Button(p.enabled ? "Disable…" : "Enable…") {
+                Button(p.enabled ? "Turn Off" : "Turn On") {
                     model.propose("\(p.enabled ? "Disable" : "Enable") \(p.id)", p.cli(p.enabled ? "disable" : "enable"))
                 }
                 Button("Update…") { model.propose("Update \(p.id)", p.cli("update")) }
@@ -260,7 +271,6 @@ struct HooksView: View {
         let rowsByID = Dictionary(uniqueKeysWithValues: groups.flatMap { _, items in Dictionary(grouping: items, by: \.command).values.map { ($0[0].id, $0) } })
         let visible = groups.flatMap { _, items in Dictionary(grouping: items, by: \.command).values.sorted { $0[0].command < $1[0].command }.map(\.[0].id) }
         let pickedRows = sel.ids.compactMap { rowsByID[$0] }
-        let noSwitch = BulkCheck(enabled: false, why: "Claude Code has no per-hook on/off switch. Remove backs the settings file up first, so it can be undone from the backup.")
         List(selection: $sel.ids) {
             ForEach(groups, id: \.key) { source, items in
                 Section(source.hasPrefix("Plugin · ") ? "From plugin \(source.dropFirst(9))" : "Added by you · \(source)") {
@@ -284,17 +294,15 @@ struct HooksView: View {
             // Plugin hooks live in the plugin; turning the plugin off is how to stop them.
             let removable = picked.filter { !$0.source.hasPrefix("Plugin") }
             if !removable.isEmpty {
-                Button(rowCommands.count == 1 ? "Remove Hook…" : "Remove \(rowCommands.count) Hooks…") {
+                Button(rowCommands.count == 1 ? "Remove Hook" : "Remove \(rowCommands.count) Hooks") {
                     model.propose("Remove \(removable.count) hook entr\(removable.count == 1 ? "y" : "ies")", .removeHooks(removable.map { HookRef(file: $0.sourceURL, event: $0.event, command: $0.command) }))
                 }
             }
-            TrashButton(urls: Array(Set(picked.compactMap(\.scriptPath).filter(exists))), label: "Move Script to Trash…")
+            TrashButton(urls: Array(Set(picked.compactMap(\.scriptPath).filter(exists))), label: "Move Script to Trash")
         }
         .searchable(text: $search, prompt: "Filter hooks by command, event or source")
         .bulkSelectable($sel, visible: visible, actions: [
-            BulkAction(title: "Disable…", icon: "pause.circle", check: noSwitch) {},
-            BulkAction(title: "Enable…", icon: "play.circle", check: noSwitch) {},
-            BulkAction(title: "Remove…", icon: "trash", check: bulkCheck(pickedRows) { $0[0].source.hasPrefix("Plugin") ? "come from plugins (turn the plugin off in Plugins)" : nil }) {
+            BulkAction(title: "Remove", icon: "trash", check: bulkCheck(pickedRows) { $0[0].source.hasPrefix("Plugin") ? "come from plugins (turn the plugin off in Plugins)" : nil }) {
                 model.proposeBulk("Remove \(pickedRows.count) hook\(pickedRows.count == 1 ? "" : "s")", bulkPlan(pickedRows, label: { ($0[0].scriptPath?.lastPathComponent ?? $0[0].command) + " · " + $0[0].source }) { same in
                     .removeHooks(same.map { HookRef(file: $0.sourceURL, event: $0.event, command: $0.command) })
                 })
@@ -338,6 +346,9 @@ struct HooksView: View {
                 }
             }
             HStack(spacing: 6) {
+                if let from = ScopeMove.target(ofSettings: h.sourceURL) {
+                    ScopeMenu(current: from) { t in model.moveScope("\(h.event) hook", to: t) { try ScopeMove.move(hook: h, to: t) } }.controlSize(.small)
+                }
                 let reach = whereRuns(h)
                 badge(reach.text, reach.everywhere ? "globe" : "folder", reach.everywhere ? .blue : .secondary)
                 if same.allSatisfy(\.async) { badge("In the background", "moon", .secondary) }

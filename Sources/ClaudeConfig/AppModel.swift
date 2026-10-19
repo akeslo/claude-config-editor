@@ -63,7 +63,7 @@ final class AppModel {
     var measuringStorage = false
     var info: InfoItem?
     /// Last delete/edit made through EditActions, for the undo toast (see `undoLast()`).
-    var lastAction: (title: String, records: [Backup.Record])?
+    var lastAction: (title: String, undo: [UndoStep])?
     var actionError: String?
     var pendingFix: PendingFix? { didSet { if pendingFix == nil { clearCommunityDownloads() } } }
     var community: [CommunitySkill] = []
@@ -363,7 +363,40 @@ final class AppModel {
         usage = await CCUsage.load()
     }
 
-    func propose(_ title: String, _ fix: Fix) { pendingFix = PendingFix(title: title, fix: fix) }
+    /// One click: reversible fixes apply now with an Undo toast; only irreversible ones (uninstall, update, purge, installs) open the confirm sheet.
+    func propose(_ title: String, _ fix: Fix) {
+        if Apply.needsConfirm(fix) { pendingFix = PendingFix(title: title, fix: fix); return }
+        Task { await applyNow(fix) }
+    }
+
+    func applyNow(_ fix: Fix) async {
+        let o = await Apply.run(fix)
+        if o.failed { actionError = o.summary; if !o.undo.isEmpty { lastAction = ("Partly applied", o.undo) } } else { act(o.summary, o.undo) }
+        await refresh()
+    }
+
+    /// Moves an item to another scope; `move` returns the undo steps (ScopeMove).
+    func moveScope(_ name: String, to t: Target, _ move: () throws -> [UndoStep]) {
+        do { act("Moved \(name) to \(t.short)", try move()) } catch { actionError = error.localizedDescription }
+        Task { await refresh() }
+    }
+
+    func movePlugin(_ p: Plugin, to t: Target) {
+        guard let m = ScopeMove.pluginMove(p, to: t) else { return }
+        Task {
+            for (i, s) in m.steps.enumerated() {
+                let r = await ClaudeCLI.run(s.args, in: s.cwd.map { URL(filePath: $0) })
+                guard r.ok else {
+                    // The first step (install) failing leaves nothing to undo; a later one leaves both copies, so offer undo.
+                    actionError = "Couldn't move \(p.id): \(r.output.prefix(200))"
+                    if i > 0 { lastAction = ("Partly moved \(p.id)", Array(m.undo.prefix(1))) }
+                    await refresh(); return
+                }
+            }
+            act("Moved \(p.id) to \(t.short)", m.undo)
+            await refresh()
+        }
+    }
     func proposeTrash(_ urls: [URL]) {
         propose(urls.count == 1 ? "Move \(urls[0].lastPathComponent) to the Trash" : "Move \(urls.count) items to the Trash", .trash(urls))
     }
@@ -403,13 +436,13 @@ func promptHelp(_ prompt: String) -> String {
     "Copies this prompt:\n\n" + (prompt.count > 1500 ? prompt.prefix(1500) + "…" : prompt)
 }
 
-/// Opens the shared confirm sheet to trash `url`; hidden for anything the refuse-list protects.
+/// One click: moves to the Trash with an Undo toast; hidden for anything the refuse-list protects.
 struct TrashButton: View {
     @Environment(AppModel.self) private var model
     let urls: [URL]
-    var label = "Move to Trash…"
-    init(url: URL, label: String = "Move to Trash…") { urls = [url]; self.label = label }
-    init(urls: [URL], label: String = "Move to Trash…") { self.urls = urls; self.label = urls.count > 1 ? label.replacingOccurrences(of: "to Trash", with: "\(urls.count) Items to Trash") : label }
+    var label = "Move to Trash"
+    init(url: URL, label: String = "Move to Trash") { urls = [url]; self.label = label }
+    init(urls: [URL], label: String = "Move to Trash") { self.urls = urls; self.label = urls.count > 1 ? label.replacingOccurrences(of: "to Trash", with: "\(urls.count) Items to Trash") : label }
     var body: some View {
         let ok = urls.filter { trashRefusal($0) == nil }
         if !ok.isEmpty { Button(label) { model.proposeTrash(ok) } }

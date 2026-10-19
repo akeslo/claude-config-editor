@@ -91,6 +91,32 @@ public struct MemoryGroup: Identifiable, Sendable {
 }
 
 public enum Memory {
+    /// File creation date; else a `created:`/`date:` frontmatter date.
+    /// shortcut: no git-log fallback (APFS always records creation); add one if files arrive via checkouts that reset it.
+    public static func createdDate(_ url: URL, text: String?) -> Date? {
+        if let d = fileDates(url).created { return d }
+        let fm = Frontmatter(text ?? "")
+        guard let s = fm.values["created"] ?? fm.values["date"] else { return nil }
+        return (try? Date(s, strategy: .iso8601)) ?? (try? Date(s, strategy: Date.ISO8601FormatStyle().year().month().day()))
+    }
+
+    /// Empty memory: a 0-byte or whitespace-only file, frontmatter with no body, or a folder holding no .md files.
+    public static func isEmpty(_ url: URL) -> Bool {
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return false }
+        if isDir.boolValue {
+            let en = FileManager.default.enumerator(at: url, includingPropertiesForKeys: nil)
+            while let f = en?.nextObject() as? URL { if f.pathExtension == "md" { return false } }
+            return true
+        }
+        guard let text = readText(url) else { return false }
+        var body = Substring(text)
+        if body.hasPrefix("---"), let end = body.dropFirst(3).range(of: "\n---") {
+            body = body[end.upperBound...]
+        }
+        return body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// Groups loaded instruction files plus other agents' files by project; adds missing standard files so they can be created.
     public static func groups(instructions: [InstructionFile], agentFiles: [URL], projects: [String], now: Date = Date()) -> [MemoryGroup] {
         let userText = readText(Paths.userClaudeMD) ?? ""
@@ -100,7 +126,7 @@ public enum Memory {
             projects.filter { $0 != Paths.home.path && (path == $0 || path.hasPrefix($0 + "/")) }.max { $0.count < $1.count }
         }
         func entry(_ url: URL, _ type: MemoryType, tokens: Int?, loaded: Bool, problems: [String]) -> MemoryEntry {
-            let text = readText(url), dates = fileDates(url)
+            let text = readText(url), dates = (created: createdDate(url, text: text), modified: fileDates(url).modified)
             var recs = problems
             if let text { recs += recommendations(type: type, text: text, modified: dates.modified, parentText: type == .userClaudeMD ? nil : userText, now: now) }
             recs = recs.reduce(into: []) { if !$0.contains($1) { $0.append($1) } }

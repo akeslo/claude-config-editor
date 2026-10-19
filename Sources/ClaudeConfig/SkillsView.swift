@@ -124,8 +124,13 @@ private struct StatesPage: View {
                     }
                 }
                 .width(min: 50, ideal: 70)
-                TableColumn("Source", value: \SkillRow.source) { (r: SkillRow) in Text(r.source).foregroundStyle(.secondary).lineLimit(1).help(r.source) }
-                    .width(min: 70, ideal: 110)
+                TableColumn("Scope", value: \SkillRow.source) { (r: SkillRow) in
+                    ScopeMenu(current: ScopeMove.target(of: r.skill), fixedLabel: r.skill.scope == .plugin ? "Plugin" : r.skill.scope == .external ? "Other agent" : r.skill.scope.rawValue, allowLocal: false) { t in
+                        model.moveScope("/" + r.name, to: t) { try ScopeMove.move(component: r.skill, to: t) }
+                    }
+                    .help(r.source)
+                }
+                    .width(min: 90, ideal: 110)
                 TableColumn("Suggestion", value: \SkillRow.suggestionText) { (r: SkillRow) in
                     if let s = r.suggestion {
                         VStack(alignment: .leading, spacing: 2) {
@@ -138,9 +143,9 @@ private struct StatesPage: View {
                 .width(min: 140, ideal: 240)
                 TableColumn("") { (r: SkillRow) in
                     if r.skill.ownsFile {
-                        Button("Uninstall…", systemImage: "trash") { model.proposeTrash([trashURL(r.skill)]) }
+                        Button("Move to Trash", systemImage: "trash") { model.proposeTrash([trashURL(r.skill)]) }
                             .labelStyle(.iconOnly).buttonStyle(.borderless)
-                            .help("Uninstall /\(r.name): moves its folder to the Trash (recoverable)")
+                            .help("Move /\(r.name) to the Trash. You can undo.")
                     }
                 }
                 .width(28)
@@ -305,7 +310,7 @@ extension AppModel {
             state(.onDemand, "Make call-only…", "hand.tap"),
             state(.always, "Make automatic…", "sparkles"),
             state(.off, "Disable…", "nosign"),
-            BulkAction(title: "Uninstall…", icon: "trash", check: owned) { self.proposeBulk("Uninstall \(n) (moved to the Trash)", skillUninstallPlan(picked)) },
+            BulkAction(title: "Move to Trash", icon: "trash", check: owned) { self.proposeBulk("Move \(n) to the Trash", skillUninstallPlan(picked)) },
             BulkAction(title: "Copy prompt", icon: "doc.on.clipboard", check: bulkCheck(picked) { _ in nil }) { copy(skillPrompt(picked)) },
             BulkAction(title: "Export list…", icon: "square.and.arrow.up", check: bulkCheck(picked) { _ in nil }) {
                 exportCSV("skills.csv", header: ["name", "state", "tokens", "uses", "last used", "source", "file"],

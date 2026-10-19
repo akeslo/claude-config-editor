@@ -81,7 +81,7 @@ struct StorageView: View {
                     }
                 }
                 .bulkSelectable($picked, visible: shown.map(\.id), actions: [
-                    BulkAction(title: "Move to Trash…", icon: "trash",
+                    BulkAction(title: "Move to Trash", icon: "trash",
                                check: area?.safety == .keep ? BulkCheck(enabled: false, why: "Claude needs everything in \(area?.name ?? "this location"); view only") : bulkCheck(pickedItems) { _ in nil }) {
                         model.proposeBulk("Move \(pickedItems.count) item\(pickedItems.count == 1 ? "" : "s") to the Trash", bulkPlan(pickedItems, label: \.name, skip: { trashRefusal($0.url) }) { .trash([$0.url]) })
                     },
@@ -181,7 +181,7 @@ struct ProjectsView: View {
                 .help("Select one project. Deletes everything Claude stores for the selected project: transcripts, memory, history, trust and allowed tools. Shows a dry run first.")
         }
         .bulkSelectable($sel, visible: rows.map(\.id), actions: [
-            BulkAction(title: "Trash transcripts…", icon: "trash", check: bulkCheck(dirs) { exists($0.1) ? nil : "have no transcripts on disk" }) {
+            BulkAction(title: "Move Transcripts to Trash", icon: "trash", check: bulkCheck(dirs) { exists($0.1) ? nil : "have no transcripts on disk" }) {
                 model.proposeBulk("Move transcripts of \(dirs.count) project\(dirs.count == 1 ? "" : "s") to the Trash", bulkPlan(dirs, label: \.0, skip: { trashRefusal($0.1) }) { .trash([$0.1]) })
             },
         ])

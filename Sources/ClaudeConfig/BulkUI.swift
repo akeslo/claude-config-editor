@@ -49,16 +49,17 @@ struct SelectAllBox<ID: Hashable>: View {
 }
 
 /// "N selected" plus the actions for the whole selection. Disabled actions say why in their tooltip.
-struct BulkBar<ID: Hashable>: View {
+struct BulkBar<ID: Hashable, Trailing: View>: View {
     @Binding var sel: BulkSelection<ID>
     let visible: [ID]
     let actions: [BulkAction]
+    @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
         HStack(spacing: Space.s) {
             SelectAllBox(sel: $sel, visible: visible)
             if sel.isEmpty {
-                Text("Select rows for bulk actions").font(.callout).foregroundStyle(.secondary)
+                Text("Select items to act on several at once").font(.callout).foregroundStyle(.secondary)
             } else {
                 Text(sel.label(visible)).font(.callout.weight(.medium)).monospacedDigit()
                 ForEach(actions) { a in
@@ -70,11 +71,18 @@ struct BulkBar<ID: Hashable>: View {
                 Button("Clear") { sel.clear() }.buttonStyle(.link).help("Clear the selection (Esc)")
             }
             Spacer(minLength: 0)
+            trailing()
         }
         .controlSize(.small)
-        .padding(.horizontal, Space.l).padding(.vertical, Space.xs)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.background)
+        .padding(.horizontal, Space.l).padding(.vertical, Space.s)
+        .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+        .background(.bar)
+    }
+}
+
+extension BulkBar where Trailing == EmptyView {
+    init(sel: Binding<BulkSelection<ID>>, visible: [ID], actions: [BulkAction]) {
+        self.init(sel: sel, visible: visible, actions: actions) { EmptyView() }
     }
 }
 

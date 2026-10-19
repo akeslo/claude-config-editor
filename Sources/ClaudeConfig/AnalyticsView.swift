@@ -115,7 +115,7 @@ struct AnalyticsView: View {
                     exportCSV("sessions.csv", header: ["id", "title", "folder", "started", "prompts", "peak context", "compactions", "tokens"],
                               rows: picked.map { [$0.id, $0.title ?? "", $0.project, $0.start?.formatted() ?? "", "\($0.userPrompts)", "\($0.peakContext)", "\($0.compactions)", "\($0.totalTokens)"] })
                 },
-                BulkAction(title: "Move transcripts to Trash…", icon: "trash", check: bulkCheck(picked) { _ in nil }) {
+                BulkAction(title: "Move Transcripts to Trash", icon: "trash", check: bulkCheck(picked) { _ in nil }) {
                     model.proposeBulk("Move \(picked.count) transcript\(picked.count == 1 ? "" : "s") to the Trash",
                                       bulkPlan(picked, label: { $0.title ?? $0.id }, skip: { trashRefusal(URL(filePath: $0.file)) }) { .trash([URL(filePath: $0.file)]) })
                 },

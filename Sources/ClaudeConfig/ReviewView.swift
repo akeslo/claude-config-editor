@@ -43,7 +43,7 @@ struct ProblemsView: View {
                             Text(issue.subject).font(.caption).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
                         }
                         Spacer(minLength: Space.l)
-                        if let fix = issue.fix { Button("Fix…") { model.propose(issue.title, fix) }.help(fix.summary) }
+                        if let fix = issue.fix { Button(Apply.needsConfirm(fix) ? "Fix…" : "Fix") { model.propose(issue.title, fix) }.help(fix.summary) }
                         if let t = issue.trashable { ConfirmDeleteButton(url: t) }
                         else if let f = issue.file, issue.fix == nil { Button("Edit…") { editing = ProblemEdit(url: f) } }
                     }.padding(.vertical, Space.s)
@@ -66,7 +66,7 @@ struct ProblemsView: View {
         }
         .listStyle(.inset)
         .bulkSelectable($sel, visible: visible, actions: issueActions(model, pickedIssues) + [
-            BulkAction(title: "Move to Trash…", icon: "trash",
+            BulkAction(title: "Move to Trash", icon: "trash",
                        check: bulkCheck(pickedIssues.map { $0.trashable } + pickedStale.map { Optional($0.url) }) { $0 == nil ? "have nothing to delete" : nil }) {
                 let items = pickedIssues.map { ($0.title, $0.trashable) } + pickedStale.map { ($0.name, Optional($0.url)) }
                 model.proposeBulk("Move \(items.count) item\(items.count == 1 ? "" : "s") to the Trash", bulkPlan(items, label: \.0, skip: { $0.1.flatMap(trashRefusal) }) { $0.1.map { .trash([$0]) } })
@@ -194,7 +194,7 @@ struct FindingRow: View {
     /// The one obvious next step: apply the fix (with preview), else go to the page where it can be fixed.
     @ViewBuilder private var action: some View {
         if let fix = issue.fix {
-            Button("Fix…") { model.propose(issue.title, fix) }.help(fix.summary)
+            Button(Apply.needsConfirm(fix) ? "Fix…" : "Fix") { model.propose(issue.title, fix) }.help(fix.summary)
         } else {
             Button("Show") { model.section = issue.section }.help("Go to \(issue.section.rawValue)")
         }
@@ -204,7 +204,7 @@ struct FindingRow: View {
 /// Fix selected issues in one confirm sheet, or copy one prompt that asks an agent to fix them all.
 @MainActor func issueActions(_ model: AppModel, _ picked: [Issue]) -> [BulkAction] {
     [
-        BulkAction(title: "Fix selected…", icon: "wrench.and.screwdriver", check: bulkCheck(picked) { $0.fix == nil ? "have no automatic fix (use Copy fix prompt)" : nil }) {
+        BulkAction(title: "Fix Selected", icon: "wrench.and.screwdriver", check: bulkCheck(picked) { $0.fix == nil ? "have no automatic fix (use Copy fix prompt)" : nil }) {
             model.proposeBulk("Fix \(picked.count) issue\(picked.count == 1 ? "" : "s")", bulkPlan(picked, label: \.title) { $0.fix })
         },
         BulkAction(title: "Copy fix prompt", icon: "doc.on.clipboard", check: bulkCheck(picked) { _ in nil }) {

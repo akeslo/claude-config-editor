@@ -7,15 +7,18 @@ struct ClaudeConfigApp: App {
     // Not @AppStorage or a closure Binding: either re-pushes the status item image on unrelated updates, and
     // during window layout that crashes AppKit (_postWindowNeedsUpdateConstraints) on Agents & Commands.
     // AppSettingsView persists it.
-    @State private var showMenuBar = UserDefaults.standard.object(forKey: "showSkillsMenuBar") as? Bool ?? true
+    @State private var showMenuBar = UserDefaults.standard.bool(forKey: "minimizeToMenuBar") || (UserDefaults.standard.object(forKey: "showSkillsMenuBar") as? Bool ?? true)
 
     var body: some Scene {
-        WindowGroup("Claude Config") {
+        WindowGroup("Claude Config", id: "main") {
             RootView()
                 .environment(model)
                 .tint(.brand)
                 .frame(minWidth: 980, minHeight: 600)
                 .task {
+                    applyDockPolicy()
+                    // `-appearance light|dark` on the command line forces a mode (used for screenshots of both).
+                    if let a = UserDefaults.standard.string(forKey: "appearance") { NSApp.appearance = NSAppearance(named: a == "light" ? .aqua : .darkAqua) }
                     await model.refresh()
                     if UserDefaults.standard.object(forKey: "analyzeOnLaunch") as? Bool ?? true { await model.analyzeSkillsIfNeeded() }
                 }
@@ -68,6 +71,7 @@ struct RootView: View {
                     }
                 } else { SearchResultsView(query: search) { search = "" } }
             }
+                .appListStyle()
                 .navigationTitle(search.isEmpty ? model.section.rawValue : "Search")
                 .toolbar {
                     ToolbarItemGroup {

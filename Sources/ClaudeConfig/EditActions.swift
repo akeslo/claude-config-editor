@@ -6,9 +6,14 @@ import SwiftUI
 extension AppModel {
     /// Records an undoable action and rescans so every page sees the change.
     func didAct(_ title: String, _ records: [Backup.Record]) {
-        lastAction = (title, records)
-        actionError = nil
+        act(title, records.map(UndoStep.restore))
         Task { await refresh() }
+    }
+
+    /// Shows the toast for a finished change; empty `undo` shows it without an Undo button.
+    func act(_ title: String, _ undo: [UndoStep]) {
+        lastAction = (title, undo)
+        actionError = nil
     }
 
     /// Backs up and removes each URL; stops at the first failure (earlier ones stay undoable).
@@ -20,48 +25,46 @@ extension AppModel {
 
     func undoLast() {
         guard let a = lastAction else { return }
-        do { for r in a.records.reversed() { try Backup.restore(r) } ; lastAction = nil } catch { actionError = error.localizedDescription }
-        Task { await refresh() }
-    }
-}
-
-/// "Delete…" with a confirm dialog; deleted items go to the config-editor backup folder and can be undone from the toast.
-struct ConfirmDeleteButton: View {
-    @Environment(AppModel.self) private var model
-    let urls: [URL]
-    var label = "Delete…"
-    @State private var asking = false
-
-    init(url: URL, label: String = "Delete…") { urls = [url]; self.label = label }
-    init(urls: [URL], label: String = "Delete…") { self.urls = urls; self.label = label }
-
-    var body: some View {
-        let ok = urls.filter { trashRefusal($0) == nil }
-        if !ok.isEmpty {
-            Button(label, role: .destructive) { asking = true }
-                .help("Moves to ~/.claude/backups/config-editor, so it can be undone")
-                .confirmationDialog(ok.count == 1 ? "Delete \(ok[0].lastPathComponent)?" : "Delete \(ok.count) items?", isPresented: $asking) {
-                    Button("Delete", role: .destructive) { model.trashWithUndo(ok, title: "Deleted \(ok.count == 1 ? ok[0].lastPathComponent : "\(ok.count) items")") }
-                } message: { Text("A backup is kept in ~/.claude/backups/config-editor. You can undo right after.") }
+        lastAction = nil
+        Task {
+            do { try await Apply.undo(a.undo); act("Undone", []) } catch { actionError = error.localizedDescription }
+            await refresh()
         }
     }
 }
 
-/// "Reset…" with a confirm dialog. `perform` does the reset (e.g. `updateSettingsKey(file, path: p, value: nil)`) and may return a backup record for undo.
+/// "Delete": one click. Items go to ~/.claude/backups/config-editor first, so the toast can undo it.
+struct ConfirmDeleteButton: View {
+    @Environment(AppModel.self) private var model
+    let urls: [URL]
+    var label = "Delete"
+
+    init(url: URL, label: String = "Delete") { urls = [url]; self.label = label }
+    init(urls: [URL], label: String = "Delete") { self.urls = urls; self.label = label }
+
+    var body: some View {
+        let ok = urls.filter { trashRefusal($0) == nil }
+        if !ok.isEmpty {
+            Button(label.replacingOccurrences(of: "…", with: ""), role: .destructive) {
+                model.trashWithUndo(ok, title: "Deleted \(ok.count == 1 ? ok[0].lastPathComponent : "\(ok.count) items")")
+            }
+            .help("A backup is kept in ~/.claude/backups/config-editor; undo from the message that appears")
+        }
+    }
+}
+
+/// "Reset": one click. `perform` does the reset and may return a backup record for undo.
 struct ResetButton: View {
     @Environment(AppModel.self) private var model
     let what: String
     var explanation = "This falls back to the default."
     let perform: () throws -> Backup.Record?
-    @State private var asking = false
 
     var body: some View {
-        Button("Reset…") { asking = true }
-            .confirmationDialog("Reset \(what)?", isPresented: $asking) {
-                Button("Reset", role: .destructive) {
-                    do { model.didAct("Reset \(what)", try perform().map { [$0] } ?? []) } catch { model.actionError = error.localizedDescription }
-                }
-            } message: { Text(explanation) }
+        Button("Reset") {
+            do { model.didAct("Reset \(what)", try perform().map { [$0] } ?? []) } catch { model.actionError = error.localizedDescription }
+        }
+        .help(explanation + " A backup is kept so you can undo.")
     }
 }
 
@@ -125,27 +128,40 @@ struct StaleBadge: View {
     }
 }
 
-/// Bottom toast with Undo for the last action, or the last error. Attached once in RootView.
+/// Bottom toast with Undo for the last action, or the last error. Attached once in RootView; hides itself after 8 seconds.
 struct UndoToast: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
-        if let err = model.actionError {
-            toast { Label(err, systemImage: "exclamationmark.triangle").foregroundStyle(.red); Button("Dismiss") { model.actionError = nil } }
-        } else if let a = model.lastAction {
-            toast {
-                Text(a.title)
-                if !a.records.isEmpty { Button("Undo") { model.undoLast() } }
-                Button { model.lastAction = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain).help("Dismiss")
+        Group {
+            if let err = model.actionError {
+                toast {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Text(err).lineLimit(2)
+                    Button("Dismiss") { model.actionError = nil }
+                }
+            } else if let a = model.lastAction {
+                toast {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    Text(a.title).lineLimit(1)
+                    if !a.undo.isEmpty { Button("Undo") { model.undoLast() }.keyboardShortcut("z", modifiers: .command) }
+                    Button { model.lastAction = nil } label: { Image(systemName: "xmark") }.buttonStyle(.borderless).help("Dismiss")
+                }
+                .task(id: a.title) { try? await Task.sleep(for: .seconds(8)); if model.lastAction?.title == a.title { model.lastAction = nil } }
             }
         }
+        .animation(.snappy, value: model.lastAction?.title)
+        .animation(.snappy, value: model.actionError)
     }
 
     private func toast(@ViewBuilder _ c: () -> some View) -> some View {
         HStack(spacing: Space.m, content: c)
+            .font(.callout)
             .padding(.horizontal, Space.l).padding(.vertical, Space.s)
             .background(.regularMaterial, in: Capsule())
-            .shadow(radius: 4)
+            .overlay(Capsule().strokeBorder(.separator, lineWidth: 0.5))
+            .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
             .padding(Space.l)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }

@@ -78,3 +78,15 @@ struct LoadingState: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
+
+extension View {
+    /// Filter menus above a list: menu style with room for the longest choice (fixedSize alone truncated to one letter).
+    func filterPicker(minWidth: CGFloat = 120) -> some View {
+        pickerStyle(.menu).frame(minWidth: minWidth).fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The one table and list look for every screen: inset rows, no zebra stripes (they filled empty space below short lists).
+    func appListStyle() -> some View {
+        tableStyle(.inset(alternatesRowBackgrounds: false)).listStyle(.inset(alternatesRowBackgrounds: false))
+    }
+}

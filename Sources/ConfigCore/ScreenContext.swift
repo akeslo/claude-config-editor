@@ -104,7 +104,7 @@ public enum ScreenContext {
                 l.append("\(c(project.replacingOccurrences(of: Paths.home.path, with: "~")))/")
                 for f in files.sorted(by: { $0.url.path < $1.url.path }) {
                     let d = fileDates(f.url), st = Staleness.of(modified: d.modified, now: now)
-                    l.append("  \(f.kind.rawValue) \(c(shortPath(f.url))) | \(f.tokens) tokens | \(f.lines) lines\(f.pathScoped ? " | path-scoped" : "") | created \(day(d.created)) | modified \(day(d.modified)) | \(st.level)\(f.problems.isEmpty ? "" : " | problems: " + f.problems.map(c).joined(separator: "; "))")
+                    l.append("  \(f.kind.rawValue) \(c(shortPath(f.url))) | \(f.tokens) tokens | \(f.lines) lines\(f.pathScoped ? " | path-scoped" : "") | created \(day(Memory.createdDate(f.url, text: readText(f.url)))) | modified \(day(d.modified)) | \(st.level)\(f.problems.isEmpty ? "" : " | problems: " + f.problems.map(c).joined(separator: "; "))")
                 }
             }
             return l

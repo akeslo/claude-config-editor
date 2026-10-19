@@ -6,7 +6,6 @@ struct AgentFilesView: View {
     @Environment(AppModel.self) private var model
     @State private var agentFiles: [URL] = []
     @State private var loading = true
-    @State private var selection: String?
     @State private var search = ""
     @State private var editing: URL?
     @State private var expanded: Set<String> = ["user"]
@@ -28,38 +27,44 @@ struct AgentFilesView: View {
             .filter { search.isEmpty || [$0.name, $0.entry.url.path, $0.entry.type.rawValue].contains { $0.localizedCaseInsensitiveContains(search) }
                 || $0.entry.recommendations.contains { $0.localizedCaseInsensitiveContains(search) } }
             .sorted(using: order)
-        let selected = rows.first { $0.id == selection }?.entry
+        let selected = bulk.count == 1 ? rows.first { bulk.contains($0.id) }?.entry : nil
         let visible = rows.map(\.id)
-        let picked = rows.map(\.entry).filter { bulk.contains($0.id) && $0.exists }
+        // Empty files in view, plus auto-memory folders with no notes left (they have no row of their own).
+        let emptyDirs = model.snapshot.projects.map { Paths.projectDataDir(for: $0.path).appending(path: "memory") }.filter(Memory.isEmpty)
+        let emptyIDs = rows.filter { $0.entry.exists && Memory.isEmpty($0.entry.url) }.map(\.id) + emptyDirs.map(\.path)
+        let picked = rows.map(\.entry).filter { bulk.contains($0.id) && $0.exists }.map(\.url) + emptyDirs.filter { bulk.contains($0.path) }
         HSplitView {
             VStack(spacing: 0) {
                 HStack(spacing: Space.m) {
-                    TextField("Filter memory", text: $search).textFieldStyle(.roundedBorder).frame(maxWidth: 220)
+                    TextField("Filter memory", text: $search).textFieldStyle(.roundedBorder).frame(minWidth: 120, maxWidth: 220)
                     Picker("Project", selection: $project) {
                         Text("All projects").tag("All")
                         ForEach(groups.map(\.title), id: \.self) { Text($0).tag($0) }
-                    }.fixedSize()
+                    }.labelsHidden().filterPicker(minWidth: 110)
                     Picker("Type", selection: $type) {
                         Text("All types").tag(MemoryType?.none)
                         ForEach(MemoryType.allCases, id: \.self) { Text($0.rawValue).tag(MemoryType?.some($0)) }
-                    }.fixedSize()
+                    }.labelsHidden().filterPicker(minWidth: 110)
                     Picker("Level", selection: $level) {
                         ForEach(["All", "User", "Project", "Local", "Auto-memory", "Other agent"], id: \.self) { Text($0 == "All" ? "All levels" : $0).tag($0) }
-                    }.fixedSize()
+                    }.labelsHidden().filterPicker(minWidth: 110)
                     Spacer()
                     if emptyCount > 0 {
-                        Toggle("Show empty (\(emptyCount))", isOn: $showEmpty).toggleStyle(.checkbox).font(.caption)
+                        Toggle("Empty (\(emptyCount))", isOn: $showEmpty).toggleStyle(.checkbox).font(.caption)
                             .help("Folders whose files add ≈0 tokens to context and need no cleanup")
                     }
                 }.padding(Space.m)
                 BulkBar(sel: $bulk, visible: visible, actions: [
-                    BulkAction(title: "Move to Trash…", icon: "trash", check: bulkCheck(picked) { trashRefusal($0.url) }) {
-                        model.propose("Move \(picked.count) file\(picked.count == 1 ? "" : "s") to the Trash: " + picked.map { shortPath($0.url) }.joined(separator: ", "),
-                                      Memory.removal(picked.map(\.url)))
+                    BulkAction(title: "Move to Trash", icon: "trash", check: bulkCheck(picked) { trashRefusal($0) }) {
+                        model.propose("Move \(picked.count) to the Trash", Memory.removal(picked))
                     },
-                    BulkAction(title: "Copy paths", icon: "doc.on.clipboard", check: bulkCheck(picked) { _ in nil }) { copy(picked.map(\.url.path).joined(separator: "\n")) },
-                ])
-                Table(rows, selection: $selection, sortOrder: $order) {
+                    BulkAction(title: "Copy Paths", icon: "doc.on.clipboard", check: bulkCheck(picked) { _ in nil }) { copy(picked.map(\.path).joined(separator: "\n")) },
+                ], trailing: {
+                    Button("Select Empty (\(emptyIDs.count))", systemImage: "circle.dashed") { bulk.ids.formUnion(emptyIDs) }
+                        .disabled(emptyIDs.isEmpty)
+                        .help("Select every empty memory file or folder: 0 bytes, only whitespace, frontmatter with no body, or a folder with no notes")
+                })
+                Table(rows, selection: $bulk.ids, sortOrder: $order) {
                     TableColumn("", value: \MemRow.name) { (r: MemRow) in SelectBox(sel: $bulk, id: r.id, visible: visible, name: r.name) }.width(22)
                     TableColumn("Name", value: \MemRow.name) { (r: MemRow) in
                         VStack(alignment: .leading, spacing: 2) {
@@ -74,11 +79,20 @@ struct AgentFilesView: View {
                         }
                         .contextMenu { actions(r.entry) }
                     }.width(min: 200, ideal: 300)
+                    TableColumn("Scope", value: \MemRow.level) { (r: MemRow) in
+                        let file = model.snapshot.instructions.first { $0.url == r.entry.url }
+                        ScopeMenu(current: file.flatMap { ScopeMove.target(of: $0) }, fixedLabel: r.level, allowLocal: file?.kind != .rule) { t in
+                            if let file { model.moveScope(r.entry.url.lastPathComponent, to: t) { try ScopeMove.move(instruction: file, to: t) } }
+                        }
+                    }.width(min: 100, ideal: 110)
                     TableColumn("Project", value: \MemRow.project) { (r: MemRow) in Text(r.project).foregroundStyle(.secondary).lineLimit(1) }.width(min: 80, ideal: 120)
                     TableColumn("Size", value: \MemRow.size) { (r: MemRow) in
                         Text(r.entry.exists ? formatBytes(Int64(r.size)) : "—").monospacedDigit().foregroundStyle(.secondary)
                             .help(r.entry.loaded ? "\(formatTokens(r.entry.tokens)) tokens every session" : "Not loaded into every session")
                     }.width(min: 50, ideal: 70)
+                    TableColumn("Created", value: \MemRow.created) { (r: MemRow) in
+                        Text(r.entry.created?.formatted(date: .abbreviated, time: .omitted) ?? "—").foregroundStyle(.secondary)
+                    }.width(min: 80, ideal: 100)
                     TableColumn("Last updated", value: \MemRow.modified) { (r: MemRow) in
                         Text(r.entry.modified.map { $0.formatted(.relative(presentation: .named)) } ?? "—").foregroundStyle(.secondary)
                     }.width(min: 80, ideal: 110)
@@ -95,14 +109,14 @@ struct AgentFilesView: View {
 
     @ViewBuilder private func actions(_ e: MemoryEntry) -> some View {
         if e.exists {
-            Button("Edit…") { editing = e.url }
+            Button("Edit") { editing = e.url }
             ResetButton(what: e.url.lastPathComponent, explanation: "Replaces it with the default \(e.type.rawValue) template. The current version is backed up.") {
                 try Memory.reset(e.url, type: e.type)
             }
-            Button("Move to Trash…", role: .destructive) { model.propose("Move \(shortPath(e.url)) to the Trash", Memory.removal([e.url])) }
+            Button("Move to Trash", role: .destructive) { model.propose("Move \(shortPath(e.url)) to the Trash", Memory.removal([e.url])) }
             if e.type == .memoryTopic || e.type == .memoryIndex {
                 let dir = e.url.deletingLastPathComponent()
-                Button("Move whole memory folder to Trash…", role: .destructive) {
+                Button("Move Memory Folder to Trash", role: .destructive) {
                     let files = ([dir.appending(path: "MEMORY.md")] + Memory.topicFiles(dir)).filter { exists($0) }
                     model.propose("Move the memory folder \(shortPath(dir)) to the Trash (\(files.count) files: " + files.map(\.lastPathComponent).joined(separator: ", ") + ")", .trash([dir]))
                 }
@@ -174,6 +188,7 @@ private struct MemRow: Identifiable {
     var id: String { entry.id }
     var size: Int { (try? entry.url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 }
     var modified: Date { entry.modified ?? .distantPast }
+    var created: Date { entry.created ?? .distantPast }
     var level: String {
         switch entry.type {
         case .userClaudeMD: "User"

@@ -112,7 +112,6 @@ private struct SettingRow: View {
     let source: SettingsSource, sources: [SettingsSource], key: String, readOnly: Bool
     @State private var text = ""
     @State private var editingJSON = false
-    @State private var confirm: String?   // "reset" or "delete"
 
     private var value: Any? { source.root[key] }
 
@@ -120,9 +119,13 @@ private struct SettingRow: View {
         LabeledContent {
             HStack(spacing: Space.s) {
                 editor.disabled(readOnly)
+                if !readOnly, let from = ScopeMove.target(ofSettings: source.url) {
+                    ScopeMenu(current: from) { t in model.moveScope(key, to: t) { try ScopeMove.move(settingKey: key, from: source.url, to: t) } }
+                }
                 Menu {
-                    Button("Reset to default…") { confirm = "reset" }
-                    Button("Delete key…", role: .destructive) { confirm = "delete" }
+                    Button("Reset to Default") { write(nil, "Reset \(key)") }
+                        .help("Removes \(key) from this file. " + fallbackText)
+                    Button("Delete Key", role: .destructive) { write(nil, "Deleted \(key)") }
                     Divider()
                     Button("Copy value") { copy(value.map(SettingsEdit.render) ?? "") }
                 } label: { Image(systemName: "ellipsis.circle") }
@@ -136,9 +139,6 @@ private struct SettingRow: View {
             }
         }
         .onAppear { text = scalarText }
-        .confirmationDialog(confirm == "delete" ? "Delete \(key)?" : "Reset \(key)?", isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } })) {
-            Button(confirm == "delete" ? "Delete" : "Reset", role: .destructive) { write(nil, confirm == "delete" ? "Deleted \(key)" : "Reset \(key)") }
-        } message: { Text("Removes \(key) from \(shortPath(source.url)). " + fallbackText + " A backup is kept; Undo appears below.") }
         .sheet(isPresented: $editingJSON) { JSONValueSheet(title: key, initial: value.map(SettingsEdit.render) ?? "") { write($0, "Edited \(key)") } }
     }
 
@@ -256,7 +256,6 @@ struct PermissionsView: View {
     @State private var search = ""
     @State private var sort = [KeyPathComparator(\PermissionRule.kind)]
     @State private var editing: RuleDraft?
-    @State private var deleting: [PermissionRule] = []
 
     var body: some View {
         let rules = model.snapshot.permissions.filter { showProjectApprovals || $0.kind != "allowedTools" }
@@ -272,10 +271,18 @@ struct PermissionsView: View {
                     .help(r.kind == "allowedTools" ? Term.allowedTools.tooltip : "\(r.kind): " + Term.permissions.tooltip)
             }.width(90)
             TableColumn("Rule", value: \PermissionRule.rule) { (r: PermissionRule) in Text(r.rule).font(.system(.body, design: .monospaced)).lineLimit(1).truncationMode(.middle) }
-            TableColumn("Source", value: \PermissionRule.source) { (r: PermissionRule) in Text(r.source).help(shortPath(r.sourceURL)) }.width(200)
+            TableColumn("Scope", value: \PermissionRule.source) { (r: PermissionRule) in
+                HStack(spacing: Space.s) {
+                    ScopeMenu(current: editable(r) ? ScopeMove.target(ofSettings: r.sourceURL) : nil, fixedLabel: r.kind == "allowedTools" ? "Approval" : "Managed") { t in
+                        model.moveScope(r.rule, to: t) { try ScopeMove.move(rule: r, to: t) }
+                    }
+                    if let f = ScopeMove.target(ofSettings: r.sourceURL)?.folder { Text((f as NSString).lastPathComponent).foregroundStyle(.secondary).lineLimit(1) }
+                }
+                .help(shortPath(r.sourceURL))
+            }.width(min: 150, ideal: 200)
         }
         .bulkSelectable($sel, visible: rules.map(\.id), actions: [
-            BulkAction(title: "Delete…", icon: "trash", check: bulkCheck(pickedAll) { editable($0) ? nil : "are per-project approvals or managed rules" }) { deleting = pickedAll },
+            BulkAction(title: "Delete", icon: "trash", check: bulkCheck(pickedAll) { editable($0) ? nil : "are per-project approvals or managed rules" }) { delete(pickedAll) },
             BulkAction(title: "Copy rules", icon: "doc.on.clipboard", check: bulkCheck(pickedAll) { _ in nil }) { copy(pickedAll.map { "\($0.kind)\t\($0.rule)" }.joined(separator: "\n")) },
         ])
         .searchable(text: $search, prompt: "Filter rules")
@@ -289,7 +296,7 @@ struct PermissionsView: View {
                     }
                 }
             }
-            if !rs.isEmpty { Button(rs.count == 1 ? "Delete…" : "Delete \(rs.count) Rules…", role: .destructive) { deleting = rs } }
+            if !rs.isEmpty { Button(rs.count == 1 ? "Delete" : "Delete \(rs.count) Rules", role: .destructive) { delete(rs) } }
         } primaryAction: { ids in
             if let r = rules.first(where: { ids.contains($0.id) && editable($0) }) { editing = RuleDraft(original: r, kind: r.kind, rule: r.rule, file: r.sourceURL) }
         }
@@ -299,13 +306,9 @@ struct PermissionsView: View {
             if picked.count == 1, let r = picked.first {
                 Button("Edit…") { editing = RuleDraft(original: r, kind: r.kind, rule: r.rule, file: r.sourceURL) }
             }
-            if !picked.isEmpty { Button("Delete…", role: .destructive) { deleting = picked } }
+            if !picked.isEmpty { Button("Delete", role: .destructive) { delete(picked) } }
         }
         .sheet(item: $editing) { RuleSheet(draft: $0) }
-        .confirmationDialog(deleting.count == 1 ? "Delete rule \(deleting.first?.rule ?? "")?" : "Delete \(deleting.count) rules?",
-                            isPresented: Binding(get: { !deleting.isEmpty }, set: { if !$0 { deleting = [] } })) {
-            Button("Delete", role: .destructive) { delete(deleting) }
-        } message: { Text("A backup of each settings file is kept; Undo appears below.") }
         .onChange(of: sel.ids) {
             guard sel.count == 1, let r = rules.first(where: { sel.contains($0.id) }) else { return }
             model.info = InfoItem(r.rule, term: r.kind == "allowedTools" ? .allowedTools : .permissions,

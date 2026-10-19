@@ -1,3 +1,4 @@
+import AppKit
 import ConfigCore
 import SwiftUI
 
@@ -7,6 +8,7 @@ struct AppSettingsView: View {
     @AppStorage("analyzeOnLaunch") private var analyzeOnLaunch = true
     @AppStorage("installUserOnly") private var installUserOnly = true
     @AppStorage("askAutoCopyPrompt") private var askAutoCopy = true
+    @AppStorage("minimizeToMenuBar") private var minimizeToMenuBar = false
 
     var body: some View {
         Form {
@@ -16,8 +18,11 @@ struct AppSettingsView: View {
             Toggle("Copy prompts from Ask Claude automatically", isOn: $askAutoCopy)
             Text("When you ask for a prompt and the answer holds one code block, it goes straight to the clipboard (with Undo).")
                 .font(.callout).foregroundStyle(.secondary)
-            Toggle("Show skills in the menu bar", isOn: $showMenuBar)
+            Toggle("Show skills in the menu bar", isOn: $showMenuBar).disabled(minimizeToMenuBar)
             Text("A searchable list of every skill you can call, for when you can't remember the right /name.")
+                .font(.callout).foregroundStyle(.secondary)
+            Toggle("Minimize to menu bar", isOn: $minimizeToMenuBar)
+            Text("Hides the Dock icon. Open Claude Config or quit it from the menu bar icon.")
                 .font(.callout).foregroundStyle(.secondary)
             Toggle("Install skills as \"Only when I call it\"", isOn: $installUserOnly)
             Text("New skill installs get disable-model-invocation: true, so they run only as /name. The install sheet can override this per install.")
@@ -25,9 +30,20 @@ struct AppSettingsView: View {
         }
         .formStyle(.grouped)
         .onChange(of: showMenuBar) { UserDefaults.standard.set(showMenuBar, forKey: "showSkillsMenuBar") }
+        .onChange(of: minimizeToMenuBar) {
+            // Menu bar mode needs the menu bar item, or the app would have no way back in.
+            if minimizeToMenuBar { showMenuBar = true }
+            applyDockPolicy()
+        }
         .frame(width: 420)
         .fixedSize()
     }
+}
+
+/// Menu bar mode: no Dock icon (.accessory) while "Minimize to menu bar" is on.
+@MainActor func applyDockPolicy() {
+    let minimize = UserDefaults.standard.bool(forKey: "minimizeToMenuBar")
+    NSApp.setActivationPolicy(minimize ? .accessory : .regular)
 }
 
 /// Menu bar cheat sheet: every callable skill, searchable, with an AI pick for a described use case. Click copies /name.
@@ -40,6 +56,7 @@ struct MenuBarSkills: View {
     @State private var expanded: String?
     @State private var copied: String?
     @State private var picked = BulkSelection<String>()
+    @Environment(\.openWindow) private var openWindow
 
     /// Personal, project and enabled-plugin skills that aren't Off.
     private var skills: [Component] {
@@ -87,6 +104,16 @@ struct MenuBarSkills: View {
                 CopyPromptButton(skills: all.filter { picked.contains($0.id) }, picked: $picked)
             }
             if let copied { Label("Copied \(copied)", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(Color.accentColor) }
+            Divider()
+            HStack {
+                Button("Open Claude Config", systemImage: "macwindow") {
+                    openWindow(id: "main")
+                    NSApp.activate()
+                }
+                Spacer()
+                Button("Quit", systemImage: "power") { NSApp.terminate(nil) }.keyboardShortcut("q")
+            }
+            .buttonStyle(.borderless).labelStyle(.titleAndIcon)
         }
         .padding(Space.m)
         .frame(width: 380)

@@ -48,7 +48,7 @@ struct CleanupReviewPanel: View {
                         Text("\(ad.reason) · \(formatTokens(c.listingTokens)) tokens, \(c.usageCount) uses, last \(relative(c.lastUsed))")
                             .font(.callout).foregroundStyle(.secondary).lineLimit(1).help(ad.reason)
                         Spacer()
-                        Button("Apply…") { model.propose("Make \(c.name) \(ad.state)", fix) }.controlSize(.small)
+                        Button("Apply") { model.propose("Make \(c.name) \(ad.state)", fix) }.controlSize(.small)
                     }
                 }
             }
@@ -81,15 +81,15 @@ struct CleanupReviewPanel: View {
         let fixable = findings.filter { $0.action != nil }
         func apply(_ title: String, _ fs: [CleanupFinding]) { model.proposeBulk(title, cleanupPlan(fs, components: comps, plugins: model.snapshot.plugins)) }
         var out = [
-            BulkAction(title: "Apply all suggested fixes…", icon: "wand.and.stars",
+            BulkAction(title: "Apply All Suggestions", icon: "wand.and.stars",
                        check: fixable.isEmpty ? .init(enabled: false, why: "No finding has an automatic fix") : .ok) { apply("Apply \(fixable.count) suggested fixes", fixable) },
-            BulkAction(title: "Apply fix to selected…", icon: "checkmark.circle",
+            BulkAction(title: "Apply to Selected", icon: "checkmark.circle",
                        check: bulkCheck(picked) { $0.action == nil ? "have no automatic fix" : nil }) { apply("Fix \(picked.count) findings", picked) },
         ]
         for kind in CleanupFinding.Kind.allCases {
             let group = picked.filter { $0.kind == kind && $0.action != nil }
             if !group.isEmpty, group.count < picked.count {
-                out.append(BulkAction(title: "\(kind.rawValue): fix \(group.count)…") { apply("\(kind.rawValue): fix \(group.count)", group) })
+                out.append(BulkAction(title: "\(kind.rawValue): fix \(group.count)") { apply("\(kind.rawValue): fix \(group.count)", group) })
             }
         }
         return out
@@ -99,11 +99,11 @@ struct CleanupReviewPanel: View {
         let comp = { (id: String) in model.snapshot.components.first { $0.id == id } }
         switch a {
         case .makeCallOnly(let id):
-            if let c = comp(id), let fix = c.fix(to: .onDemand) { Button("Make call-only…") { model.propose("Make \(c.name) On demand", fix) }.controlSize(.small) }
+            if let c = comp(id), let fix = c.fix(to: .onDemand) { Button("Make On Demand") { model.propose("Make \(c.name) On demand", fix) }.controlSize(.small) }
         case .turnOff(let id):
-            if let c = comp(id), let fix = c.fix(to: .off) { Button("Turn off…") { model.propose("Turn \(c.name) off", fix) }.controlSize(.small) }
+            if let c = comp(id), let fix = c.fix(to: .off) { Button("Turn Off") { model.propose("Turn \(c.name) off", fix) }.controlSize(.small) }
         case .uninstall(let id):
-            if let c = comp(id) { Button("Uninstall…") { model.proposeTrash([trashURL(c)]) }.controlSize(.small) }
+            if let c = comp(id) { Button("Move to Trash") { model.proposeTrash([trashURL(c)]) }.controlSize(.small) }
         case .keepOne(let keep, let remove):
             let urls = remove.compactMap(comp).map(trashURL)
             Button("Keep \(comp(keep)?.belongsTo ?? "one")…") { model.proposeTrash(urls) }.controlSize(.small).disabled(urls.isEmpty)

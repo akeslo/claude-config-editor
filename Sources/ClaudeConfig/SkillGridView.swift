@@ -30,13 +30,13 @@ struct SkillGridView: View {
                     Text("Personal & project").tag("Mine")
                     Text("Plugins").tag("Plugins")
                 }
-                .fixedSize()
+                .filterPicker()
                 Picker("Agent", selection: $agent) {
                     Text("All agents").tag(SkillAgent?.none)
                     ForEach(SkillAgent.allCases, id: \.self) { Text($0.rawValue).tag(SkillAgent?.some($0)) }
                 }
-                .fixedSize()
-                Picker("Group", selection: $byPrefix) { Text("By prefix").tag(true); Text("By category").tag(false) }.fixedSize()
+                .filterPicker()
+                Picker("Group", selection: $byPrefix) { Text("By prefix").tag(true); Text("By category").tag(false) }.filterPicker()
                 Spacer()
                 Text("\(shown.count) skills in \(groups.count) groups").font(.callout).foregroundStyle(.secondary)
             }
@@ -82,10 +82,13 @@ private struct SkillGridCard: View {
                 StaleBadge(Staleness.of(lastUsed: skill.lastUsed ?? skill.installedAt))
             }
             Text(purpose(skill)).font(.callout).lineLimit(2).help(skill.description)
-            Text(skill.whenToUse).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            if skill.whenToUse != purpose(skill) { Text(skill.whenToUse).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
             Spacer(minLength: 0)
             HStack(spacing: Space.s) {
-                Label(skill.belongsTo, systemImage: skill.ownsFile ? "person" : "shippingbox").lineLimit(1)
+                ScopeMenu(current: ScopeMove.target(of: skill), fixedLabel: skill.scope == .plugin ? "Plugin" : skill.belongsTo, allowLocal: false) { t in
+                    model.moveScope("/" + skill.name, to: t) { try ScopeMove.move(component: skill, to: t) }
+                }
+                .controlSize(.small)
                 Spacer()
                 Text(skill.usageCount == 0 ? "never used" : "used \(skill.usageCount)×").monospacedDigit()
                 if skill.scope == .user, skill.state != .off, let target = Optional(skill.state == .always ? SkillState.onDemand : .always), let fix = skill.fix(to: target) {
@@ -101,7 +104,8 @@ private struct SkillGridCard: View {
         }
         .padding(Space.m)
         .frame(maxWidth: .infinity, minHeight: 130, alignment: .topLeading)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator, lineWidth: 0.5))
         .contextMenu {
             Button("Copy /\(skill.name)") { copy("/" + skill.name) }
             Button("Open SKILL.md") { openFile(skill.file) }
@@ -124,7 +128,7 @@ struct SkillOverlapsView: View {
                 HStack {
                     Text("\(overlaps.count) overlap\(overlaps.count == 1 ? "" : "s")").foregroundStyle(.secondary)
                     Spacer()
-                    Button("Resolve all: keep the most-used…", systemImage: "wand.and.stars") {
+                    Button("Keep the Most-Used Copy of Each", systemImage: "wand.and.stars") {
                         model.proposeBulk("Resolve \(overlaps.count) overlaps, keeping the most-used copy",
                                           overlaps.flatMap { overlapKeepPlan($0, keep: $0.keep, all: all, plugins: plugins) })
                     }
@@ -142,13 +146,13 @@ struct SkillOverlapsView: View {
                                 Text(s.usageCount == 0 ? "never used" : "used \(s.usageCount)×").foregroundStyle(.secondary).monospacedDigit()
                                 if s.id == o.keep.id { Text("most used").font(.caption).foregroundStyle(.tertiary) }
                                 Spacer()
-                                Button("Keep this one…") {
+                                Button("Keep This One") {
                                     model.proposeBulk("Keep /\(s.name) (\(s.belongsTo)), remove the other\(o.skills.count > 2 ? "s" : "")",
                                                       overlapKeepPlan(o, keep: s, all: all, plugins: plugins))
                                 }
                                 // skillOverrides is keyed by name, so On demand would also hit a same-named copy: offer it only for look-alikes.
                                 if s.ownsFile, o.kind == .similar, let fix = s.fix(to: .onDemand) {
-                                    Button("Make On demand…") { model.propose("Make \(s.name) On demand", fix) }
+                                    Button("Make On Demand") { model.propose("Make \(s.name) On demand", fix) }
                                 }
                                 if let r = overlapRemoval(s, all: all, plugins: plugins) {
                                     Button(r.button, role: .destructive) { model.propose(r.title, r.fix) }
