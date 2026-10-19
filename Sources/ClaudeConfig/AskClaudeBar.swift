@@ -125,29 +125,7 @@ extension AppModel {
     }
 
     private func runAsk(_ prompt: String) async -> String? {
-        guard let exe = ClaudeCLI.executable else { return nil }
-        let args = ["-p", prompt, "--model", "sonnet", "--settings", #"{"disableAllHooks":true}"#, "--no-session-persistence",
-                    "--add-dir", Paths.claudeDir.path, "--tools", "Read,Grep,Glob", "--allowedTools", "Read", "Grep", "Glob",
-                    "--disallowedTools", "Write", "Edit", "Bash", "NotebookEdit", "WebFetch"]
-        return await Task.detached { () -> String? in
-            let p = Process()
-            p.executableURL = exe
-            p.arguments = args
-            p.currentDirectoryURL = Paths.claudeDir
-            var env = ProcessInfo.processInfo.environment
-            env["PATH"] = "\(exe.deletingLastPathComponent().path):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
-            env["NO_COLOR"] = "1"
-            // Lets a fixture-HOME test run reach a signed-in CLI while the app reads fixture data.
-            if let h = env["CLAUDE_CONFIG_EDITOR_CLI_HOME"] { env["HOME"] = h }
-            p.environment = env
-            let pipe = Pipe()
-            p.standardOutput = pipe; p.standardError = FileHandle.nullDevice; p.standardInput = FileHandle.nullDevice
-            do { try p.run() } catch { return nil }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            p.waitUntilExit()
-            let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            return p.terminationStatus == 0 && !text.isEmpty ? text : nil
-        }.value
+        await ClaudeCLI.ask(prompt, model: "sonnet", tools: ["Read", "Grep", "Glob"], addDir: Paths.claudeDir)
     }
 }
 

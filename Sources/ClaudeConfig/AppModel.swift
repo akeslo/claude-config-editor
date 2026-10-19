@@ -187,11 +187,9 @@ final class AppModel {
         UserDefaults.standard.set(hookExplanations, forKey: "hookExplanations")
     }
 
-    /// One-shot `claude -p` with hooks, tools and session saving off; nil when it fails or says nothing.
+    /// One-shot sandboxed `claude -p` (ClaudeCLI.ask); nil when it fails or says nothing.
     private func askClaude(_ prompt: String, model: String) async -> String? {
-        let r = await ClaudeCLI.run(["-p", prompt, "--model", model, "--settings", #"{"disableAllHooks":true}"#, "--tools", "", "--no-session-persistence"])
-        let text = r.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        return r.ok && !text.isEmpty ? text : nil
+        await ClaudeCLI.ask(prompt, model: model)
     }
 
     /// /skill-picker in the menu bar: 1-5 installed skills plus a ready prompt, or catalog installs when none fit.
@@ -203,9 +201,8 @@ final class AppModel {
         let list = SkillPick.shortlist(task: task, plugins: market, community: community.filter { !isInstalled($0) })
         let mine = SkillPick.candidates(skills.map { ($0.name, $0.description) })
         let prompt = SkillPick.prompt(task: task, skills: mine, plugins: list.plugins, community: list.community)
-        let r = await ClaudeCLI.run(["-p", prompt, "--model", "haiku", "--settings", #"{"disableAllHooks":true}"#, "--tools", "", "--no-session-persistence"], timeout: 90)
-        guard r.ok else { return nil }
-        return SkillPick.parse(r.output, task: task, installed: mine, available: available, community: community)
+        guard let out = await ClaudeCLI.ask(prompt, model: "haiku", timeout: 90) else { return nil }
+        return SkillPick.parse(out, task: task, installed: mine, available: available, community: community)
     }
 
     var analysis: SkillAnalysis? = UserDefaults.standard.data(forKey: "skillAnalysis").flatMap { try? JSONDecoder().decode(SkillAnalysis.self, from: $0) }
