@@ -14,7 +14,7 @@ public enum ClaudeCLI {
         return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
     }()
 
-    public static func run(_ args: [String], in cwd: URL? = nil) async -> CLIResult {
+    public static func run(_ args: [String], in cwd: URL? = nil, timeout: TimeInterval? = nil) async -> CLIResult {
         guard let env = childEnvironment(ProcessInfo.processInfo.environment) else {
             return CLIResult(status: -1, output: "Refused: claude CLI calls under tests must target a fixture CLAUDE_CONFIG_DIR, never the real ~/.claude.")
         }
@@ -33,8 +33,11 @@ public enum ClaudeCLI {
             p.standardError = pipe
             p.standardInput = FileHandle.nullDevice
             do { try p.run() } catch { return CLIResult(status: -1, output: error.localizedDescription) }
+            let timer = DispatchWorkItem { p.terminate() }
+            if let timeout { DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timer) }
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             p.waitUntilExit()
+            timer.cancel()
             return CLIResult(status: p.terminationStatus, output: String(decoding: data, as: UTF8.self))
         }.value
     }

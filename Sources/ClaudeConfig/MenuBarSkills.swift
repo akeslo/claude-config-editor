@@ -51,7 +51,8 @@ struct MenuBarSkills: View {
     @Environment(AppModel.self) private var model
     @State private var search = ""
     @State private var useCase = ""
-    @State private var answer: String?
+    @State private var result: SkillPick.Result?
+    @State private var failed = false
     @State private var asking = false
     @State private var expanded: String?
     @State private var copied: String?
@@ -78,12 +79,10 @@ struct MenuBarSkills: View {
                     Button("Ask", action: ask).disabled(useCase.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
-            if let answer {
-                Text(answer).font(.callout).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                    .padding(Space.s).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                    .help("An unverified AI suggestion from claude -p (haiku)")
-            }
+            if failed {
+                Label("Claude didn't answer in time. Is the claude command installed and signed in?", systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if let result { pickResult(result) }
             Divider()
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -150,12 +149,33 @@ struct MenuBarSkills: View {
         .padding(.vertical, Space.xs)
     }
 
+    @ViewBuilder private func pickResult(_ r: SkillPick.Result) -> some View {
+        VStack(alignment: .leading, spacing: Space.xs) {
+            if let prompt = r.prompt {
+                Text(prompt).font(.callout.monospaced()).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack {
+                    Text("AI suggestion, not verified").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button(copied == "prompt" ? "Copied" : "Copy") { copy(prompt); flash("prompt") }.controlSize(.small)
+                }
+            } else {
+                Text("None of your skills fit. Not installed, worth a look:").font(.caption).foregroundStyle(.secondary)
+                if r.install.isEmpty { Text("No catalog match either.").font(.caption).foregroundStyle(.secondary) }
+                ForEach(r.install) { RecommendationRow(item: $0) }
+            }
+        }
+        .padding(Space.s).frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+    }
+
     private func ask() {
         let q = useCase.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty, !asking else { return }
-        asking = true
+        asking = true; result = nil; failed = false
         Task {
-            answer = await model.matchSkills(q, among: skills)
+            result = await model.pickSkills(q, among: skills)
+            failed = result == nil
             asking = false
         }
     }
