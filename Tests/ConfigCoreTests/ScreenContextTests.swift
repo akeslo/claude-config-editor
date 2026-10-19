@@ -46,7 +46,7 @@ struct ScreenContextTests {
     }
 
     @Test func inventoryIncludesItemsAndLabels() {
-        let t = ScreenContext.build(.mySkills, snapshot(), issues: [], advice: Advice(rules: []))
+        let t = ScreenContext.build(.skills, snapshot(), issues: [], advice: Advice(rules: []))
         #expect(t.contains("deploy-helper"))
         #expect(t.contains("lazy-one | User | - | On demand"))
         #expect(t.contains("github"))
@@ -62,7 +62,7 @@ struct ScreenContextTests {
     }
 
     @Test func truncationIsAnnounced() {
-        let t = ScreenContext.build(.mySkills, snapshot(), issues: [], advice: Advice(rules: []))
+        let t = ScreenContext.build(.skills, snapshot(), issues: [], advice: Advice(rules: []))
         #expect(t.contains("…[trimmed]"))
         #expect(t.contains("1 descriptions/commands longer than"))
         let small = ScreenContext.build(.mySkills, snapshot(), issues: [], advice: Advice(rules: []), budget: 200)

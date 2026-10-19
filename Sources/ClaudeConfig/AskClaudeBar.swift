@@ -17,25 +17,56 @@ struct AskClaudeBar: View {
     @AppStorage("askAutoCopyPrompt") private var autoCopy = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                TextField("Ask Claude about this screen…", text: $question)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(submit)
-                if asking { ProgressView().controlSize(.small) }
-                Button("Ask", action: submit)
-                    .disabled(asking || question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        HStack {
+            TextField("Ask Claude about this screen…", text: $question)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(submit)
+            Button("Ask", action: submit)
+                .disabled(asking || question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .padding(.horizontal, Space.l).frame(height: Self.barHeight)
+        // The answer floats over the screen below in a fixed-height card, so asking never moves the page.
+        .overlay(alignment: .top) {
+            if asking || failed || answer != nil {
+                answerCard.offset(y: Self.barHeight)
             }
-            if failed {
-                Text("Claude didn't answer. Is the `claude` command installed?").font(.caption).foregroundStyle(.secondary)
-            } else if let answer {
-                // Scrolls past a cap: unbounded, the answer squeezed against the greedy detail view below and was truncated.
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 8) {
+        }
+        .zIndex(1)
+        .onDisappear { task?.cancel() }
+        // Launch with `-autoAsk "question"` to ask once on start (headless verification).
+        .task(id: model.loading) { if !model.loading, !model.snapshot.components.isEmpty, let q = UserDefaults.standard.string(forKey: "autoAsk"), answer == nil, !asking { question = q; submit() } }
+    }
+
+    static let barHeight: CGFloat = 44
+
+    private var answerCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: Space.s) {
+                Label("Claude", systemImage: "sparkles").font(.cardTitle)
+                Text("AI answer, not verified").font(.caption).foregroundStyle(.secondary)
+                if let a = autoCopied {
+                    Label("Prompt copied", systemImage: "checkmark.circle").font(.caption).foregroundStyle(.green)
+                    Button("Undo") { if let p = a.previous { setClipboard(p) } else { NSPasteboard.general.clearContents() }; autoCopied = nil }.buttonStyle(.link).font(.caption)
+                }
+                Spacer()
+                if let answer { Button(copied == answer ? "Copied" : "Copy") { copyNow(answer) }.help("Copy the whole answer as text") }
+                Button("Close", systemImage: "xmark") { dismiss() }
+                    .labelStyle(.iconOnly).buttonStyle(.borderless).keyboardShortcut(.cancelAction).help("Close the answer (Esc)")
+            }
+            .controlSize(.small)
+            .padding(.horizontal, Space.l).padding(.vertical, Space.s)
+            Divider()
+            ScrollView {
+                VStack(alignment: .leading, spacing: Space.s) {
+                    if asking {
+                        LoadingState(title: "Asking Claude…").frame(height: 200)
+                    } else if failed {
+                        Text("Claude didn't answer. Is the `claude` command installed?").foregroundStyle(.secondary)
+                    } else if let answer {
                         ForEach(Array(AnswerBlocks.segments(answer).enumerated()), id: \.offset) { _, seg in
                             switch seg {
                             case .text(let t):
-                                Text(t).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                                Text(AnswerBlocks.rich(t)).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             case .code(_, let body):
                                 codeBlock(body)
@@ -45,29 +76,21 @@ struct AskClaudeBar: View {
                             let visible = picks.map(\.id)
                             BulkBar(sel: $sel, visible: visible, actions: model.installActions(picks.filter { sel.contains($0.id) })).padding(.horizontal, -Space.l)
                             VStack(alignment: .leading, spacing: 0) { ForEach(picks) { RecommendationRow(item: $0, sel: $sel, visible: visible) } }
-                                .padding(.vertical, 4)
                                 .bulkKeys($sel, visible: visible)
                         }
                     }
                 }
-                .frame(maxHeight: 360).fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 10) {
-                    Text("AI suggestion — not verified").font(.caption).foregroundStyle(.secondary)
-                    if let a = autoCopied {
-                        Label("Prompt copied to clipboard", systemImage: "checkmark.circle").font(.caption).foregroundStyle(.green)
-                        Button("Undo") { if let p = a.previous { setClipboard(p) } else { NSPasteboard.general.clearContents() }; autoCopied = nil }.buttonStyle(.link).font(.caption)
-                    }
-                    Spacer()
-                    Button(copied == answer ? "Copied" : "Copy answer") { copyNow(answer) }.controlSize(.small)
-                        .help("Copy the whole answer as text")
-                }
+                .padding(Space.l)
             }
         }
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .onDisappear { task?.cancel() }
-        // Launch with `-autoAsk "question"` to ask once on start (headless verification).
-        .task(id: model.loading) { if !model.loading, !model.snapshot.components.isEmpty, let q = UserDefaults.standard.string(forKey: "autoAsk"), answer == nil, !asking { question = q; submit() } }
+        .frame(height: 300)
+        .background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
+        .padding(.horizontal, Space.l)
     }
+
+    private func dismiss() { task?.cancel(); asking = false; answer = nil; picks = []; failed = false }
 
     private func codeBlock(_ body: String) -> some View {
         VStack(alignment: .trailing, spacing: 2) {
@@ -108,10 +131,14 @@ extension AppModel {
     /// Sends the full screen snapshot (ScreenContext) and lets Claude read ~/.claude with read-only tools.
     func askWithScreen(_ question: String, about section: AppSection) async -> String? {
         let screen = screenInfo(section, question: question)
+        // Skills: the list above is complete, so no file tools; other screens may read ~/.claude for detail.
+        let readFiles = section != .mySkills
         let prompt = askPrompt(question: question, screen: screen, section: section, cap: ScreenContext.defaultBudget + 10_000)
-            + "\nYou may read files under \(Paths.claudeDir.path) (and paths listed above) with Read, Grep and Glob for detail. Do not modify anything. Answer in plain short paragraphs or bullets, citing item names."
+            + (readFiles ? "\nYou may read files under \(Paths.claudeDir.path) (and paths listed above) with Read, Grep and Glob for detail. Do not modify anything."
+                         : "\nAnswer only from the list above; it is complete. Do not offer to search, read files or run anything.")
+            + " Answer in plain short paragraphs or bullets, citing item names."
             + (section == .discover ? "\n" + Recommendations.instruction : "")
-        return await runAsk(prompt)
+        return await ClaudeCLI.ask(prompt, model: "sonnet", tools: readFiles ? ["Read", "Grep", "Glob"] : [], addDir: readFiles ? Paths.claudeDir : nil)
     }
 
     /// What the screen shows, as text (secrets masked): rows with source/scope labels, usage, warnings. Shared by Ask Claude and Copy info.
@@ -124,9 +151,6 @@ extension AppModel {
         return screen
     }
 
-    private func runAsk(_ prompt: String) async -> String? {
-        await ClaudeCLI.ask(prompt, model: "sonnet", tools: ["Read", "Grep", "Glob"], addDir: Paths.claudeDir)
-    }
 }
 
 extension AppModel {

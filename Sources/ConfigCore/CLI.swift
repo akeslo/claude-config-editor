@@ -71,7 +71,7 @@ public enum ClaudeCLI {
         }.value
     }
 
-    static let askSystemPrompt = "You are the assistant inside the Claude Config app. Work only from the input in the user message (and files you are allowed to read); you have no other context about the user or their machine."
+    static let askSystemPrompt = "You are the assistant inside the Claude Config app. Work only from the input in the user message (and files you are allowed to read); you have no other context about the user or their machine. This is one answer with no follow-up: never offer to search, run commands or do anything later; if the data doesn't cover something, say so."
 
     static func askArgs(_ prompt: String, model: String, tools: [String], addDir: URL?) -> [String] {
         var a = ["-p", prompt, "--model", model,

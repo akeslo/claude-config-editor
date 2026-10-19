@@ -3,7 +3,8 @@ import Foundation
 // One bulk-selection model for every list screen: selection, which actions apply, the plan the confirm sheet previews,
 // and the per-item results afterwards. Views only render it.
 
-/// Selected ids plus the anchor for shift-click ranges. Ids outside the visible (filtered) list stay selected.
+/// Selected ids plus the anchor for shift-click ranges. The list views call `keepVisible` whenever the filter changes,
+/// so a bulk action only ever touches rows the user can see.
 public struct BulkSelection<ID: Hashable>: Equatable {
     public var ids: Set<ID> = []
     public var anchor: ID?
@@ -28,6 +29,12 @@ public struct BulkSelection<ID: Hashable>: Equatable {
     /// ⌘A: adds every visible row (keeps hidden selections).
     public mutating func selectAll(_ visible: [ID]) { ids.formUnion(visible) }
     public mutating func clear() { ids = []; anchor = nil }
+    /// Drops selected rows the current filter hides.
+    public mutating func keepVisible(_ visible: [ID]) {
+        let v = Set(visible)
+        if !ids.isSubset(of: v) { ids.formIntersection(v) }
+        if let a = anchor, !v.contains(a) { anchor = nil }
+    }
     /// Header checkbox: all visible selected → unselect them; otherwise select all visible.
     public mutating func toggleAll(_ visible: [ID]) {
         if header(visible) == .all { ids.subtract(visible) } else { selectAll(visible) }
@@ -107,12 +114,20 @@ public func skillBlock(_ c: Component) -> String? {
     c.ownsFile ? nil : c.scope == .external ? "belong to another agent" : "are plugin skills (manage them in Plugins)"
 }
 
+/// Plan-preview skip reason for skills a bulk change leaves alone.
+func skillSkip(_ c: Component) -> String? { skillBlock(c) == nil ? nil : "plugin or other-agent skill" }
+
+/// Bulk skill actions run when at least one selected skill is yours; the plan lists the rest as skipped.
+public func skillBulkCheck(_ skills: [Component]) -> BulkCheck {
+    skills.contains { skillBlock($0) == nil } ? .ok : bulkCheck(skills, blocked: skillBlock)
+}
+
 public func skillStatePlan(_ skills: [Component], to target: SkillState) -> [BulkStep] {
-    bulkPlan(skills, label: { "/" + $0.name }, skip: { $0.state == target ? "already \(target.rawValue)" : nil }, fix: { $0.fix(to: target) })
+    bulkPlan(skills, label: { "/" + $0.name }, skip: { skillSkip($0) ?? ($0.state == target ? "already \(target.rawValue)" : nil) }, fix: { $0.fix(to: target) })
 }
 
 public func skillUninstallPlan(_ skills: [Component]) -> [BulkStep] {
-    bulkPlan(skills, label: { "/" + $0.name }, fix: { .trash([trashURL($0)]) })
+    bulkPlan(skills, label: { "/" + $0.name }, skip: skillSkip, fix: { .trash([trashURL($0)]) })
 }
 
 // MARK: Clean-up review

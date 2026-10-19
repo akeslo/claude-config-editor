@@ -1,11 +1,48 @@
 import ConfigCore
 import SwiftUI
 
-/// Skills screen: what to prune, merge or demote. Facts first (computed, verified), then Claude's unverified suggestions.
+/// Skills screen: one fixed-height row with the finding count; the review itself opens in a sheet so the page never reflows.
+struct CleanupReviewRow: View {
+    @Environment(AppModel.self) private var model
+    @State private var facts: [SkillFacts]?
+    @State private var open = false
+
+    var body: some View {
+        HStack(spacing: Space.s) {
+            Label("Clean-up review", systemImage: "scissors").font(.headline)
+            Group {
+                if let facts {
+                    let n = cleanupFindings(facts, plugins: model.snapshot.plugins).count
+                    Text(n == 0 ? "nothing to clean up" : "\(n) finding\(n == 1 ? "" : "s")")
+                } else { Text("checking…") }
+            }
+            .font(.callout).foregroundStyle(.secondary).monospacedDigit()
+            if model.analysis != nil { Text("· Claude's suggestions ready").font(.callout).foregroundStyle(.secondary) }
+            Spacer()
+            Button("Review…") { open = true }.disabled(facts == nil)
+        }
+        .padding(.horizontal, Space.m).frame(height: 40)
+        .background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5))
+        .sheet(isPresented: $open) {
+            VStack(spacing: 0) {
+                CleanupReviewPanel(facts: facts ?? []).padding(Space.l)
+                Divider()
+                HStack { Spacer(); Button("Done") { open = false }.keyboardShortcut(.defaultAction) }.padding(Space.m)
+            }
+            .frame(width: 760, height: 560)
+        }
+        .task(id: model.skillFingerprint) {
+            let comps = model.snapshot.components
+            facts = await Task.detached { skillFacts(comps) }.value
+        }
+    }
+}
+
+/// What to prune, merge or demote. Facts first (computed, verified), then Claude's unverified suggestions.
 struct CleanupReviewPanel: View {
     @Environment(AppModel.self) private var model
-    @AppStorage("cleanupReviewExpanded") private var expanded = true
-    @State private var facts: [SkillFacts] = []
+    let facts: [SkillFacts]
     @State private var sel = BulkSelection<String>()
 
     var body: some View {
@@ -16,7 +53,8 @@ struct CleanupReviewPanel: View {
             return (ad, c, fix)
         }
         let visible = findings.map(\.id)
-        DisclosureGroup(isExpanded: $expanded) {
+        VStack(alignment: .leading, spacing: Space.s) {
+            header
             ScrollView { VStack(alignment: .leading, spacing: Space.xs) {
                 Label("Facts from your usage data (\(findings.count))", systemImage: "checkmark.seal").font(.caption.weight(.semibold))
                 BulkBar(sel: $sel, visible: visible, actions: actions(findings)).padding(.horizontal, -Space.l)
@@ -55,9 +93,11 @@ struct CleanupReviewPanel: View {
             .padding(.top, Space.xs)
             .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxHeight: 240)
             .bulkKeys($sel, visible: visible)
-        } label: {
+        }
+    }
+
+    private var header: some View {
             HStack(spacing: Space.s) {
                 Label("Clean-up review", systemImage: "scissors").font(.headline)
                 if model.analyzing { ProgressView().controlSize(.small) }
@@ -67,11 +107,6 @@ struct CleanupReviewPanel: View {
                     .controlSize(.small).disabled(model.analyzing)
                     .help("Sends skill names, short descriptions and usage counts to Claude (haiku)")
             }
-        }
-        .task(id: model.skillFingerprint) {
-            let comps = model.snapshot.components
-            facts = await Task.detached { skillFacts(comps) }.value
-        }
     }
 
     /// "Apply all suggested fixes", the selection, and the selection split by finding type.

@@ -155,48 +155,45 @@ private struct StatesPage: View {
             .overlay { if rows.isEmpty && !skills.isEmpty { ContentUnavailableView.search(text: filter) } }
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: Space.s) {
-                Text("Skills cost \(formatTokens(total)) every session").font(.title.weight(.semibold))
-                Text("Always available skills are listed so Claude can pick them. On demand skills cost nothing and still run when you type /name.")
-                    .foregroundStyle(.secondary).lineLimit(2)
-                CleanupReviewPanel().padding(.top, Space.s)
-                if !suggested.isEmpty || advice > 0 {
-                    HStack(spacing: Space.m) {
-                        if !suggested.isEmpty {
-                            Button("Accept \(suggested.count) Suggestion\(suggested.count == 1 ? "" : "s")") {
-                                model.propose("Apply \(suggested.count) skill suggestion\(suggested.count == 1 ? "" : "s")",
-                                              .many(suggested.compactMap { s in triage[s.id]?.state.flatMap(s.fix(to:)) }))
-                            }
-                            .buttonStyle(.borderedProminent).controlSize(.large)
-                            Text("saves \(formatTokens(saving)) per session").foregroundStyle(.secondary)
-                        }
-                        if advice > 0 {
-                            Text("\(advice) more need\(advice == 1 ? "s" : "") a manual step: see the Suggestion column")
-                                .foregroundStyle(.secondary)
-                        }
+            VStack(alignment: .leading, spacing: Space.m) {
+                HStack(alignment: .firstTextBaseline, spacing: Space.m) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        (Text("Skills cost ") + Text(formatTokens(total)).foregroundStyle(Color.spark) + Text(" every session")).font(.title2.weight(.semibold))
+                        Text("Always available skills are listed so Claude can pick them. On demand skills cost nothing until you type /name.")
+                            .font(.callout).foregroundStyle(.secondary).lineLimit(1)
                     }
-                    .padding(.top, Space.s)
+                    Spacer()
+                    if !suggested.isEmpty {
+                        Button("Accept \(suggested.count) Suggestion\(suggested.count == 1 ? "" : "s")") {
+                            model.propose("Apply \(suggested.count) skill suggestion\(suggested.count == 1 ? "" : "s")",
+                                          .many(suggested.compactMap { s in triage[s.id]?.state.flatMap(s.fix(to:)) }))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .help("Saves \(formatTokens(saving)) tokens per session" + (advice > 0 ? ". \(advice) more need a manual step: see the Suggestion column" : ""))
+                    }
                 }
+                CleanupReviewRow()
             }
             .padding(Space.l)
+            Divider()
             HStack(spacing: Space.m) {
                 TextField("Filter skills", text: $filter).textFieldStyle(.roundedBorder).frame(maxWidth: 280)
                 Picker("State", selection: $stateFilter) {
                     Text("All states").tag(SkillState?.none)
                     ForEach(SkillState.allCases, id: \.self) { Text($0.rawValue).tag(SkillState?.some($0)) }
                 }
-                .frame(width: 200)
+                .labelsHidden().pickerStyle(.menu).fixedSize()
                 Picker("From", selection: $sourceFilter) {
                     Text("All sources").tag("All")
                     Text("Personal & project").tag("Mine")
                     Text("Plugins").tag("Plugins")
                 }
-                .fixedSize()
-                .help("Plugin skills follow their plugin; manage those plugins in the list below")
+                .labelsHidden().pickerStyle(.menu).fixedSize()
+                .help("Plugin skills follow their plugin; manage those plugins in Plugins")
                 Spacer()
-                Text("\(rows.count) of \(skills.count)").font(.callout).foregroundStyle(.secondary)
+                Text("\(rows.count) of \(skills.count)").font(.callout).foregroundStyle(.secondary).monospacedDigit()
             }
-            .padding(.horizontal, Space.l).padding(.bottom, Space.m)
+            .padding(.horizontal, Space.l).padding(.vertical, Space.s)
             Divider()
             BulkBar(sel: $model.pickedSkills, visible: visible, actions: model.skillActions(model.pickedSkills.ids))
                 }
@@ -302,7 +299,7 @@ extension AppModel {
     func skillActions(_ ids: Set<String>) -> [BulkAction] {
         let picked = snapshot.components.filter { $0.kind == .skill && ids.contains($0.id) }
         let n = "\(picked.count) skill\(picked.count == 1 ? "" : "s")"
-        let owned = bulkCheck(picked, blocked: skillBlock)
+        let owned = skillBulkCheck(picked)
         func state(_ t: SkillState, _ title: String, _ icon: String) -> BulkAction {
             BulkAction(title: title, icon: icon, check: owned) { self.proposeBulk("\(title.dropLast()) \(n)", skillStatePlan(picked, to: t)) }
         }

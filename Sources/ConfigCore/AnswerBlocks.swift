@@ -35,6 +35,22 @@ public enum AnswerBlocks {
         return out
     }
 
+    /// Prose as display text: inline markdown (**bold**, `code`, links) rendered, "- "/"* " bullets as "•", "# " headings bold.
+    public static func rich(_ text: String) -> AttributedString {
+        let opts = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        var out = AttributedString()
+        for (i, raw) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+            var line = String(raw)
+            let indent = line.prefix { $0 == " " }
+            let body = line.dropFirst(indent.count)
+            if body.hasPrefix("- ") || body.hasPrefix("* ") { line = indent + "• " + body.dropFirst(2) }
+            else if let h = body.firstIndex(where: { $0 != "#" }), h != body.startIndex, body[h] == " " { line = "**" + body[h...].trimmingCharacters(in: .whitespaces) + "**" }
+            if i > 0 { out += AttributedString("\n") }
+            out += (try? AttributedString(markdown: line, options: opts)) ?? AttributedString(line)
+        }
+        return out
+    }
+
     public static func codeBlocks(_ text: String) -> [String] {
         segments(text).compactMap { if case .code(_, let b) = $0 { b } else { nil } }
     }
