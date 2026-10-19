@@ -118,7 +118,7 @@ struct ComponentsView: View {
                     Text(r.name).fontWeight(.medium)
                     Text(r.c.description).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
-                .explains(r.c.kind.term, "\(r.c.description)\n\nFrom: \(r.c.owner ?? r.c.scope.rawValue)")
+                .explains(r.c.kind.term, "\(r.c.description)\n\nFrom: \(origin(r.c))")
             }
             TableColumn("Type") { Text($0.c.kind.rawValue) }.width(80)
             TableColumn("Scope") { r in Text(r.c.scope.rawValue).help(r.c.owner ?? "") }.width(70)
@@ -448,4 +448,16 @@ extension ComponentKind {
 func fileText(_ url: URL) -> String? {
     guard let t = try? String(contentsOf: url, encoding: .utf8) else { return nil }
     return t.count > 20_000 ? String(t.prefix(20_000)) + "\n…" : t
+}
+
+/// Human-readable source for hover text, instead of the raw scope name.
+private func origin(_ c: Component) -> String {
+    switch c.scope {
+    case .plugin: "the plugin \(c.owner ?? "")"
+    case .user, .userLocal: "your personal files (~/.claude)"
+    case .project, .local: "the project " + ((c.owner as NSString?)?.lastPathComponent ?? "folder")
+    case .managed: "your administrator (managed settings)"
+    case .desktop: "Claude Desktop"
+    case .external: c.owner.map { "another agent (\($0))" } ?? "another agent"
+    }
 }

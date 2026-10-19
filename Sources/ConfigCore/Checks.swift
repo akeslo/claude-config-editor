@@ -88,6 +88,23 @@ public enum Fix: Sendable {
         }
     }
 
+    /// Plain-language note on what applying this fix changes and deletes, for the AI prompt.
+    public var changeNote: String {
+        switch self {
+        case .cli(let args, _, _) where args.first == "purge":
+            "permanently deletes this project's transcripts, auto memory, matching history lines and its ~/.claude.json entry (trust, allowed tools, local MCP servers). There is no backup."
+        case .cli(let args, _, _) where args.starts(with: ["plugin", "uninstall"]): "removes the plugin's files from disk. Reinstall it to get it back."
+        case .cli(let args, _, _) where args.starts(with: ["plugin", "disable"]): "turns the plugin off; its files stay on disk."
+        case .cli(let args, _, _) where args.starts(with: ["mcp", "remove"]): "deletes this MCP server's entry from its config file."
+        case .cli: "runs " + summary + "."
+        case .trash(let urls): "moves \(urls.count) item\(urls.count == 1 ? "" : "s") to the macOS Trash (recoverable): " + urls.map(shortPath).joined(separator: ", ")
+        case .removeHooks(let refs): "removes \(refs.count) hook entr\(refs.count == 1 ? "y" : "ies") from the settings file. The hook scripts stay on disk."
+        case .frontmatter(_, let key, let value): value == nil ? "removes the \(key) line from the file's frontmatter; nothing else changes." : "sets \(key) in the file's frontmatter; nothing else changes."
+        case .settingsKey(_, let path, let value): (value == nil ? "removes the key " : "sets the key ") + path.joined(separator: ".") + "; nothing else in the file changes."
+        case .many, .bulk, .installSkills: summary.replacingOccurrences(of: "\n", with: "; ")
+        }
+    }
+
     public var summary: String {
         switch self {
         case .cli(let args, _, _): "claude " + args.map { $0.contains(" ") ? "\"\($0)\"" : $0 }.joined(separator: " ")
@@ -148,7 +165,7 @@ public struct Issue: Identifiable, Sendable {
 
     public var category: Category {
         if term == .env || title.localizedCaseInsensitiveContains("unencrypted") || (section == .permissions && severity == .problem) { return .security }
-        if severity == .problem || section == .hooks || title.contains("not installed") || title.contains("cut off") || title.contains("several scopes") { return .broken }
+        if severity == .problem || section == .hooks || title.contains("not installed") || title.contains("cut off") || title.contains("more than one place") { return .broken }
         return tokens > 0 ? .context : .tidy
     }
 
@@ -165,8 +182,9 @@ public struct Issue: Identifiable, Sendable {
         if let file { lines.append("File: \(clean(file.path))") }
         if let fix { lines.append("Suggested fix: \(clean(fix.summary))") }
         lines.append("```")
+        if let fix { lines.append("What the suggested fix changes: \(clean(fix.changeNote))") }
         lines += ["Background: \(term.detail)", "Docs: \(term.docURL.absoluteString)", "",
-                  "Read the files involved first, explain what you'll change, and make the smallest change that fixes it. Back up any file before editing it. Don't print secret values."]
+                  "Read the files involved first, explain what you'll change, and make the smallest change that fixes it. Back up any file before editing it. Ask me before deleting anything. Don't print secret values."]
         return lines.joined(separator: "\n")
     }
 
@@ -214,9 +232,9 @@ public enum Checks {
         let listing = skills.reduce(0) { $0 + $1.listingTokens }
         // shortcut: assumes a 200k context (1% ≈ 2,000 tokens); 1M-context models get 5x more room.
         if listing > 2_000 {
-            out.append(Issue(severity: .warning, section: .mySkills, title: "Skill descriptions exceed the listing budget",
+            out.append(Issue(severity: .warning, section: .mySkills, title: "Too many skill descriptions: Claude can't see them all",
                              subject: "\(skills.count) skills",
-                             detail: "Skill descriptions total \(formatTokens(listing)). The listing gets about 1% of the context window (≈2k tokens at 200k), so the least-used skills lose their description and Claude may not pick them. Switch rarely used ones to On demand on the Skills page.",
+                             detail: "Skill descriptions total \(formatTokens(listing)). The list of skills Claude reads each session gets about 1% of the context window (≈2k tokens at 200k), so the least-used skills lose their description and Claude may not pick them. Switch rarely used ones to On demand on the Skills page.",
                              term: .skillListing, tokens: listing, rule: "skill-listing-budget"))
         }
         let triage = skillSuggestions(s.components, projects: s.projects.map(\.path))
@@ -234,8 +252,8 @@ public enum Checks {
                                  detail: "\(c.lineCount) lines load every time the skill runs. Move reference material into linked files.", term: .skill, file: c.file, rule: "skillmd-500-lines"))
             }
             if c.description.count > 1_536 {
-                out.append(Issue(severity: .warning, section: .skills, title: "Description is cut off", subject: c.name,
-                                 detail: "description + when_to_use is \(c.description.count) characters; Claude truncates at 1,536.", term: .skillListing, file: c.file, rule: "skill-listing-budget"))
+                out.append(Issue(severity: .warning, section: .skills, title: "Description is too long and gets cut off", subject: c.name,
+                                 detail: "description + when_to_use is \(c.description.count) characters; Claude reads only the first 1,536.", term: .skillListing, file: c.file, rule: "skill-listing-budget"))
             }
         }
         let byName = Dictionary(grouping: s.components.filter { $0.kind == .skill || $0.kind == .command }, by: \.name)
@@ -251,22 +269,22 @@ public enum Checks {
         var out: [Issue] = []
         let claude = s.mcpServers.filter { $0.scope != .desktop }
         for (name, items) in Dictionary(grouping: claude, by: \.name) where Set(items.map(\.scope)).count > 1 || items.count > 1 && items.contains(where: { $0.scope == .user }) {
-            out.append(Issue(severity: .warning, section: .mcp, title: "MCP server defined in several scopes", subject: name,
-                             detail: "\(name) is defined in: " + items.map { "\($0.scope.rawValue)\($0.project.map { " (\(($0 as NSString).lastPathComponent))" } ?? "")" }.joined(separator: ", ") + ". The most specific scope wins and replaces the whole entry, so edits to the others have no effect there.",
+            out.append(Issue(severity: .warning, section: .mcp, title: "Same MCP server set up in more than one place", subject: name,
+                             detail: "\(name) is defined in: " + items.map { "\($0.scope.rawValue)\($0.project.map { " (\(($0 as NSString).lastPathComponent))" } ?? "")" }.joined(separator: ", ") + ". Only the most specific one is used (project beats user) and it replaces the whole entry, so edits to the others do nothing.",
                              term: .mcpScope))
         }
         for m in s.mcpServers {
             if let url = URL(string: m.command.split(separator: " ").first.map(String.init) ?? ""),
                ["http", "ws"].contains(url.scheme ?? ""), let host = url.host, !loopbackHosts.contains(host) {
                 out.append(Issue(severity: .problem, section: .mcp, title: "MCP server uses an unencrypted connection", subject: "\(m.name) · \(shortPath(m.source))",
-                                 detail: "\(url.absoluteString) is plain \(url.scheme!) to a remote host. Use https/wss.", term: .mcpServer, file: m.source, rule: "mcp-use-https"))
+                                 detail: "\(url.absoluteString) is plain \(url.scheme!) to another machine, so traffic can be read in transit. Change the URL to https:// or wss://.", term: .mcpServer, file: m.source, rule: "mcp-use-https"))
             }
             let literal = (m.env.merging(m.headers) { a, _ in a }).filter { k, v in
                 looksSecret(k) && !v.isEmpty && !v.contains("${") && !v.hasPrefix("$") && !v.hasPrefix("/") && !v.hasPrefix("~")
             }
             if !literal.isEmpty {
                 out.append(Issue(severity: .problem, section: .mcp, title: "Secret written directly into MCP config", subject: "\(m.name) · \(shortPath(m.source))",
-                                 detail: "\(literal.keys.sorted().joined(separator: ", ")) hold literal values in \(shortPath(m.source)). Use ${VAR} references so the secret stays out of config files and backups.",
+                                 detail: "\(literal.keys.sorted().joined(separator: ", ")) hold literal values in \(shortPath(m.source)). Replace each value with ${VAR_NAME} and set the variable in your shell, so the secret stays out of config files and backups.",
                                  term: .env, file: m.source, rule: "no-secrets-in-mcp-config"))
             }
         }
@@ -334,14 +352,14 @@ public enum Checks {
             let mode = (src.root["permissions"] as? JSON)?["defaultMode"] as? String
             if mode == "bypassPermissions" {
                 out.append(Issue(severity: src.scope == .project || src.scope == .local ? .info : .warning, section: .permissions,
-                                 title: src.scope == .project || src.scope == .local ? "bypassPermissions in a project file is ignored" : "Permission checks are bypassed",
+                                 title: src.scope == .project || src.scope == .local ? "'Skip all permission prompts' is set in a project file, where it's ignored" : "All permission prompts are switched off",
                                  subject: shortPath(src.url),
-                                 detail: src.scope == .project || src.scope == .local ? "Claude ignores defaultMode bypassPermissions in project settings, so this line does nothing." : "defaultMode bypassPermissions skips every permission prompt.",
+                                 detail: src.scope == .project || src.scope == .local ? "Claude ignores defaultMode bypassPermissions in project settings, so this line does nothing. Delete it to avoid confusion." : "Claude can run any command or edit any file without asking (defaultMode bypassPermissions).",
                                  term: .permissions, file: src.url))
             }
             if (src.scope == .project || src.scope == .local), src.root["pluginConfigs"] != nil {
-                out.append(Issue(severity: .info, section: .settings, title: "pluginConfigs has no effect here", subject: shortPath(src.url),
-                                 detail: "pluginConfigs is only read from user or managed settings.", term: .settings, file: src.url))
+                out.append(Issue(severity: .info, section: .settings, title: "Plugin settings in the wrong file", subject: shortPath(src.url),
+                                 detail: "pluginConfigs only works in your user settings (~/.claude/settings.json) or managed settings.", term: .settings, file: src.url))
             }
         }
         let userRules = Set(s.permissions.filter { $0.kind == "allow" && $0.source.hasPrefix(Scope.user.rawValue) }.map(\.rule))
@@ -375,8 +393,8 @@ public enum Checks {
         let cutoff = Date().addingTimeInterval(-Double(s.cleanupPeriodDays + 2) * 86_400)
         let stale = s.projects.filter { ($0.lastSession ?? .distantFuture) < cutoff }
         if !stale.isEmpty {
-            out.append(Issue(severity: .info, section: .storage, title: "Transcripts older than the cleanup period", subject: "\(stale.count) projects",
-                             detail: "cleanupPeriodDays is \(s.cleanupPeriodDays), but \(stale.count) projects still have transcripts older than that. Cleanup runs at startup; if this persists, check the setting.",
+            out.append(Issue(severity: .info, section: .storage, title: "Old session logs weren't cleaned up", subject: "\(stale.count) projects",
+                             detail: "Claude should delete session logs older than \(s.cleanupPeriodDays) days (cleanupPeriodDays), but \(stale.count) projects still have older ones. Cleanup runs at startup; if this persists, check the setting.",
                              term: .cleanupPeriod))
         }
         if !s.strayFiles.isEmpty {
@@ -399,8 +417,8 @@ public enum Checks {
             }
         }
         if !s.cliAvailable {
-            out.append(Issue(severity: .problem, section: .settings, title: "claude command not found", subject: "CLI",
-                             detail: "Fixes that use the claude CLI (purge, plugins, MCP) are unavailable.", term: .settings))
+            out.append(Issue(severity: .problem, section: .settings, title: "Claude Code command line (claude) not found", subject: "CLI",
+                             detail: "Fix buttons for purge, plugins and MCP need the claude command. Install Claude Code or add it to your PATH, then Rescan.", term: .settings))
         }
         return out
     }

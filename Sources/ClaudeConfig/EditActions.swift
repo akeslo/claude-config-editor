@@ -42,7 +42,7 @@ struct ConfirmDeleteButton: View {
                 .help("Moves to ~/.claude/backups/config-editor, so it can be undone")
                 .confirmationDialog(ok.count == 1 ? "Delete \(ok[0].lastPathComponent)?" : "Delete \(ok.count) items?", isPresented: $asking) {
                     Button("Delete", role: .destructive) { model.trashWithUndo(ok, title: "Deleted \(ok.count == 1 ? ok[0].lastPathComponent : "\(ok.count) items")") }
-                } message: { Text("A backup is kept in ~/.claude/backups/config-editor. You can undo right after.") }
+                } message: { Text("A copy is kept in ~/.claude/backups/config-editor (deleted items; file edits are backed up to ~/.claude/config-editor-backups). Click Undo in the notice that appears to bring it back.") }
         }
     }
 }
