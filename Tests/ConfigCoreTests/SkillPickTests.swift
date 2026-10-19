@@ -34,3 +34,22 @@ struct SkillPickTests {
         #expect(p.contains("/code-review: Review a diff for bugs") && p.contains("kube [a]: Kubernetes tools") && p.contains("<data-x>"))
     }
 }
+
+struct SkillPickCatalogTests {
+    @Test func builtInsArePickableAndTagged() throws {
+        let mine = SkillPick.candidates([("simplify", "my own simplify")])
+        #expect(mine.count == 13 && mine.contains { $0.description == "(built-in) Security review of pending changes." })
+        #expect(mine.first { $0.name == "simplify" }?.description == "my own simplify")  // installed wins
+        let r = try #require(SkillPick.parse(#"{"picks":[{"name":"code-review","job":"review"}]}"#, task: "t", installed: mine, available: [], community: []))
+        #expect(r.picks.map(\.name) == ["code-review"])
+    }
+
+    @Test func nicheTaskSurfacesBuriedCatalogItem() {
+        let filler = (1...500).map { AvailablePlugin(id: "p\($0)@m", name: "p\($0)", description: "Popular web tooling", marketplace: "m", installCount: 10_000 - $0, installed: false) }
+        let audio = CommunitySkill(name: "audio-cleanup", description: "Remove background noise from podcast recordings", category: "Audio", slug: "o/a", path: nil, list: .anthropic)
+        let list = SkillPick.shortlist(task: "edit a podcast audio file to remove background noise", plugins: filler, community: [audio])
+        #expect(list.community.first?.name == "audio-cleanup")
+        #expect(list.plugins.count + list.community.count == 150)
+        #expect(SkillPick.prompt(task: "x", skills: [], plugins: list.plugins, community: list.community).contains("audio-cleanup"))
+    }
+}

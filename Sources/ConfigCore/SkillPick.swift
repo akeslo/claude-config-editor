@@ -11,6 +11,38 @@ public enum SkillPick {
         public var noMatch: Bool { picks.isEmpty }
     }
 
+    /// Claude Code built-ins with no SKILL.md on disk (list from /skill-picker). Always present, never installable.
+    public static let builtIns: [(name: String, description: String)] = [
+        ("code-review", "Review a diff, PR or branch for bugs."), ("simplify", "Clean up changed code."),
+        ("security-review", "Security review of pending changes."), ("run", "Launch the app to verify a change."),
+        ("init", "Write CLAUDE.md."), ("loop", "Run a prompt on an interval."), ("schedule", "Cron cloud agents."),
+        ("update-config", "settings.json and hooks."), ("fewer-permission-prompts", "Build a permission allowlist."),
+        ("claude-api", "Anthropic SDK reference."), ("artifact-design", "Page design for artifacts."),
+        ("workflow-authoring", "Write Workflow scripts."), ("plugin-authoring", "Make mods, hooks and commands."),
+    ].map { ($0.0, "(built-in) " + $0.1) }
+
+    /// Installed skills plus built-ins; an installed skill wins a name clash.
+    public static func candidates(_ installed: [(name: String, description: String)]) -> [(name: String, description: String)] {
+        let have = Set(installed.map { $0.name.lowercased() })
+        return installed + builtIns.filter { !have.contains($0.name) }
+    }
+
+    /// Local keyword pre-filter over the whole catalog: items sharing the most task words first, capped.
+    public static func shortlist(task: String, plugins: [AvailablePlugin], community: [CommunitySkill], cap: Int = 150)
+        -> (plugins: [AvailablePlugin], community: [CommunitySkill]) {
+        let words = Set(task.lowercased().split { !$0.isLetter && !$0.isNumber }.filter { $0.count >= 3 }.map(String.init))
+        func score(_ text: String) -> Int {
+            let t = Set(text.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init))
+            return words.filter { w in t.contains { $0.hasPrefix(w) || w.hasPrefix($0) && $0.count >= 4 } }.count
+        }
+        let all: [(Int, Int, AvailablePlugin?, CommunitySkill?)] =
+            plugins.map { (score($0.name + " " + $0.description), $0.installCount, $0, nil) }
+            + community.map { (score($0.name + " " + $0.description + " " + $0.category), $0.stars ?? 0, nil, $0) }
+        // Ties (including no overlap at all) fall back to popularity, so the list is never empty.
+        let top = all.sorted { ($0.0, $0.1) > ($1.0, $1.1) }.prefix(cap)
+        return (top.compactMap(\.2), top.compactMap(\.3))
+    }
+
     private struct Reply: Decodable {
         struct P: Decodable { let name: String; let job: String? }
         let picks: [P]?

@@ -195,12 +195,14 @@ final class AppModel {
     /// Sends only skill and catalog names and descriptions.
     func pickSkills(_ task: String, among skills: [Component]) async -> SkillPick.Result? {
         let installed = Set(snapshot.plugins.map { $0.id.split(separator: "@").first.map(String.init) ?? $0.id })
-        let market = available.filter { !$0.installed && !installed.contains($0.name) }.sorted { $0.installCount > $1.installCount }.prefix(80)
-        let prompt = SkillPick.prompt(task: task, skills: skills.map { ($0.name, $0.description) },
-                                      plugins: Array(market), community: Array(community.prefix(80)))
+        let market = available.filter { !$0.installed && !installed.contains($0.name) }
+        let isInstalled = communityInstalled()
+        let list = SkillPick.shortlist(task: task, plugins: market, community: community.filter { !isInstalled($0) })
+        let mine = SkillPick.candidates(skills.map { ($0.name, $0.description) })
+        let prompt = SkillPick.prompt(task: task, skills: mine, plugins: list.plugins, community: list.community)
         let r = await ClaudeCLI.run(["-p", prompt, "--model", "haiku", "--settings", #"{"disableAllHooks":true}"#, "--tools", "", "--no-session-persistence"], timeout: 90)
         guard r.ok else { return nil }
-        return SkillPick.parse(r.output, task: task, installed: skills.map { ($0.name, $0.description) }, available: available, community: community)
+        return SkillPick.parse(r.output, task: task, installed: mine, available: available, community: community)
     }
 
     var analysis: SkillAnalysis? = UserDefaults.standard.data(forKey: "skillAnalysis").flatMap { try? JSONDecoder().decode(SkillAnalysis.self, from: $0) }
