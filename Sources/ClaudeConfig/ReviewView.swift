@@ -72,7 +72,7 @@ struct ProblemsView: View {
                 model.proposeBulk("Move \(items.count) item\(items.count == 1 ? "" : "s") to the Trash", bulkPlan(items, label: \.0, skip: { $0.1.flatMap(trashRefusal) }) { $0.1.map { .trash([$0]) } })
             },
         ])
-        .overlay { if failed.isEmpty && stale.isEmpty && !model.loading { ContentUnavailableView("Nothing failed, nothing stale", systemImage: "checkmark.seal") } }
+        .overlay { if failed.isEmpty && stale.isEmpty && !model.loading { ContentUnavailableView("Nothing broken, nothing to clean up", systemImage: "checkmark.seal") } }
         .sheet(item: $editing) { FileEditorSheet(url: $0.url) }
     }
 }

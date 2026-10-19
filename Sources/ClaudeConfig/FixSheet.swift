@@ -34,7 +34,7 @@ struct FixSheet: View {
                     .help("Adds disable-model-invocation: true, so the skill runs only as /name and Claude never loads it by itself. Turn off to let Claude pick it automatically.")
             }
             if case .cli(let args, _, _) = pending.fix, args.starts(with: ["plugin", "install"]), result == nil {
-                Text("Plugin skills may trigger automatically: Claude Code has no setting to make a plugin's skills call-only (skillOverrides skips plugin skills), and editing the plugin cache is undone on update.")
+                Text("Plugin skills can't be set to 'only when I call it', so Claude may run them on its own. (Claude Code has no setting for this, and edits to plugin files are undone on update.)")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Text(fix.summary).font(.system(.body, design: .monospaced)).textSelection(.enabled)
@@ -49,8 +49,12 @@ struct FixSheet: View {
             }
             .background(.background.secondary, in: .rect(cornerRadius: 6))
             .frame(minHeight: 160, maxHeight: 360)
+            if case .cli(let args, _, _) = pending.fix, args.first == "purge", result == nil {
+                Text("Purge permanently deletes this project's transcripts, auto memory, history lines and its trust and allowed-tool approvals. It is not backed up and cannot be undone. Claude will ask to trust the folder again.")
+                    .font(.callout).foregroundStyle(.red)
+            }
             if pending.fix.editsSettings, result == nil {
-                Text("The file is backed up first, and the change is refused if Claude wrote the file after it was read.")
+                Text("The file is backed up to ~/.claude/config-editor-backups first, and the change is refused if Claude wrote the file after it was read.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             HStack {

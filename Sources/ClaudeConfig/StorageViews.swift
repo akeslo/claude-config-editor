@@ -174,11 +174,11 @@ struct ProjectsView: View {
             let staleDirs = model.snapshot.projects.filter { stale($0).level == .stale }.map { Paths.projectDataDir(for: $0.path) }.filter(exists)
             if !staleDirs.isEmpty {
                 ConfirmDeleteButton(urls: staleDirs, label: "Clean up \(staleDirs.count) stale…")
-                    .help("Deletes transcripts and memory of projects whose folder is gone or with no session in 90 days. Backed up; undoable.")
+                    .help("Moves transcripts and memory of projects whose folder is gone or that have had no session in 90 days. A copy is kept in ~/.claude/backups/config-editor so you can undo.")
             }
             Button("Purge…") { purge(selection) }
                 .disabled(selection.count != 1)
-                .help("Select one project. Deletes everything Claude stores for the selected project: transcripts, memory, history, trust and allowed tools. Shows a dry run first.")
+                .help("Select one project. Permanently deletes everything Claude stores for it, with no backup: transcripts, memory, history, trust and allowed tools. Shows what would be deleted first.")
         }
         .bulkSelectable($sel, visible: rows.map(\.id), actions: [
             BulkAction(title: "Move Transcripts to Trash", icon: "trash", check: bulkCheck(dirs) { exists($0.1) ? nil : "have no transcripts on disk" }) {
