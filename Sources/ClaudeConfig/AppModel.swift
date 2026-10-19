@@ -47,6 +47,8 @@ struct PendingFix: Identifiable {
 
 @MainActor @Observable
 final class AppModel {
+    /// The app's one model, for views SwiftUI renders without the environment (Table cells on macOS 26 lose it).
+    private(set) static weak var current: AppModel?
     // `-section <name>` on the command line opens a given section (used for screenshots).
     var section: AppSection = UserDefaults.standard.string(forKey: "section").flatMap { AppSection(rawValue: $0) } ?? .health
     var snapshot = Snapshot()
@@ -97,6 +99,7 @@ final class AppModel {
     }
 
     init() {
+        AppModel.current = self
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in self?.refreshIfChanged() }
         }
