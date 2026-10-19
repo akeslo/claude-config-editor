@@ -85,36 +85,27 @@ private struct StatesPage: View {
               Group {
                 TableColumn("", value: \SkillRow.name) { (r: SkillRow) in SelectBox(sel: $model.pickedSkills, id: r.id, visible: visible, name: "/" + r.name) }.width(22)
                 TableColumn("Skill", value: \SkillRow.name) { (r: SkillRow) in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("/" + r.name).font(.body.weight(.medium).monospaced())
-                        Text(purpose(r.skill)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    .help(r.skill.description)
-                    .contextMenu {
-                        Button("Copy /\(r.name)") { copy("/" + r.name) }
-                        Button("Open SKILL.md") { openFile(r.skill.file) }
-                        Button("Reveal in Finder") { reveal(r.skill.file) }
-                    }
+                    SkillNameCell(skill: r.skill, purpose: purpose(r.skill), selected: model.pickedSkills.ids.contains(r.id))
                 }
-                .width(min: 180, ideal: 260)
+                .width(min: 240, ideal: 420)
                 TableColumn("State", value: \SkillRow.stateRank) { (r: SkillRow) in StatePicker(model: model, skill: r.skill) }
-                    .width(min: 220, ideal: 230)
+                    .width(244)
                 TableColumn("Tokens", value: \SkillRow.tokens) { (r: SkillRow) in
                     Text(r.skill.state == .always ? formatTokens(r.tokens) : "0")
                         .monospacedDigit().foregroundStyle(r.skill.state == .always ? .primary : .secondary)
                         .help(r.skill.state == .always ? "Per session" : "Always would cost \(formatTokens(r.skill.tokens(in: .always)))")
                 }
-                .width(min: 50, ideal: 60)
+                .width(66)
                 TableColumn("Uses", value: \SkillRow.uses) { (r: SkillRow) in Text(r.uses == 0 ? "—" : "\(r.uses)").monospacedDigit() }
-                    .width(min: 40, ideal: 50)
+                    .width(40)
               }
               Group {
-                TableColumn("Last Used", value: \SkillRow.lastUsed) { (r: SkillRow) in Text(relative(r.skill.lastUsed)).foregroundStyle(.secondary) }
-                    .width(min: 70, ideal: 100)
+                TableColumn("Last Used", value: \SkillRow.lastUsed) { (r: SkillRow) in Text(relative(r.skill.lastUsed)).foregroundStyle(.secondary).lineLimit(1) }
+                    .width(104)
                 TableColumn("Installed", value: \SkillRow.installed) { (r: SkillRow) in
                     Text(r.skill.installedAt?.formatted(date: .abbreviated, time: .omitted) ?? "—").foregroundStyle(.secondary)
                 }
-                .width(min: 70, ideal: 100)
+                .width(88)
                 TableColumn("Stars", value: \SkillRow.starCount) { (r: SkillRow) in
                     if let repo = r.skill.repoURL, let slug = githubSlug(repo) {
                         Link(destination: repo) {
@@ -123,14 +114,14 @@ private struct StatesPage: View {
                         .help("\(slug) on GitHub")
                     }
                 }
-                .width(min: 50, ideal: 70)
+                .width(60)
                 TableColumn("Scope", value: \SkillRow.source) { (r: SkillRow) in
                     ScopeMenu(current: ScopeMove.target(of: r.skill), fixedLabel: r.skill.scope == .plugin ? "Plugin" : r.skill.scope == .external ? "Other agent" : r.skill.scope.rawValue, allowLocal: false) { t in
                         model.moveScope("/" + r.name, to: t) { try ScopeMove.move(component: r.skill, to: t) }
                     }
                     .help(r.source)
                 }
-                    .width(min: 90, ideal: 110)
+                    .width(90)
                 TableColumn("Suggestion", value: \SkillRow.suggestionText) { (r: SkillRow) in
                     if let s = r.suggestion {
                         VStack(alignment: .leading, spacing: 2) {
@@ -140,7 +131,7 @@ private struct StatesPage: View {
                         .help(s.reason)
                     }
                 }
-                .width(min: 140, ideal: 240)
+                .width(min: 110, ideal: 170, max: 260)
                 TableColumn("") { (r: SkillRow) in
                     if r.skill.ownsFile {
                         Button("Move to Trash", systemImage: "trash") { model.proposeTrash([trashURL(r.skill)]) }
@@ -322,4 +313,43 @@ func purpose(_ s: Component) -> String {
     let d = s.description.trimmingCharacters(in: .whitespaces)
     guard let end = d.range(of: ". ") else { return d }
     return String(d[..<end.lowerBound])
+}
+
+/// Name + purpose, with a copy button for the exact slash invocation on hover or selection.
+private struct SkillNameCell: View {
+    let skill: Component
+    let purpose: String
+    let selected: Bool
+    @State private var hovering = false
+    @State private var copied = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(skill.invocation).font(.body.weight(.medium).monospaced()).lineLimit(1).truncationMode(.middle)
+                Text(purpose).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .help(skill.invocation + "\n" + skill.description)
+            Spacer(minLength: 0)
+            Button {
+                copy(skill.invocation)
+                copied = true
+                Task { try? await Task.sleep(for: .seconds(1.2)); copied = false }
+            } label: {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .foregroundStyle(copied ? Color.green : Color.secondary)
+            }
+            .buttonStyle(.borderless)
+            .opacity(hovering || selected || copied ? 1 : 0)
+            .help(copied ? "Copied" : "Copy \(skill.invocation)")
+            .accessibilityLabel(copied ? "Copied" : "Copy \(skill.invocation)")
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .contextMenu {
+            Button("Copy command") { copy(skill.invocation) }
+            Button("Open SKILL.md") { openFile(skill.file) }
+            Button("Reveal in Finder") { reveal(skill.file) }
+        }
+    }
 }
