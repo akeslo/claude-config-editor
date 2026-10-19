@@ -24,6 +24,7 @@ struct AppSettingsView: View {
                 .font(.callout).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
+        .onChange(of: showMenuBar) { UserDefaults.standard.set(showMenuBar, forKey: "showSkillsMenuBar") }
         .frame(width: 420)
         .fixedSize()
     }

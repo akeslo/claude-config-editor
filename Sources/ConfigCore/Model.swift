@@ -72,6 +72,8 @@ public struct Component: Identifiable, Sendable {
     /// Agents that see this skill, and every SKILL.md copy beyond `file` (other agents' folders).
     public var agents: [SkillAgent] = [.claude]
     public var locations: [URL] = []
+    /// Install scope of the owning plugin (user, project, local), for plugin components.
+    public var pluginScope: String?
     public var listingTokens: Int {
         guard alwaysLoaded, scope != .external, override != "user-invocable-only" else { return 0 }
         return override == "name-only" ? estimateTokens(name) + 4 : estimateTokens(name + description) + 4
@@ -82,7 +84,7 @@ public struct Plugin: Identifiable, Sendable {
     public var id: String
     public let version: String
     public let scope: String
-    public let enabled: Bool
+    public var enabled: Bool
     public let installPath: URL
     public let notes: [String]
     public var usageCount = 0
@@ -92,6 +94,16 @@ public struct Plugin: Identifiable, Sendable {
     public var description = ""         // plugin.json description
     public var latestVersion: String?   // newer version in its marketplace's local copy, when there is one
     public var marketplace: String { id.split(separator: "@").last.map(String.init) ?? "" }
+    public var projectPath: String?     // set for project and local installs
+    /// Where this install applies, naming the folder: "all projects", "project eoao-hermit", "this folder only: hermit".
+    public var reach: String {
+        let folder = projectPath.map { ($0 as NSString).lastPathComponent } ?? "?"
+        return scope == "user" ? "all projects" : scope == "local" ? "local install in \(folder)" : "project install in \(folder)"
+    }
+    /// `claude plugin <verb>` against this install's own scope; the CLI defaults to user and refuses other scopes.
+    public func cli(_ verb: String) -> Fix {
+        .cli(args: ["plugin", verb, id] + (scope == "user" ? [] : ["--scope", scope]), dryRun: nil, cwd: scope == "user" ? nil : projectPath)
+    }
 }
 
 public struct AvailablePlugin: Identifiable, Sendable {

@@ -3,7 +3,7 @@ import Foundation
 /// The kinds of memory/instruction file, with what each is for and a shipped default.
 public enum MemoryType: String, CaseIterable, Sendable {
     case userClaudeMD = "User CLAUDE.md", projectClaudeMD = "Project CLAUDE.md", localMD = "CLAUDE.local.md"
-    case rule = "Rule", memoryIndex = "Auto-memory MEMORY.md", otherAgent = "Other agent file"
+    case rule = "Rule", memoryIndex = "Auto-memory MEMORY.md", memoryTopic = "Auto-memory note", otherAgent = "Other agent file"
 
     public init(_ k: InstructionFile.Kind, project: String?) {
         switch k {
@@ -23,7 +23,8 @@ public enum MemoryType: String, CaseIterable, Sendable {
         case .projectClaudeMD: "Shared team instructions for one repo, checked into git: build/test commands, architecture, conventions Claude can't infer from the code."
         case .localMD: "Your private notes for one repo (not committed): local URLs, sandbox credentials locations, personal workflow. Must be gitignored."
         case .rule: "A topic-focused instruction file in .claude/rules/. With `paths:` frontmatter it loads only when matching files are touched, keeping context lean."
-        case .memoryIndex: "Claude's own auto-memory notes for a project. Only the first 200 lines load at startup; detail belongs in topic files it links to."
+        case .memoryIndex: "Claude's own auto-memory notes for a project. Only the first 200 lines or 25KB load at startup; detail belongs in topic files it links to."
+        case .memoryTopic: "One auto-memory note (one fact per file). Not loaded at startup: Claude reads it when MEMORY.md points it there."
         case .otherAgent: "Instructions for another coding agent (Codex, Gemini, Cursor…). Claude doesn't load it unless CLAUDE.md imports it with @AGENTS.md."
         }
     }
@@ -34,7 +35,8 @@ public enum MemoryType: String, CaseIterable, Sendable {
         case .projectClaudeMD: ["Commands Claude can't guess (build, test, lint)", "Non-obvious architecture and decisions", "Gotchas; never inventories readable from code"]
         case .localMD: ["Machine-specific paths and URLs", "Personal workflow tweaks", "Nothing secret in plain text"]
         case .rule: ["One topic per file", "`paths:` frontmatter for area-specific rules", "Short, imperative instructions"]
-        case .memoryIndex: ["One-line pointers to topic files", "Keep under 200 lines (rest is cut)", "Prune outdated entries"]
+        case .memoryIndex: ["One-line pointers to topic files", "Keep under 200 lines and 25KB (rest is cut)", "Prune outdated entries"]
+        case .memoryTopic: ["One fact, decision or preference per file", "Linked from MEMORY.md, or Claude won't find it", "Nothing Claude can read from the code; no secrets"]
         case .otherAgent: ["Keep in sync with CLAUDE.md or import it", "Delete if you no longer use that agent"]
         }
     }
@@ -46,6 +48,7 @@ public enum MemoryType: String, CaseIterable, Sendable {
         case .localMD: "# Local notes (not committed)\n\n- \n"
         case .rule: "---\npaths:\n  - \"src/**\"\n---\n\n# Rule topic\n\n- \n"
         case .memoryIndex: "# Memory\n\n- \n"
+        case .memoryTopic: "---\ntype: project\n---\n\n"
         case .otherAgent: "See CLAUDE.md for project instructions.\n"
         }
     }
@@ -62,7 +65,18 @@ public struct MemoryEntry: Identifiable, Sendable {
     public let loaded: Bool
     public let created: Date?
     public let modified: Date?
-    public let recommendations: [String]
+    public var recommendations: [String]
+    /// One-click fixes for some of the recommendations, each shown in the confirm sheet first.
+    public var actions: [MemoryAction] = []
+    /// Why an auto-memory note may be out of date (30+ days old, or names a path that is gone); nil when fresh.
+    public var stale: String?
+}
+
+public struct MemoryAction: Identifiable, Sendable {
+    public var id: String { title }
+    public let button: String
+    public let title: String
+    public let fix: Fix
 }
 
 public struct MemoryGroup: Identifiable, Sendable {
@@ -98,6 +112,14 @@ public enum Memory {
             let key: String? = f.kind == .memoryIndex ? f.project.flatMap { projects.contains($0) ? $0 : nil } : f.project
             byGroup[key, default: []].append(entry(f.url, MemoryType(f.kind, project: f.project), tokens: f.tokens, loaded: !f.pathScoped, problems: f.problems))
         }
+        // Auto-memory topic files live next to MEMORY.md and load only on demand.
+        for (key, list) in byGroup {
+            for idx in list where idx.type == .memoryIndex {
+                for t in topicFiles(idx.url.deletingLastPathComponent()) where seen.insert(t.path).inserted {
+                    byGroup[key, default: []].append(entry(t, .memoryTopic, tokens: 0, loaded: false, problems: []))
+                }
+            }
+        }
         for url in agentFiles where seen.insert(url.path).inserted {
             let p = url.path
             let key = p.hasPrefix(Paths.claudeDir.path + "/") ? nil : (owner(p) ?? url.deletingLastPathComponent().path)
@@ -114,6 +136,7 @@ public enum Memory {
             missing(URL(filePath: p).appending(path: "CLAUDE.md"), .projectClaudeMD, p)
             missing(URL(filePath: p).appending(path: "CLAUDE.local.md"), .localMD, p)
         }
+        for k in Array(byGroup.keys) { byGroup[k] = withChecks(byGroup[k]!, now: now) }
         return byGroup.map { MemoryGroup(path: $0.key, entries: $0.value.sorted { ($0.exists ? 0 : 1, $0.url.path) < ($1.exists ? 0 : 1, $1.url.path) }) }
             .sorted { ($0.path == nil ? "" : $0.title.lowercased()) < ($1.path == nil ? "" : $1.title.lowercased()) }
     }
@@ -127,7 +150,7 @@ public enum Memory {
         }
         if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { out.append("Empty file; fill it in or delete it.") }
         let s = Staleness.of(modified: modified, now: now)
-        if s.level == .stale { out.append("\(s.reason); check it still matches the project.") }
+        if s.level == .stale, type != .memoryTopic { out.append("\(s.reason); check it still matches the project.") }
         if let parentText, !parentText.isEmpty {
             func meaningful(_ t: String) -> Set<String> {
                 Set(t.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { $0.count >= 20 && !$0.hasPrefix("#") })
@@ -140,6 +163,132 @@ public enum Memory {
             out.append("Looks like it contains a secret; move it out of instruction files.")
         }
         return out
+    }
+
+    /// Markdown notes in an auto-memory folder other than the MEMORY.md index.
+    public static func topicFiles(_ dir: URL) -> [URL] {
+        children(dir).filter { $0.pathExtension == "md" && $0.lastPathComponent != "MEMORY.md" }.sorted { $0.path < $1.path }
+    }
+
+    /// MEMORY.md lines that link a note, with the linked path as written.
+    public static func indexLinks(_ text: String) -> [(line: String, target: String)] {
+        text.split(separator: "\n").compactMap { l in
+            guard let r = l.range(of: #"\]\(([^)\s]+\.md)\)"#, options: .regularExpression) else { return nil }
+            return (String(l), String(l[r].dropFirst(2).dropLast()))
+        }
+    }
+
+    /// `@path` imports outside code fences: Claude expands them at launch, relative to the importing file.
+    public static func imports(_ text: String) -> [(line: String, path: String)] {
+        var fenced = false, out: [(String, String)] = []
+        for l in text.split(separator: "\n", omittingEmptySubsequences: false) {
+            if l.trimmingCharacters(in: .whitespaces).hasPrefix("```") { fenced.toggle(); continue }
+            guard !fenced else { continue }
+            for m in l.matches(of: /(?:^|\s)@([~.\/\w][^\s`]*)/) {
+                let p = String(m.output.1)
+                // An import names a file: a path, or something.md. Bare @mentions (handles, @latest) are not imports.
+                if p.contains("/") || p.hasSuffix(".md") { out.append((String(l), p)) }
+            }
+        }
+        return out
+    }
+
+    public static func resolveImport(_ p: String, from file: URL) -> URL {
+        p.hasPrefix("~") ? URL(filePath: NSString(string: p).expandingTildeInPath.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: Paths.home.path))
+            : p.hasPrefix("/") ? URL(filePath: p) : file.deletingLastPathComponent().appending(path: p).standardizedFileURL
+    }
+
+    /// Trash these files and, for auto-memory notes, drop the MEMORY.md lines that link them, in one step.
+    public static func removal(_ urls: [URL]) -> Fix {
+        var fixes: [Fix] = [.trash(urls)]
+        for (dir, us) in Dictionary(grouping: urls.filter { $0.lastPathComponent != "MEMORY.md" }, by: { $0.deletingLastPathComponent() }) {
+            let index = dir.appending(path: "MEMORY.md")
+            guard let text = readText(index) else { continue }
+            let names = Set(us.map(\.lastPathComponent))
+            let lines = indexLinks(text).filter { names.contains(URL(filePath: $0.target).lastPathComponent) }.map(\.line)
+            if !lines.isEmpty, !urls.contains(index) { fixes.append(.removeLines(file: index, lines: lines)) }
+        }
+        return fixes.count == 1 ? fixes[0] : .many(fixes)
+    }
+
+    /// Cross-file checks: index links, unlinked notes, 25KB index cap, broken imports, facts repeated across notes.
+    static func withChecks(_ entries: [MemoryEntry], now: Date = Date()) -> [MemoryEntry] {
+        var out = entries
+        let texts = Dictionary(uniqueKeysWithValues: entries.filter(\.exists).map { ($0.url.path, readText($0.url) ?? "") })
+        func add(_ i: Int, _ rec: String, _ action: MemoryAction? = nil) {
+            out[i].recommendations.append(rec)
+            if let action { out[i].actions.append(action) }
+        }
+        var linked = Set<String>()
+        for (i, e) in out.enumerated() where e.exists {
+            let text = texts[e.url.path] ?? ""
+            if e.type == .memoryIndex {
+                let long = text.split(separator: "\n").filter { $0.count > 150 }.count
+                if long > 0 { add(i, "\(long) line\(long == 1 ? "" : "s") over 150 characters; each index entry should be one short pointer.") }
+                if text.utf8.count > 25_000 { add(i, "\(formatBytes(Int64(text.utf8.count))); only the first 25KB loads. Shorten entries to one line each.") }
+                let dir = e.url.deletingLastPathComponent()
+                let links = indexLinks(text)
+                for l in links { linked.insert(dir.appending(path: l.target).standardizedFileURL.path) }
+                let broken = links.filter { !exists(dir.appending(path: $0.target)) }.map(\.line)
+                if !broken.isEmpty {
+                    add(i, "\(broken.count) index line\(broken.count == 1 ? "" : "s") point at notes that no longer exist.",
+                        MemoryAction(button: "Drop broken lines…", title: "Drop \(broken.count) broken line\(broken.count == 1 ? "" : "s") from \(shortPath(e.url))",
+                                     fix: .removeLines(file: e.url, lines: broken)))
+                }
+            }
+            if [.userClaudeMD, .projectClaudeMD, .localMD, .rule].contains(e.type) {
+                let broken = imports(text).filter { !exists(resolveImport($0.path, from: e.url)) }
+                if !broken.isEmpty {
+                    add(i, "Broken @import" + (broken.count == 1 ? "" : "s") + ": " + broken.map { "@" + $0.path }.joined(separator: ", ") + " (no such file).",
+                        MemoryAction(button: "Remove broken imports…", title: "Remove \(broken.count) broken @import line\(broken.count == 1 ? "" : "s") from \(shortPath(e.url))",
+                                     fix: .removeLines(file: e.url, lines: Array(Set(broken.map(\.line))))))
+                }
+            }
+        }
+        for (i, e) in out.enumerated() where e.exists && (e.type == .memoryTopic || e.type == .memoryIndex) {
+            let text = texts[e.url.path] ?? ""
+            if e.type == .memoryTopic, text.utf8.count > 4_000 {
+                add(i, "\(formatBytes(Int64(text.utf8.count))); a note should hold one fact. Split it or trim it.")
+            }
+            if e.type == .memoryTopic, let s = memoryStaleness(text, from: e.url, modified: e.modified, now: now) { out[i].stale = s; add(i, s + "; check it is still true.") }
+        }
+        let topics = out.indices.filter { out[$0].type == .memoryTopic && out[$0].exists }
+        func facts(_ t: String) -> Set<String> {
+            var lines = t.split(separator: "\n", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces) }
+            if lines.first == "---", let end = lines.dropFirst().firstIndex(of: "---") { lines.removeSubrange(0...end) }  // frontmatter
+            return Set(lines.filter { $0.count >= 30 && !$0.hasPrefix("#") })
+        }
+        let factSets = Dictionary(uniqueKeysWithValues: topics.map { (out[$0].url.path, facts(texts[out[$0].url.path] ?? "")) })
+        for i in topics {
+            let e = out[i]
+            if !linked.contains(e.url.standardizedFileURL.path), out.contains(where: { $0.type == .memoryIndex && $0.exists && $0.url.deletingLastPathComponent() == e.url.deletingLastPathComponent() }) {
+                add(i, "Not linked from MEMORY.md, so Claude won't find it. Link it or delete it.",
+                    MemoryAction(button: "Move to Trash…", title: "Move \(e.url.lastPathComponent) to the Trash", fix: .trash([e.url])))
+            }
+            let mine = factSets[e.url.path] ?? []
+            let twins = topics.filter { $0 != i && !(factSets[out[$0].url.path] ?? []).isDisjoint(with: mine) }.map { out[$0].url.lastPathComponent }
+            if !twins.isEmpty { add(i, "Repeats a fact also in " + twins.joined(separator: ", ") + "; keep it in one note.") }
+        }
+        return out
+    }
+
+    /// Auto-memory goes stale fast: flag notes untouched 30+ days, or naming a ~/ or absolute path that no longer exists.
+    public static func memoryStaleness(_ text: String, from file: URL, modified: Date?, now: Date = Date()) -> String? {
+        let gone = text.matches(of: /(?:^|[\s`(])((?:~|\/Users|\/opt|\/Applications)\/[^\s`)'",]+)/).map { String($0.output.1) }
+            .first { !exists(resolveImport($0.trimmingCharacters(in: CharacterSet(charactersIn: ".:;")), from: file)) }
+        if let gone { return "Names \(gone), which no longer exists" }
+        if let m = modified, now.timeIntervalSince(m) > 30 * 86_400 { return "Not updated in \(Int(now.timeIntervalSince(m) / 86_400)) days" }
+        return nil
+    }
+
+    /// Deletes exact lines from a file after backing it up; returns the backup.
+    @discardableResult
+    public static func removeLines(_ file: URL, _ lines: [String], home: URL = Paths.home) throws -> Backup.Record {
+        let drop = Set(lines)
+        let text = try String(contentsOf: file, encoding: .utf8)
+        let record = try Backup.snapshot(file, home: home)
+        try Data(text.split(separator: "\n", omittingEmptySubsequences: false).filter { !drop.contains(String($0)) }.joined(separator: "\n").utf8).write(to: file, options: .atomic)
+        return record
     }
 
     /// Writes the default template, backing up any existing file first.

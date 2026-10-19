@@ -186,13 +186,18 @@ public func skillCategory(name: String, description: String, owner: String? = ni
 
 extension Component {
     public var category: String { skillCategory(name: name, description: description, owner: owner) }
-    /// "personal", "project <folder>" or the plugin name.
+    /// Tool, source and reach in plain words, e.g. "Claude Code · superpowers plugin · all projects".
     public var belongsTo: String {
+        func reach(_ s: String?) -> String {
+            switch s { case "project": "this project only"; case "local": "this folder only"; default: "all projects" }
+        }
         switch scope {
-        case .user: "Personal"
-        case .project: "Project " + (owner.map { ($0 as NSString).lastPathComponent } ?? "")
-        case .external: agents.map(\.rawValue).joined(separator: ", ")
-        default: "Plugin " + (owner?.split(separator: "@").first.map(String.init) ?? "")
+        case .user: return "Claude Code · personal · all projects"
+        case .project: return "Claude Code · this project only" + (owner.map { " (" + ($0 as NSString).lastPathComponent + ")" } ?? "")
+        case .external:
+            if let ext = geminiExtension(self) { return "Gemini · " + ext + " extension" }
+            return agents.map { $0 == .agents ? "Shared .agents folder" : $0.rawValue }.joined(separator: ", ") + " · personal"
+        default: return "Claude Code · " + (owner?.split(separator: "@").first.map(String.init) ?? "") + " plugin · " + reach(pluginScope)
         }
     }
     /// The "Use when…" part of the description, else its first sentence.
@@ -235,16 +240,53 @@ public func uniqueSkills(_ components: [Component]) -> [Component] {
         .filter { seen.insert($0.file.standardizedFileURL.resolvingSymlinksInPath().path).inserted }
 }
 
+/// Overlaps Claude Code itself sees: other agents' copies serve other tools, and one plugin's own skills are deliberate siblings.
 public func skillOverlaps(_ components: [Component], threshold: Double = 0.5) -> [SkillOverlap] {
-    let skills = uniqueSkills(components)
+    let skills = uniqueSkills(components).filter { $0.scope != .external }
+    func source(_ c: Component) -> String { c.scope == .plugin ? "plugin:" + (c.owner ?? "") : c.scope == .project ? "project:" + (c.owner ?? "") : "user" }
     var out = Dictionary(grouping: skills) { $0.shortName.lowercased() }.values
-        .filter { $0.count > 1 }.map { SkillOverlap(kind: .sameName, skills: $0.sorted { $0.id < $1.id }) }
+        .filter { Set($0.map(source)).count > 1 }.map { SkillOverlap(kind: .sameName, skills: $0.sorted { $0.id < $1.id }) }
     let named = Set(out.flatMap { $0.skills.map(\.id) })
     let rest = skills.filter { !named.contains($0.id) }
     for (i, a) in rest.enumerated() {
-        for b in rest[(i + 1)...] where descriptionOverlap(a.description, b.description) >= threshold {
+        for b in rest[(i + 1)...] where source(a) != source(b) && descriptionOverlap(a.description, b.description) >= threshold {
             out.append(SkillOverlap(kind: .similar, skills: [a, b]))
         }
     }
     return out.sorted { $0.id < $1.id }
+}
+
+/// The Gemini extension a Gemini-side skill copy comes from (~/.gemini/extensions/<name>/skills/…).
+public func geminiExtension(_ c: Component) -> String? {
+    let parts = c.file.pathComponents
+    guard c.scope == .external, let i = parts.firstIndex(of: "extensions"), i > 0, parts[i - 1] == ".gemini", i + 1 < parts.count else { return nil }
+    return parts[i + 1]
+}
+
+/// How to get rid of one copy in an overlap, titled for the confirm sheet; nil when nothing here can act on it.
+/// Plugin and Gemini removals name every other skill they also take away.
+public func overlapRemoval(_ s: Component, all: [Component], plugins: [Plugin]) -> (button: String, title: String, fix: Fix)? {
+    func alsoRemoves(_ same: (Component) -> Bool) -> String {
+        let others = uniqueSkills(all).filter { $0.id != s.id && same($0) }.map { "/" + $0.name }
+        return others.isEmpty ? "" : " (also removes \(others.count): \(others.joined(separator: ", ")))"
+    }
+    if s.ownsFile { return ("Delete…", "Delete \(s.belongsTo) copy of /\(s.name)", .trash([trashURL(s)])) }
+    if s.scope == .plugin, let id = s.owner, let p = plugins.first(where: { $0.id == id }) {
+        return ("Turn off plugin…", "Turn off plugin \(id)" + alsoRemoves { $0.owner == id }, p.cli("disable"))
+    }
+    return nil
+}
+
+/// Keeps `keep` and removes every other copy in the overlap, one step each.
+public func overlapKeepPlan(_ o: SkillOverlap, keep: Component, all: [Component], plugins: [Plugin]) -> [BulkStep] {
+    o.skills.filter { $0.id != keep.id }.map { s in
+        let r = overlapRemoval(s, all: all, plugins: plugins)
+        return BulkStep(label: r?.title ?? "/\(s.name) (\(s.belongsTo))", fix: r?.fix, skip: r == nil ? "nothing here can remove it" : nil)
+    }
+}
+
+/// Skills grouped by their "plugin:" prefix, prefixed groups by name first; un-prefixed skills last as "No prefix".
+public func skillGroups(_ skills: [Component]) -> [(name: String, skills: [Component])] {
+    let g = Dictionary(grouping: skills) { s in s.name.contains(":") ? String(s.name.split(separator: ":")[0]) : "" }
+    return g.keys.sorted { ($0.isEmpty ? 1 : 0, $0) < ($1.isEmpty ? 1 : 0, $1) }.map { (name: $0.isEmpty ? "No prefix" : $0, skills: g[$0]!) }
 }

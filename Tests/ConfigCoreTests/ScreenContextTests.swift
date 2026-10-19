@@ -88,6 +88,7 @@ struct FailureTests {
         write(".claude/skills/nofm/SKILL.md", "just text")
         write(".claude/skills/nodesc/SKILL.md", "---\nname: nodesc\n---\nbody")
         write(".claude/skills/good/SKILL.md", "---\nname: good\ndescription: fine\n---\n")
+        write(".claude/skills/synced/bucket/pdf/SKILL.md", "---\nname: pdf\ndescription: fine\n---\n")
         write(".claude/settings.json", "{ \"a\": ")
         let titles = Failures.detect(Snapshot(), home: home).map(\.title)
         #expect(titles.contains("Skill folder has no SKILL.md"))

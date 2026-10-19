@@ -238,7 +238,7 @@ public func cleanupFindings(_ facts: [SkillFacts], plugins: [Plugin], now: Date 
                          action: removable.isEmpty ? nil : .keepOne(keep: o.keep.id, remove: removable)))
     }
     for p in plugins where !p.enabled {
-        out.append(.init(kind: .disabledPlugin, title: p.id, why: "disabled · \(p.usageCount) uses · \(ago(p.lastUsed))", action: .uninstallPlugin(p.id)))
+        out.append(.init(kind: .disabledPlugin, title: p.id, why: "disabled · \(p.reach) · \(p.usageCount) uses · \(ago(p.lastUsed))", action: .uninstallPlugin(p.id)))
     }
     return out
 }

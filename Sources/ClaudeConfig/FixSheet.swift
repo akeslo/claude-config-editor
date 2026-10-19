@@ -86,6 +86,8 @@ struct FixSheet: View {
         case .frontmatter(let file, let key, let value):
             let before = (readText(file) ?? "").split(separator: "\n").first { $0.hasPrefix(key + ":") }.map(String.init) ?? "(not set)"
             return "File:   \(shortPath(file))\nBefore: \(before)\nAfter:  \(value.map { "\(key): \($0)" } ?? "(removed)")"
+        case .removeLines(let file, let lines):
+            return "File: \(shortPath(file)) (backed up first)\nRemoves these lines:\n\n" + lines.map { "  - " + $0 }.joined(separator: "\n")
         case .cli(let args, let dryRun, let cwd):
             guard let dryRun else {
                 return "Will run:\n  claude \(args.joined(separator: " "))\n\nThis command has no dry-run mode; nothing runs until you click Apply."
@@ -159,6 +161,9 @@ struct FixSheet: View {
         case .frontmatter(let file, let key, let value):
             let backup = try setFrontmatterKey(file, key: key, value: value)
             result = "Saved \(shortPath(file))." + (backup.map { " Backup: \(shortPath($0))" } ?? "")
+        case .removeLines(let file, let lines):
+            let b = try Memory.removeLines(file, lines)
+            result = "Removed \(lines.count) line(s) from \(shortPath(file)). Backup: \(shortPath(b.copy))"
         case .cli(let args, _, let cwd):
             let r = await ClaudeCLI.run(args, in: cwd.map { URL(filePath: $0) })
             if !r.ok { failed = true }

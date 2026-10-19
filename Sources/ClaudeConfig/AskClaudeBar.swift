@@ -107,14 +107,24 @@ struct AskClaudeBar: View {
 extension AppModel {
     /// Sends the full screen snapshot (ScreenContext) and lets Claude read ~/.claude with read-only tools.
     func askWithScreen(_ question: String, about section: AppSection) async -> String? {
+        let screen = screenInfo(section, question: question)
+        let prompt = askPrompt(question: question, screen: screen, section: section, cap: ScreenContext.defaultBudget + 10_000)
+            + "\nYou may read files under \(Paths.claudeDir.path) (and paths listed above) with Read, Grep and Glob for detail. Do not modify anything. Answer in plain short paragraphs or bullets, citing item names."
+            + (section == .discover ? "\n" + Recommendations.instruction : "")
+        return await runAsk(prompt)
+    }
+
+    /// What the screen shows, as text (secrets masked): rows with source/scope labels, usage, warnings. Shared by Ask Claude and Copy info.
+    func screenInfo(_ section: AppSection, question: String = "") -> String {
         let discover = section == .discover ? ScreenContext.Discover(
             tab: UserDefaults.standard.string(forKey: "discoverTab") ?? "community", search: discoverSearch,
             available: available, community: community, communityInstalled: Set(community.filter(communityInstalled()).map(\.id))) : nil
         let screen = ScreenContext.build(section, snapshot, issues: issues, advice: advice, storage: storage,
                                          discover: discover, analytics: analytics, skillMap: section == .mySkills ? skillMapContext : nil, question: question)
-        let prompt = askPrompt(question: question, screen: screen, section: section, cap: ScreenContext.defaultBudget + 10_000)
-            + "\nYou may read files under \(Paths.claudeDir.path) (and paths listed above) with Read, Grep and Glob for detail. Do not modify anything. Answer in plain short paragraphs or bullets, citing item names."
-            + (section == .discover ? "\n" + Recommendations.instruction : "")
+        return screen
+    }
+
+    private func runAsk(_ prompt: String) async -> String? {
         guard let exe = ClaudeCLI.executable else { return nil }
         let args = ["-p", prompt, "--model", "sonnet", "--settings", #"{"disableAllHooks":true}"#, "--no-session-persistence",
                     "--add-dir", Paths.claudeDir.path, "--tools", "Read,Grep,Glob", "--allowedTools", "Read", "Grep", "Glob",

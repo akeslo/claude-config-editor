@@ -4,12 +4,10 @@ import SwiftUI
 @main
 struct ClaudeConfigApp: App {
     @State private var model = AppModel()
-    // Not @AppStorage: it re-pushes the status item on every defaults write, and writes made during
-    // window layout then crash AppKit (_postWindowNeedsUpdateConstraints) on Agents & Commands.
+    // Not @AppStorage or a closure Binding: either re-pushes the status item image on unrelated updates, and
+    // during window layout that crashes AppKit (_postWindowNeedsUpdateConstraints) on Agents & Commands.
+    // AppSettingsView persists it.
     @State private var showMenuBar = UserDefaults.standard.object(forKey: "showSkillsMenuBar") as? Bool ?? true
-    private var menuBarShown: Binding<Bool> {
-        Binding(get: { showMenuBar }, set: { showMenuBar = $0; UserDefaults.standard.set($0, forKey: "showSkillsMenuBar") })
-    }
 
     var body: some Scene {
         WindowGroup("Claude Config") {
@@ -31,8 +29,8 @@ struct ClaudeConfigApp: App {
                 Button("Toggle Explanations") { model.showInspector.toggle() }.keyboardShortcut("i", modifiers: [.command, .option])
             }
         }
-        Settings { AppSettingsView(showMenuBar: menuBarShown) }
-        MenuBarExtra("Skills", systemImage: "wand.and.stars", isInserted: menuBarShown) {
+        Settings { AppSettingsView(showMenuBar: $showMenuBar) }
+        MenuBarExtra("Skills", systemImage: "wand.and.stars", isInserted: $showMenuBar) {
             MenuBarSkills().environment(model).tint(.brand)
         }
         .menuBarExtraStyle(.window)
@@ -78,6 +76,8 @@ struct RootView: View {
                             Button { copy(Issue.aiPrompt(for: issues)) } label: { Label("Copy AI Prompt", systemImage: "doc.on.clipboard") }
                                 .help(promptHelp(Issue.aiPrompt(for: issues)))
                         }
+                        Button { copy("# Claude Config · \(model.section.rawValue)\n\n" + model.screenInfo(model.section)) } label: { Label("Copy info", systemImage: "doc.text") }
+                            .help("Copy a Markdown summary of this screen (rows, sources, warnings; secrets masked) to paste into another chat")
                         if model.loading || model.measuringStorage { ProgressView().controlSize(.small).help("Scanning…") }
                         Button { Task { await model.rescan() } } label: { Label("Rescan", systemImage: "arrow.clockwise") }
                             .help("Read all config files again (⌘R)")

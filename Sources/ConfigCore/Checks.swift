@@ -66,6 +66,8 @@ public enum Fix: Sendable {
     case cli(args: [String], dryRun: [String]?, cwd: String?)
     /// Moves files to the Trash.
     case trash([URL])
+    /// Deletes these exact lines from a text file (backed up first), e.g. MEMORY.md index entries.
+    case removeLines(file: URL, lines: [String])
     /// Sets (or removes, when nil) one key in a settings file.
     case settingsKey(file: URL, path: [String], value: String?)
     /// Removes hook entries from settings files.
@@ -91,6 +93,7 @@ public enum Fix: Sendable {
     public var summary: String {
         switch self {
         case .cli(let args, _, _): "claude " + args.map { $0.contains(" ") ? "\"\($0)\"" : $0 }.joined(separator: " ")
+        case .removeLines(let file, let lines): "Remove \(lines.count) line\(lines.count == 1 ? "" : "s") from \(shortPath(file))"
         case .trash(let urls): "Move \(urls.count) item\(urls.count == 1 ? "" : "s") to the Trash"
         case .removeHooks(let refs): "Remove \(refs.count) hook\(refs.count == 1 ? "" : "s") from " + Set(refs.map { $0.file.path.replacingOccurrences(of: Paths.home.path, with: "~") }).sorted().joined(separator: ", ")
         case .frontmatter(let file, let key, let value): "Set \(key): \(value ?? "(removed)") in \(file.path.replacingOccurrences(of: Paths.home.path, with: "~"))"
@@ -230,17 +233,17 @@ public enum Checks {
         }
         for c in s.components where c.kind == .skill {
             if c.lineCount > 500 {
-                out.append(Issue(severity: .info, section: .skills, title: "SKILL.md over 500 lines", subject: c.name,
+                out.append(Issue(severity: .info, section: .mySkills, title: "SKILL.md over 500 lines", subject: c.name,
                                  detail: "\(c.lineCount) lines load every time the skill runs. Move reference material into linked files.", term: .skill, file: c.file, rule: "skillmd-500-lines"))
             }
             if c.description.count > 1_536 {
-                out.append(Issue(severity: .warning, section: .skills, title: "Description is cut off", subject: c.name,
+                out.append(Issue(severity: .warning, section: .mySkills, title: "Description is cut off", subject: c.name,
                                  detail: "description + when_to_use is \(c.description.count) characters; Claude truncates at 1,536.", term: .skillListing, file: c.file, rule: "skill-listing-budget"))
             }
         }
         let byName = Dictionary(grouping: s.components.filter { $0.kind == .skill || $0.kind == .command }, by: \.name)
         for (name, items) in byName where items.count > 1 {
-            out.append(Issue(severity: .warning, section: .skills, title: "Same name defined more than once", subject: name,
+            out.append(Issue(severity: .warning, section: .mySkills, title: "Same name defined more than once", subject: name,
                              detail: "/\(name) exists in: " + items.map { "\($0.kind.rawValue) (\($0.scope.rawValue))" }.joined(separator: ", ") + ". Only one runs; skills beat commands, and personal beats project.",
                              term: .command, file: items.first?.file))
         }
@@ -284,20 +287,23 @@ public enum Checks {
             }
         }
         for d in s.duplicatePlugins {
-            out.append(Issue(severity: .info, section: .plugins, title: "Plugin installed more than once", subject: d.id,
-                             detail: "\(d.id) also has a \(d.scope)-scope install (version \(d.version)) at \(shortPath(d.installPath)). Different projects may load different versions.",
-                             term: .plugin, file: d.installPath))
+            let live = s.plugins.first { $0.id == d.id }
+            let stale = !d.enabled || d.projectPath.map { !exists(URL(filePath: $0)) } == true
+            out.append(Issue(severity: .info, section: .plugins, title: "Plugin installed more than once", subject: "\(d.id) · \(d.reach)",
+                             detail: "Live copy: \(live.map { "\($0.reach) (\($0.enabled ? "on" : "off"), v\($0.version))" } ?? "none"). Other copy: \(d.reach) (\(d.enabled ? "on" : "off"), v\(d.version)). "
+                                + (stale ? "That copy is unused, so it can go." : "Both are on in their folders; keep both if that is intended."),
+                             term: .plugin, fix: stale ? d.cli("uninstall") : nil, file: d.installPath))
         }
         for p in s.plugins {
             if p.enabled && p.usageCount == 0 {
                 out.append(Issue(severity: .info, section: .plugins, title: "Enabled plugin never used", subject: p.id,
                                  detail: "\(p.id) is enabled but has no recorded use. Disabling it removes its always-on context cost and keeps the files.",
-                                 term: .plugin, fix: .cli(args: ["plugin", "disable", p.id], dryRun: nil, cwd: nil), tokens: p.alwaysOnTokens ?? 0))
+                                 term: .plugin, fix: p.cli("disable"), tokens: p.alwaysOnTokens ?? 0))
             }
             if !p.enabled {
-                out.append(Issue(severity: .info, section: .plugins, title: "Disabled plugin still installed", subject: p.id,
-                                 detail: "\(p.id) costs no context but keeps its files on disk. Uninstall it if you no longer need it.",
-                                 term: .plugin, fix: .cli(args: ["plugin", "uninstall", p.id], dryRun: nil, cwd: nil)))
+                out.append(Issue(severity: .info, section: .plugins, title: "Disabled plugin still installed", subject: "\(p.id) · \(p.reach)",
+                                 detail: "\(p.id) (\(p.reach)) costs no context but keeps its files on disk. Uninstall it if you no longer need it.",
+                                 term: .plugin, fix: p.cli("uninstall")))
             }
         }
         return out

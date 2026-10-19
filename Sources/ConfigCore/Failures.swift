@@ -20,7 +20,8 @@ public enum Failures {
         }
 
         // Skill folders: no SKILL.md, or a SKILL.md without frontmatter / name / description.
-        var skillDirs = children(claudeDir.appending(path: "skills"))
+        // "synced" is Claude Code's cache of claude.ai skills; its skills sit one level deeper.
+        var skillDirs = children(claudeDir.appending(path: "skills")).filter { $0.lastPathComponent != "synced" }
         for p in s.projects where p.folderExists && p.path != home.path {
             skillDirs += children(URL(filePath: p.path).appending(path: ".claude/skills"))
         }
@@ -42,7 +43,7 @@ public enum Failures {
         for p in s.plugins + s.duplicatePlugins where !exists(p.installPath) {
             out.append(Issue(severity: .problem, section: .plugins, title: "Plugin files are missing", subject: p.id,
                              detail: "\(p.id) points at \(shortPath(p.installPath)), which does not exist, so it fails to load. Reinstall or uninstall it.",
-                             term: .plugin, fix: .cli(args: ["plugin", "uninstall", p.id], dryRun: nil, cwd: nil)))
+                             term: .plugin, fix: p.cli("uninstall")))
         }
 
         // Hook scripts that exist but can't run (missing ones are reported by Checks.hookChecks).

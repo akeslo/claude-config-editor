@@ -7,6 +7,7 @@ import Testing
     let app = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .appending(path: "Sources/ClaudeConfig/App.swift")
     let src = try String(contentsOf: app, encoding: .utf8)
-    #expect(src.contains("isInserted: menuBarShown"))
+    #expect(src.contains("isInserted: $showMenuBar"))
     #expect(!src.contains("@AppStorage(\"showSkillsMenuBar\")"))
+    #expect(src.contains("@State private var showMenuBar"))
 }

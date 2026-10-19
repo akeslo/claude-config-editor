@@ -118,7 +118,7 @@ public func skillUninstallPlan(_ skills: [Component]) -> [BulkStep] {
 // MARK: Clean-up review
 
 /// The fix behind one finding's action, resolved against the current components.
-public func cleanupFix(_ a: CleanupFinding.Action, components: [Component]) -> Fix? {
+public func cleanupFix(_ a: CleanupFinding.Action, components: [Component], plugins: [Plugin] = []) -> Fix? {
     let comp = { (id: String) in components.first { $0.id == id } }
     switch a {
     case .makeCallOnly(let id): return comp(id)?.fix(to: .onDemand)
@@ -127,14 +127,14 @@ public func cleanupFix(_ a: CleanupFinding.Action, components: [Component]) -> F
     case .keepOne(_, let remove):
         let urls = remove.compactMap(comp).map(trashURL)
         return urls.isEmpty ? nil : .trash(urls)
-    case .uninstallPlugin(let id): return .cli(args: ["plugin", "uninstall", id], dryRun: nil, cwd: nil)
+    case .uninstallPlugin(let id): return plugins.first { $0.id == id }?.cli("uninstall") ?? .cli(args: ["plugin", "uninstall", id], dryRun: nil, cwd: nil)
     }
 }
 
-public func cleanupPlan(_ findings: [CleanupFinding], components: [Component]) -> [BulkStep] {
+public func cleanupPlan(_ findings: [CleanupFinding], components: [Component], plugins: [Plugin] = []) -> [BulkStep] {
     bulkPlan(findings, label: { "\($0.kind.rawValue): \($0.title)" },
              skip: { $0.action == nil ? "no automatic fix" : nil },
-             fix: { $0.action.flatMap { cleanupFix($0, components: components) } })
+             fix: { $0.action.flatMap { cleanupFix($0, components: components, plugins: plugins) } })
 }
 
 /// One CSV cell, quoted; a leading formula trigger gets a `'` so spreadsheets read it as text.

@@ -47,7 +47,7 @@ public enum Scanner {
         let overrides = snap.setting("skillOverrides")?.value as? [String: String] ?? [:]
         for i in snap.components.indices {
             snap.components[i].override = overrides[snap.components[i].name]
-            if let plugin = snap.plugins.first(where: { $0.id == snap.components[i].owner }) { snap.components[i].repoURL = plugin.repoURL }
+            if let plugin = snap.plugins.first(where: { $0.id == snap.components[i].owner }) { snap.components[i].repoURL = plugin.repoURL; snap.components[i].pluginScope = plugin.scope }
         }
         snap.hooks = hooks(settings: snap.settings, plugins: enabledPlugins)
         snap.permissions = permissions(settings: snap.settings, projects: snap.projects)
@@ -102,7 +102,7 @@ public enum Scanner {
 
     static func plugins(from json: Any?, usage: JSON) -> [Plugin] {
         let installed = (json as? JSON)?["installed"] as? [JSON] ?? json as? [JSON] ?? []
-        return installed.compactMap { p in
+        return installed.compactMap { p -> Plugin? in
             guard let id = p["id"] as? String else { return nil }
             let u = usage[id] as? JSON
             var plugin = Plugin(
@@ -110,10 +110,22 @@ public enum Scanner {
                 enabled: p["enabled"] as? Bool ?? false,
                 installPath: URL(filePath: p["installPath"] as? String ?? ""),
                 notes: p["notes"] as? [String] ?? [])
+            plugin.projectPath = p["projectPath"] as? String
+            plugin.enabled = enabledWhereInstalled(plugin)
             plugin.usageCount = u?["usageCount"] as? Int ?? 0
             plugin.lastUsed = (u?["lastUsedAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) }
             return plugin
         }.sorted { $0.id < $1.id }
+    }
+
+    /// The CLI reports enabled state for the folder it runs in (home); a project/local install is on or off in its own folder's settings.
+    public static func enabledWhereInstalled(_ p: Plugin) -> Bool {
+        guard p.scope != "user", let dir = p.projectPath else { return p.enabled }
+        let files = p.scope == "local" ? ["settings.local.json", "settings.json"] : ["settings.json", "settings.local.json"]
+        for f in files {
+            if let on = (readJSON(URL(filePath: dir).appending(path: ".claude/" + f))?["enabledPlugins"] as? [String: Bool])?[p.id] { return on }
+        }
+        return p.enabled
     }
 
     /// The `origin` URL from the nearest enclosing git checkout's config, read without running git.

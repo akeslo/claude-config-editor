@@ -90,7 +90,7 @@ struct MCPView: View {
 struct ComponentsView: View {
     @Environment(AppModel.self) private var model
     @State private var sel = BulkSelection<String>()
-    @State private var kind: ComponentKind? = .skill
+    @State private var kind: ComponentKind?
     @State private var search = ""
     @State private var sort = [KeyPathComparator(\Row.tokens, order: .reverse)]
 
@@ -105,8 +105,9 @@ struct ComponentsView: View {
     }
 
     var body: some View {
+        // Skills live on the Skills page; this one is agents, commands and output styles.
         let rows = model.snapshot.components
-            .filter { kind == nil || $0.kind == kind }
+            .filter { $0.kind != .skill && (kind == nil || $0.kind == kind) }
             .filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.description.localizedCaseInsensitiveContains(search) }
             .map(Row.init).sorted(using: sort)
         let visible = rows.map(\.id)
@@ -137,35 +138,14 @@ struct ComponentsView: View {
         .toolbar {
             Picker("Kind", selection: $kind) {
                 Text("All").tag(ComponentKind?.none)
-                ForEach(ComponentKind.allCases, id: \.self) { Text($0.rawValue + "s").tag(Optional($0)) }
+                ForEach(ComponentKind.allCases.filter { $0 != .skill }, id: \.self) { Text($0.rawValue + "s").tag(Optional($0)) }
             }
             .pickerStyle(.segmented)
             if let c = selected { TrashButton(url: trashURL(c)) }
-            if let c = selected, c.kind == .skill {
-                if c.override == nil {
-                    Button("Hide from listing…") {
-                        model.propose("Hide \(c.name) from the skill listing", .settingsKey(file: Paths.userSettings, path: ["skillOverrides", c.name], value: "user-invocable-only"))
-                    }.help("Sets skillOverrides to user-invocable-only: /\(c.name) still works, but its description stops costing context.")
-                } else {
-                    Button("Show in listing…") {
-                        model.propose("Show \(c.name) in the skill listing", .settingsKey(file: Paths.userSettings, path: ["skillOverrides", c.name], value: nil))
-                    }
-                }
-            }
         }
         .bulkSelectable($sel, visible: visible, actions: [
             BulkAction(title: "Move to Trash…", icon: "trash", check: bulkCheck(picked) { $0.ownsFile ? nil : "come from plugins or other agents" }) {
                 model.proposeBulk("Move \(picked.count) item\(picked.count == 1 ? "" : "s") to the Trash", bulkPlan(picked, label: { "\($0.kind.rawValue): \($0.name)" }) { .trash([trashURL($0)]) })
-            },
-            BulkAction(title: "Hide from listing…", icon: "eye.slash", check: bulkCheck(picked) { $0.kind != .skill ? "are not skills" : nil }) {
-                model.proposeBulk("Hide \(picked.count) from the skill listing", bulkPlan(picked, label: { "/" + $0.name }, skip: { $0.override == "user-invocable-only" ? "already hidden" : nil }) {
-                    .settingsKey(file: Paths.userSettings, path: ["skillOverrides", $0.name], value: "user-invocable-only")
-                })
-            },
-            BulkAction(title: "Show in listing…", icon: "eye", check: bulkCheck(picked) { $0.kind != .skill ? "are not skills" : nil }) {
-                model.proposeBulk("Show \(picked.count) in the skill listing", bulkPlan(picked, label: { "/" + $0.name }, skip: { $0.override == nil ? "already shown" : nil }) {
-                    .settingsKey(file: Paths.userSettings, path: ["skillOverrides", $0.name], value: nil)
-                })
             },
         ])
         .onChange(of: sel.ids) {
@@ -229,7 +209,7 @@ struct PluginsView: View {
         .contextMenu(forSelectionType: Plugin.ID.self) { ids in
             let outdated = plugins.filter { ids.contains($0.id) && $0.latestVersion != nil }
             if outdated.count == 1, let p = outdated.first {
-                Button("Update to \(p.latestVersion!)…") { model.propose("Update \(p.id)", .cli(args: ["plugin", "update", p.id], dryRun: nil, cwd: nil)) }
+                Button("Update to \(p.latestVersion!)…") { model.propose("Update \(p.id)", p.cli("update")) }
             }
             TrashButton(urls: plugins.filter { ids.contains($0.id) }.map(\.installPath))
         }
@@ -243,10 +223,10 @@ struct PluginsView: View {
             if sel.count == 1, let p = plugins.first(where: { sel.contains($0.id) }) { TrashButton(url: p.installPath) }
             if sel.count == 1, let p = plugins.first(where: { sel.contains($0.id) }) {
                 Button(p.enabled ? "Disable…" : "Enable…") {
-                    model.propose("\(p.enabled ? "Disable" : "Enable") \(p.id)", .cli(args: ["plugin", p.enabled ? "disable" : "enable", p.id], dryRun: nil, cwd: nil))
+                    model.propose("\(p.enabled ? "Disable" : "Enable") \(p.id)", p.cli(p.enabled ? "disable" : "enable"))
                 }
-                Button("Update…") { model.propose("Update \(p.id)", .cli(args: ["plugin", "update", p.id], dryRun: nil, cwd: nil)) }
-                Button("Uninstall…") { model.propose("Uninstall \(p.id)", .cli(args: ["plugin", "uninstall", p.id], dryRun: nil, cwd: nil)) }
+                Button("Update…") { model.propose("Update \(p.id)", p.cli("update")) }
+                Button("Uninstall…") { model.propose("Uninstall \(p.id)", p.cli("uninstall")) }
             }
         }
         .onChange(of: sel.ids) {
@@ -262,7 +242,7 @@ struct PluginsView: View {
 
 extension PluginsView {
     func cli(_ picked: [Plugin], _ verb: String, skip: @escaping (Plugin) -> String? = { _ in nil }) -> () -> Void {
-        { model.proposeBulk("\(verb.capitalized) \(picked.count) plugin\(picked.count == 1 ? "" : "s")", bulkPlan(picked, label: \.id, skip: skip) { .cli(args: ["plugin", verb, $0.id], dryRun: nil, cwd: nil) }) }
+        { model.proposeBulk("\(verb.capitalized) \(picked.count) plugin\(picked.count == 1 ? "" : "s")", bulkPlan(picked, label: \.id, skip: skip) { $0.cli(verb) }) }
     }
 }
 

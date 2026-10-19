@@ -7,6 +7,7 @@ struct SkillGridView: View {
     let skills: [Component]
     @State private var filter = ""
     @State private var source = "All"
+    @AppStorage("grid.byPrefix") private var byPrefix = true
     @State private var agent: SkillAgent?
 
     var body: some View {
@@ -16,7 +17,8 @@ struct SkillGridView: View {
             .filter { source == "All" || (source == "Plugins") == !$0.ownsFile }
             .filter { agent == nil || $0.agents.contains(agent!) }
             .filter { filter.isEmpty || [$0.name, $0.description, $0.category, $0.belongsTo].contains { $0.localizedCaseInsensitiveContains(filter) } }
-        let groups = Dictionary(grouping: shown, by: \.category).sorted { $0.key == "Other" ? false : $1.key == "Other" ? true : $0.key < $1.key }
+        let groups = byPrefix ? skillGroups(shown).map { (key: $0.name, value: $0.skills) }
+            : Dictionary(grouping: shown, by: \.category).sorted { $0.key == "Other" ? false : $1.key == "Other" ? true : $0.key < $1.key }
         // Visible order matches the cards, so ⇧-click ranges follow what's on screen.
         let ordered = groups.map { ($0.key, $0.value.sorted { ($0.usageCount, $1.name) > ($1.usageCount, $0.name) }) }
         let visible = ordered.flatMap { $0.1.map(\.id) }
@@ -34,8 +36,9 @@ struct SkillGridView: View {
                     ForEach(SkillAgent.allCases, id: \.self) { Text($0.rawValue).tag(SkillAgent?.some($0)) }
                 }
                 .fixedSize()
+                Picker("Group", selection: $byPrefix) { Text("By prefix").tag(true); Text("By category").tag(false) }.fixedSize()
                 Spacer()
-                Text("\(shown.count) skills in \(groups.count) categories").font(.callout).foregroundStyle(.secondary)
+                Text("\(shown.count) skills in \(groups.count) groups").font(.callout).foregroundStyle(.secondary)
             }
             .padding(Space.l)
             BulkBar(sel: $model.pickedSkills, visible: visible, actions: model.skillActions(picked.ids))
@@ -113,36 +116,53 @@ struct SkillOverlapsView: View {
 
     var body: some View {
         let overlaps = skillOverlaps(skills)
+        let all = model.snapshot.components, plugins = model.snapshot.plugins
         if overlaps.isEmpty {
             ContentUnavailableView("No overlaps", systemImage: "checkmark.circle", description: Text("No two skills share a name or a near-identical description."))
         } else {
-            List(overlaps) { o in
-                VStack(alignment: .leading, spacing: Space.s) {
-                    Label(o.reason, systemImage: o.kind == .sameName ? "doc.on.doc" : "equal.circle").font(.headline)
-                    ForEach(o.skills) { s in
-                        HStack(spacing: Space.m) {
-                            Text("/" + s.name).font(.body.monospaced())
-                            Text(s.belongsTo).foregroundStyle(.secondary)
-                            Text(s.usageCount == 0 ? "never used" : "used \(s.usageCount)×").foregroundStyle(.secondary).monospacedDigit()
-                            Spacer()
-                            if s.id == o.keep.id {
-                                Text("Keep").foregroundStyle(.green).help("Most used copy")
-                            } else if s.ownsFile {
-                                // skillOverrides is keyed by name, so Off would also hit a same-named copy: offer it only for look-alikes.
-                                if o.kind == .similar, let fix = s.fix(to: .onDemand) {
+            VStack(spacing: 0) {
+                HStack {
+                    Text("\(overlaps.count) overlap\(overlaps.count == 1 ? "" : "s")").foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Resolve all: keep the most-used…", systemImage: "wand.and.stars") {
+                        model.proposeBulk("Resolve \(overlaps.count) overlaps, keeping the most-used copy",
+                                          overlaps.flatMap { overlapKeepPlan($0, keep: $0.keep, all: all, plugins: plugins) })
+                    }
+                    .help("Shows every removal in a confirm sheet first; nothing changes until you apply")
+                }
+                .padding(Space.l)
+                Divider()
+                List(overlaps) { o in
+                    VStack(alignment: .leading, spacing: Space.s) {
+                        Label(o.reason, systemImage: o.kind == .sameName ? "doc.on.doc" : "equal.circle").font(.headline)
+                        ForEach(o.skills) { s in
+                            HStack(spacing: Space.m) {
+                                Text("/" + s.name).font(.body.monospaced())
+                                Text(s.belongsTo).foregroundStyle(.secondary)
+                                Text(s.usageCount == 0 ? "never used" : "used \(s.usageCount)×").foregroundStyle(.secondary).monospacedDigit()
+                                if s.id == o.keep.id { Text("most used").font(.caption).foregroundStyle(.tertiary) }
+                                Spacer()
+                                Button("Keep this one…") {
+                                    model.proposeBulk("Keep /\(s.name) (\(s.belongsTo)), remove the other\(o.skills.count > 2 ? "s" : "")",
+                                                      overlapKeepPlan(o, keep: s, all: all, plugins: plugins))
+                                }
+                                // skillOverrides is keyed by name, so On demand would also hit a same-named copy: offer it only for look-alikes.
+                                if s.ownsFile, o.kind == .similar, let fix = s.fix(to: .onDemand) {
                                     Button("Make On demand…") { model.propose("Make \(s.name) On demand", fix) }
                                 }
-                                ConfirmDeleteButton(url: trashURL(s))
-                            } else {
-                                Text("Plugin skill: turn its plugin off in Plugins").font(.caption).foregroundStyle(.secondary)
+                                if let r = overlapRemoval(s, all: all, plugins: plugins) {
+                                    Button(r.button, role: .destructive) { model.propose(r.title, r.fix) }
+                                } else {
+                                    Text("No automatic fix").font(.caption).foregroundStyle(.secondary)
+                                }
                             }
+                            .controlSize(.small)
                         }
-                        .controlSize(.small)
                     }
+                    .padding(.vertical, Space.s)
                 }
-                .padding(.vertical, Space.s)
+                .listStyle(.inset)
             }
-            .listStyle(.inset)
         }
     }
 }

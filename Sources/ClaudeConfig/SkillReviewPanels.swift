@@ -79,7 +79,7 @@ struct CleanupReviewPanel: View {
         let comps = model.snapshot.components
         let picked = findings.filter { sel.contains($0.id) }
         let fixable = findings.filter { $0.action != nil }
-        func apply(_ title: String, _ fs: [CleanupFinding]) { model.proposeBulk(title, cleanupPlan(fs, components: comps)) }
+        func apply(_ title: String, _ fs: [CleanupFinding]) { model.proposeBulk(title, cleanupPlan(fs, components: comps, plugins: model.snapshot.plugins)) }
         var out = [
             BulkAction(title: "Apply all suggested fixes…", icon: "wand.and.stars",
                        check: fixable.isEmpty ? .init(enabled: false, why: "No finding has an automatic fix") : .ok) { apply("Apply \(fixable.count) suggested fixes", fixable) },
@@ -109,7 +109,7 @@ struct CleanupReviewPanel: View {
             Button("Keep \(comp(keep)?.belongsTo ?? "one")…") { model.proposeTrash(urls) }.controlSize(.small).disabled(urls.isEmpty)
                 .help("Moves the other copies to the Trash after you confirm")
         case .uninstallPlugin(let id):
-            Button("Uninstall…") { model.propose("Uninstall \(id)", .cli(args: ["plugin", "uninstall", id], dryRun: nil, cwd: nil)) }.controlSize(.small)
+            Button("Uninstall…") { model.propose("Uninstall \(id)", cleanupFix(.uninstallPlugin(id), components: [], plugins: model.snapshot.plugins)!) }.controlSize(.small)
         }
     }
 }

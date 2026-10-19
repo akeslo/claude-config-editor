@@ -201,14 +201,7 @@ private struct StatesPage: View {
         .task { await model.loadStars() }
     }
 
-    private func source(_ c: Component) -> String {
-        switch c.scope {
-        case .user: "Personal"
-        case .external: c.belongsTo
-        case .project: c.owner.map { ($0 as NSString).lastPathComponent } ?? "Project"
-        default: "Plugin " + (c.owner?.split(separator: "@").first.map(String.init) ?? "")
-        }
-    }
+    private func source(_ c: Component) -> String { c.belongsTo }
 }
 
 /// Always / On demand / Off for personal and project skills; plugin skills follow their plugin.
@@ -236,6 +229,7 @@ private struct CheatSheet: View {
     @Environment(AppModel.self) private var model
     let skills: [Component]
     @Binding var filter: String
+    @State private var collapsed = Set<String>()
 
     var body: some View {
         let shown = skills
@@ -260,23 +254,39 @@ private struct CheatSheet: View {
             } else if shown.isEmpty {
                 ContentUnavailableView.search(text: filter)
             } else {
-                List(shown) { s in
-                    HStack(alignment: .firstTextBaseline, spacing: Space.l) {
-                        SelectBox(sel: $model.pickedSkills, id: s.id, visible: visible, name: "/" + s.name)
-                        Text("/" + s.name).font(.body.monospaced()).textSelection(.enabled)
-                            .frame(minWidth: 200, alignment: .leading)
-                        Text(purpose(s)).foregroundStyle(.secondary).lineLimit(1)
-                        Spacer()
-                        Button("Copy", systemImage: "doc.on.doc") { copy("/" + s.name) }
-                            .labelStyle(.iconOnly).buttonStyle(.borderless)
-                            .help("Copy /\(s.name)")
+                List {
+                    ForEach(skillGroups(shown), id: \.name) { g in
+                        DisclosureGroup(isExpanded: Binding(get: { !collapsed.contains(g.name) }, set: { if $0 { collapsed.remove(g.name) } else { collapsed.insert(g.name) } })) {
+                            ForEach(g.skills) { s in row(s, visible) }
+                        } label: {
+                            HStack(spacing: Space.s) {
+                                SelectAllBox(sel: $model.pickedSkills, visible: g.skills.map(\.id))
+                                Text(g.name).font(.headline)
+                                Text("\(g.skills.count)").foregroundStyle(.secondary).monospacedDigit()
+                            }
+                        }
                     }
-                    .padding(.vertical, Space.xs)
                 }
                 .listStyle(.inset)
                 .bulkKeys($model.pickedSkills, visible: visible)
             }
         }
+    }
+
+    private func row(_ s: Component, _ visible: [String]) -> some View {
+        @Bindable var model = model
+        return HStack(alignment: .firstTextBaseline, spacing: Space.l) {
+                        SelectBox(sel: $model.pickedSkills, id: s.id, visible: visible, name: "/" + s.name)
+                        Text("/" + s.name).font(.body.monospaced()).textSelection(.enabled)
+                            .frame(minWidth: 200, alignment: .leading)
+                        Text(purpose(s)).foregroundStyle(.secondary).lineLimit(1)
+                        Spacer()
+                        Text(s.belongsTo).font(.caption).foregroundStyle(.tertiary).lineLimit(1)
+                        Button("Copy", systemImage: "doc.on.doc") { copy("/" + s.name) }
+                            .labelStyle(.iconOnly).buttonStyle(.borderless)
+                            .help("Copy /\(s.name)")
+                    }
+                    .padding(.vertical, Space.xs)
     }
 }
 
