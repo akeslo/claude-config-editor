@@ -164,3 +164,39 @@ struct PSegmented<T: Hashable>: View {
         .overlay(RoundedRectangle(cornerRadius: PRadius.medium).stroke(PBorder.color, lineWidth: PBorder.width))
     }
 }
+
+/// Where a number comes from ("config files").
+struct SourceTag: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+    var body: some View { Text("from \(text)").font(PType.caption).foregroundStyle(PColor.fgMuted) }
+}
+
+/// Centered loading state with one line of explanation.
+struct LoadingState: View {
+    let title: String
+    var detail: String?
+    var progress: Double?
+    @ScaledMetric private var barWidth: CGFloat = 280
+
+    var body: some View {
+        VStack(spacing: PSpace.s2) {
+            if let progress { ProgressView(value: progress).frame(width: barWidth) } else { ProgressView().controlSize(.small) }
+            Text(title).font(.callout)
+            if let detail { Text(detail).font(PType.caption).foregroundStyle(PColor.fgMuted) }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+extension View {
+    /// Filter menus above a list: menu style with room for the longest choice (fixedSize alone truncated to one letter).
+    func filterPicker(minWidth: CGFloat = 120) -> some View {
+        pickerStyle(.menu).frame(minWidth: minWidth).fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The one table and list look for every screen: inset rows, no zebra stripes.
+    func appListStyle() -> some View {
+        tableStyle(.inset(alternatesRowBackgrounds: false)).listStyle(.inset(alternatesRowBackgrounds: false))
+    }
+}

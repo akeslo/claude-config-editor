@@ -132,7 +132,7 @@ struct ComponentsView: View {
             }.width(80)
             TableColumn("Uses", value: \.uses) { Text("\($0.uses)").monospacedDigit() }.width(50)
             TableColumn("Last used", value: \.last) { Text(relative($0.c.lastUsed)) }.width(110)
-            TableColumn("Lines", value: \.lines) { r in Text("\(r.lines)").monospacedDigit().foregroundStyle(r.lines > 500 ? .orange : .primary) }.width(50)
+            TableColumn("Lines", value: \.lines) { r in Text("\(r.lines)").monospacedDigit().foregroundStyle(r.lines > 500 ? PColor.attention.fg : .primary) }.width(50)
         }
         .contextMenu(forSelectionType: Component.ID.self) { ids in
             TrashButton(urls: model.snapshot.components.filter { ids.contains($0.id) }.map(trashURL))
@@ -185,14 +185,14 @@ struct PluginsView: View {
             TableColumn("", value: \Plugin.id) { (p: Plugin) in SelectBox(sel: $sel, id: p.id, visible: visible, name: p.id) }.width(22)
             TableColumn("Plugin", value: \.id) { p in
                 HStack {
-                    Image(systemName: p.enabled ? "checkmark.circle.fill" : "circle").foregroundStyle(p.enabled ? .green : .secondary)
+                    Image(systemName: p.enabled ? "checkmark.circle.fill" : "circle").foregroundStyle(p.enabled ? PColor.success.fg : .secondary)
                         .help(p.enabled ? "Enabled" : "Disabled: costs no context")
                     VStack(alignment: .leading) {
                         Text(p.id).fontWeight(.medium)
                         if !p.description.isEmpty { Text(p.description).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                     }
                         .explains(.plugin, (p.description.isEmpty ? "" : p.description + "\n\n") + "From marketplace: \(p.marketplace)" + (p.repoURL.map { "\nSource: \($0.absoluteString)" } ?? ""))
-                    if !p.notes.isEmpty { Image(systemName: "exclamationmark.bubble").foregroundStyle(.orange).help(p.notes.joined(separator: "\n")) }
+                    if !p.notes.isEmpty { Image(systemName: "exclamationmark.bubble").foregroundStyle(PColor.attention.fg).help(p.notes.joined(separator: "\n")) }
                 }
             }
             TableColumn("Scope", value: \.scope) { p in
@@ -353,14 +353,14 @@ struct HooksView: View {
                 badge(reach.text, reach.everywhere ? "globe" : "folder", reach.everywhere ? .blue : .secondary)
                 if same.allSatisfy(\.async) { badge("In the background", "moon", .secondary) }
                 if waits.contains(where: { ["SessionStart", "UserPromptSubmit"].contains($0.event) }) {
-                    badge("May add text to context", "text.bubble", .orange)
+                    badge("May add text to context", "text.bubble", PColor.attention.fg)
                         .help("This event lets a hook add its output to Claude's context. Whether this one does depends on what it prints.")
                 }
                 if waits.contains(where: { $0.event == "PreToolUse" }) {
                     badge("May block tools", "hand.raised", .purple)
                         .help("This event lets a hook stop a tool call. Whether this one does depends on what it returns.")
                 }
-                if let s = h.scriptPath, !exists(s) { badge("Broken: script missing", "xmark.octagon", .red) }
+                if let s = h.scriptPath, !exists(s) { badge("Broken: script missing", "xmark.octagon", PColor.danger.fg) }
             }
         }
         }

@@ -67,7 +67,7 @@ struct MenuBarSkills: View {
         let all = skills
         let catalog = Recommendations.search(search, available: model.available, community: model.community)
         let shown = all.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.description.localizedCaseInsensitiveContains(search) }
-        VStack(alignment: .leading, spacing: Space.s) {
+        VStack(alignment: .leading, spacing: PSpace.s2) {
             TextField("Search \(all.count) skills, plugins and community", text: $search).textFieldStyle(.roundedBorder)
             HStack {
                 TextField("Ask AI: what do you want to do?", text: $useCase).textFieldStyle(.roundedBorder).onSubmit(ask)
@@ -84,7 +84,7 @@ struct MenuBarSkills: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(shown) { row($0, shown.map(\.id)) }
                     if !catalog.isEmpty {
-                        Text("Available to install").font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, Space.s)
+                        Text("Available to install").font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.top, PSpace.s2)
                         ForEach(catalog) { RecommendationRow(item: $0) }
                     }
                 }
@@ -110,7 +110,7 @@ struct MenuBarSkills: View {
             }
             .buttonStyle(.borderless).labelStyle(.titleAndIcon)
         }
-        .padding(Space.m)
+        .padding(PSpace.s3)
         .frame(width: 380)
         .task {
             if model.snapshot.components.isEmpty { await model.refresh() }
@@ -122,7 +122,7 @@ struct MenuBarSkills: View {
 
     private func row(_ s: Component, _ visibleIDs: [String]) -> some View {
         let open = expanded == s.id
-        return HStack(alignment: .top, spacing: Space.s) {
+        return HStack(alignment: .top, spacing: PSpace.s2) {
             SelectBox(sel: $picked, id: s.id, visible: visibleIDs, name: "/" + s.name)
             Button { copy("/" + s.name); flash("/" + s.name) } label: {
                 VStack(alignment: .leading, spacing: 2) {
@@ -142,11 +142,11 @@ struct MenuBarSkills: View {
                 .labelStyle(.iconOnly).buttonStyle(.borderless)
                 .help(open ? "Show less" : "Show the full description")
         }
-        .padding(.vertical, Space.xs)
+        .padding(.vertical, PSpace.s1)
     }
 
     @ViewBuilder private func pickResult(_ r: SkillPick.Result) -> some View {
-        VStack(alignment: .leading, spacing: Space.xs) {
+        VStack(alignment: .leading, spacing: PSpace.s1) {
             if let prompt = r.prompt {
                 Text(prompt).font(.callout.monospaced()).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -161,7 +161,7 @@ struct MenuBarSkills: View {
                 ForEach(r.install) { RecommendationRow(item: $0) }
             }
         }
-        .padding(Space.s).frame(maxWidth: .infinity, alignment: .leading)
+        .padding(PSpace.s2).frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
     }
 

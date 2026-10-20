@@ -15,7 +15,7 @@ struct AskClaudeBar: View {
     @State private var task: Task<Void, Never>?
     @State private var copied: String?
     @State private var autoCopied: (previous: String?, copied: String)?
-    @AppStorage("askAutoCopyPrompt") private var autoCopy = true
+    @AppStorage("askAutoCopyPrompt") private var autoCopy = false
 
     var body: some View {
         HStack {
@@ -25,7 +25,7 @@ struct AskClaudeBar: View {
             Button("Ask", action: submit)
                 .disabled(asking || question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         }
-        .padding(.horizontal, Space.l).frame(height: Self.barHeight)
+        .padding(.horizontal, PSpace.s4).frame(height: Self.barHeight)
         // The answer floats over the screen below in a fixed-height card, so asking never moves the page.
         .overlay(alignment: .top) {
             if asking || failed || answer != nil {
@@ -42,11 +42,11 @@ struct AskClaudeBar: View {
 
     private var answerCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: Space.s) {
-                Label("Claude", systemImage: "sparkles").font(.cardTitle)
+            HStack(spacing: PSpace.s2) {
+                Label("Claude", systemImage: "sparkles").font(PType.subtitle)
                 Text("AI answer, not verified").font(.caption).foregroundStyle(.secondary)
                 if let a = autoCopied {
-                    Label("Prompt copied", systemImage: "checkmark.circle").font(.caption).foregroundStyle(.green)
+                    Label("Prompt copied", systemImage: "checkmark.circle").font(.caption).foregroundStyle(PColor.success.fg)
                     Button("Undo") { if let p = a.previous { setClipboard(p) } else { NSPasteboard.general.clearContents() }; autoCopied = nil }.buttonStyle(.link).font(.caption)
                 }
                 Spacer()
@@ -55,10 +55,10 @@ struct AskClaudeBar: View {
                     .labelStyle(.iconOnly).buttonStyle(.borderless).keyboardShortcut(.cancelAction).help("Close the answer (Esc)")
             }
             .controlSize(.small)
-            .padding(.horizontal, Space.l).padding(.vertical, Space.s)
+            .padding(.horizontal, PSpace.s4).padding(.vertical, PSpace.s2)
             Divider()
             ScrollView {
-                VStack(alignment: .leading, spacing: Space.s) {
+                VStack(alignment: .leading, spacing: PSpace.s2) {
                     if asking {
                         LoadingState(title: "Asking Claude…").frame(height: 200)
                     } else if failed {
@@ -75,20 +75,20 @@ struct AskClaudeBar: View {
                         }
                         if !picks.isEmpty {
                             let visible = picks.map(\.id)
-                            BulkBar(sel: $sel, visible: visible, actions: model.installActions(picks.filter { sel.contains($0.id) })).padding(.horizontal, -Space.l)
+                            BulkBar(sel: $sel, visible: visible, actions: model.installActions(picks.filter { sel.contains($0.id) })).padding(.horizontal, -PSpace.s4)
                             VStack(alignment: .leading, spacing: 0) { ForEach(picks) { RecommendationRow(item: $0, sel: $sel, visible: visible) } }
                                 .bulkKeys($sel, visible: visible)
                         }
                     }
                 }
-                .padding(Space.l)
+                .padding(PSpace.s4)
             }
         }
         .frame(height: 300)
         .background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5))
         .shadow(color: .black.opacity(0.18), radius: 16, y: 6)
-        .padding(.horizontal, Space.l)
+        .padding(.horizontal, PSpace.s4)
     }
 
     private func dismiss() { task?.cancel(); asking = false; answer = nil; picks = []; failed = false }
@@ -261,7 +261,7 @@ struct RecommendationRow: View {
         .controlSize(.small)
         .padding(.vertical, 3)
         .overlay(alignment: .bottomLeading) {
-            if case .community = item, let e = model.communityError { Text(e).font(.caption2).foregroundStyle(.red).offset(y: 10).lineLimit(1) }
+            if case .community = item, let e = model.communityError { Text(e).font(.caption2).foregroundStyle(PColor.danger.fg).offset(y: 10).lineLimit(1) }
         }
     }
 }

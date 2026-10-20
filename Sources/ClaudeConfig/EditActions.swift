@@ -79,10 +79,10 @@ struct FileEditorSheet: View {
     @State private var error: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.s) {
+        VStack(alignment: .leading, spacing: PSpace.s2) {
             Text(url.path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled).lineLimit(1).truncationMode(.middle)
             TextEditor(text: $text).font(.system(.body, design: .monospaced)).frame(minWidth: 640, minHeight: 420)
-            if let error { Text(error).foregroundStyle(.red).font(.callout) }
+            if let error { Text(error).foregroundStyle(PColor.danger.fg).font(.callout) }
             HStack {
                 Text(formatTokens(estimateTokens(text))).font(.caption).foregroundStyle(.secondary)
                 Spacer()
@@ -90,7 +90,7 @@ struct FileEditorSheet: View {
                 Button("Save") { save() }.keyboardShortcut("s").disabled(text == original)
             }
         }
-        .padding(Space.l)
+        .padding(PSpace.s4)
         .onAppear {
             original = readText(url) ?? ""
             text = original
@@ -123,7 +123,7 @@ struct StaleBadge: View {
                 .font(.caption2.weight(.semibold))
                 .padding(.horizontal, 6).padding(.vertical, 2)
                 .background((level == .stale ? Color.orange : Color.yellow).opacity(0.2), in: Capsule())
-                .foregroundStyle(level == .stale ? .orange : .secondary)
+                .foregroundStyle(level == .stale ? PColor.attention.fg : .secondary)
                 .help(reason)
         }
     }
@@ -137,16 +137,16 @@ struct UndoToast: View {
         Group {
             if let err = model.actionError {
                 toast {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(PColor.attention.fg)
                     Text(err).lineLimit(2)
                     Button("Dismiss") { model.actionError = nil }
                 }
             } else if let a = model.lastAction {
                 toast {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(PColor.success.fg)
                     Text(a.title).lineLimit(1)
-                    if !a.undo.isEmpty { Button("Undo") { model.undoLast() }.keyboardShortcut("z", modifiers: .command) }
-                    Button { model.lastAction = nil } label: { Image(systemName: "xmark") }.buttonStyle(.borderless).help("Dismiss")
+                    if !a.undo.isEmpty { Button("Undo") { model.undoLast() }}
+                    Button { model.lastAction = nil } label: { Image(systemName: "xmark") }.buttonStyle(.borderless).help("Dismiss").accessibilityLabel("Dismiss")
                 }
                 .task(id: a.title) { try? await Task.sleep(for: .seconds(8)); if model.lastAction?.title == a.title { model.lastAction = nil } }
             }
@@ -156,13 +156,13 @@ struct UndoToast: View {
     }
 
     private func toast(@ViewBuilder _ c: () -> some View) -> some View {
-        HStack(spacing: Space.m, content: c)
+        HStack(spacing: PSpace.s3, content: c)
             .font(.callout)
-            .padding(.horizontal, Space.l).padding(.vertical, Space.s)
+            .padding(.horizontal, PSpace.s4).padding(.vertical, PSpace.s2)
             .background(.regularMaterial, in: Capsule())
             .overlay(Capsule().strokeBorder(.separator, lineWidth: 0.5))
             .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
-            .padding(Space.l)
+            .padding(PSpace.s4)
             .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }

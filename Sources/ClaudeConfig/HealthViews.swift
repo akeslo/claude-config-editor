@@ -8,8 +8,8 @@ struct Metric: View {
     var tint: Color?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.xs) {
-            Text(value).font(.metric).foregroundStyle(tint ?? .primary).lineLimit(1).fixedSize()
+        VStack(alignment: .leading, spacing: PSpace.s1) {
+            Text(value).font(PType.title.monospacedDigit()).foregroundStyle(tint ?? .primary).lineLimit(1).fixedSize()
             Text(label).font(.caption).foregroundStyle(.secondary).lineLimit(1).fixedSize()
         }
         .explains(term)
@@ -26,19 +26,20 @@ struct ContextView: View {
         let total = budget.reduce(0) { $0 + $1.tokens } + projectRows.reduce(0) { $0 + $1.tokens }
         let maxTokens = max(1, (budget.map(\.tokens) + projectRows.map(\.tokens)).max() ?? 1)
         ScrollView {
-            VStack(alignment: .leading, spacing: Space.l) {
-                Card(source: "config files, ≈4 chars per token") {
-                    Metric(value: formatTokens(total), label: "estimated before your first message", term: .contextWindow, tint: .brand)
+            VStack(alignment: .leading, spacing: PSpace.s4) {
+                PBox {
+                    SourceTag("config files, ≈4 chars per token")
+                    Metric(value: formatTokens(total), label: "estimated before your first message", term: .contextWindow, tint: PColor.accent.fg)
                     Text("Estimates use about 4 characters per token, plus the system prompt and tools, which are not counted here. Run /context inside Claude for exact numbers.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                HStack(alignment: .top, spacing: Space.l) {
-                    Card(title: "Every session") {
+                HStack(alignment: .top, spacing: PSpace.s4) {
+                    PBox(title: "Every session") {
                         ForEach(budget, id: \.label) { row in
                             BudgetRow(label: row.label, note: row.note, tokens: row.tokens, max: maxTokens, term: row.term)
                         }
                     }
-                    Card(title: "In one project") {
+                    PBox(title: "In one project") {
                         Picker("Project", selection: $project) {
                             Text("Choose…").tag("")
                             ForEach(model.snapshot.projects.filter(\.folderExists)) { Text(shortPath(URL(filePath: $0.path))).tag($0.path) }
@@ -52,7 +53,7 @@ struct ContextView: View {
                     }
                 }
             }
-            .padding(Space.l)
+            .padding(PSpace.s4)
         }
     }
 
@@ -83,7 +84,7 @@ struct BudgetRow: View {
     let term: Term
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.xs) {
+        VStack(alignment: .leading, spacing: PSpace.s1) {
             HStack {
                 Text(label)
                 Spacer()
@@ -94,5 +95,6 @@ struct BudgetRow: View {
         }
         .explains(term)
         .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label): \(formatTokens(tokens)) tokens, \(note)")
     }
 }

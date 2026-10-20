@@ -27,8 +27,8 @@ struct SkillsView: View {
                 ForEach(Page.allCases, id: \.self) { Text($0.rawValue) }
             }
             .pickerStyle(.segmented).labelsHidden().fixedSize()
-            .padding(.top, Space.m)
-            Text(page.explanation).font(.callout).foregroundStyle(.secondary).padding(.vertical, Space.s)
+            .padding(.top, PSpace.s3)
+            Text(page.explanation).font(.callout).foregroundStyle(.secondary).padding(.vertical, PSpace.s2)
             Divider()
             switch page {
             case .grid: SkillGridView(skills: skills)
@@ -133,10 +133,10 @@ private struct StatesPage: View {
             .overlay { if rows.isEmpty && !skills.isEmpty { ContentUnavailableView.search(text: filter) } }
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: Space.m) {
-                HStack(alignment: .firstTextBaseline, spacing: Space.m) {
+            VStack(alignment: .leading, spacing: PSpace.s3) {
+                HStack(alignment: .firstTextBaseline, spacing: PSpace.s3) {
                     VStack(alignment: .leading, spacing: 2) {
-                        (Text("Skills cost ") + Text(formatTokens(total)).foregroundStyle(Color.spark) + Text(" every session")).font(.title2.weight(.semibold))
+                        (Text("Skills cost ") + Text(formatTokens(total)).foregroundStyle(PColor.attention.fg) + Text(" every session")).font(.title2.weight(.semibold))
                         Text("Always available skills are listed so Claude can pick them. On demand skills cost nothing until you type /name.")
                             .font(.callout).foregroundStyle(.secondary).lineLimit(1)
                     }
@@ -152,9 +152,9 @@ private struct StatesPage: View {
                 }
                 CleanupReviewRow()
             }
-            .padding(Space.l)
+            .padding(PSpace.s4)
             Divider()
-            HStack(spacing: Space.m) {
+            HStack(spacing: PSpace.s3) {
                 TextField("Filter skills", text: $filter).textFieldStyle(.roundedBorder).frame(maxWidth: 280)
                 Picker("State", selection: $stateFilter) {
                     Text("All states").tag(SkillState?.none)
@@ -171,13 +171,13 @@ private struct StatesPage: View {
                 Spacer()
                 Text("\(rows.count) of \(skills.count)").font(.callout).foregroundStyle(.secondary).monospacedDigit()
             }
-            .padding(.horizontal, Space.l).padding(.vertical, Space.s)
+            .padding(.horizontal, PSpace.s4).padding(.vertical, PSpace.s2)
             Divider()
             BulkBar(sel: $model.pickedSkills, visible: visible, actions: model.skillActions(model.pickedSkills.ids))
                 }
                 .background(.background)
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) { Button("Plugins are turned on or off in Plugins") { model.section = .plugins }.buttonStyle(.link).padding(Space.s).frame(maxWidth: .infinity, alignment: .leading).background(.background) }
+            .safeAreaInset(edge: .bottom, spacing: 0) { Button("Plugins are turned on or off in Plugins") { model.section = .plugins }.buttonStyle(.link).padding(PSpace.s2).frame(maxWidth: .infinity, alignment: .leading).background(.background) }
     }
 
     private func source(_ c: Component) -> String { c.belongsTo }
@@ -217,14 +217,14 @@ private struct CheatSheet: View {
         @Bindable var model = model
         let visible = shown.map(\.id)
         VStack(spacing: 0) {
-            HStack(spacing: Space.m) {
+            HStack(spacing: PSpace.s3) {
                 TextField("Filter on-demand skills", text: $filter).textFieldStyle(.roundedBorder).frame(maxWidth: 320)
                 Spacer()
                 Button("Copy List", systemImage: "doc.on.doc") { copy(shown.map { "/\($0.name) — \(purpose($0))" }.joined(separator: "\n")) }
                     .disabled(shown.isEmpty)
                     .help("Copies every shown /command with its purpose, one per line")
             }
-            .padding(Space.l)
+            .padding(PSpace.s4)
             BulkBar(sel: $model.pickedSkills, visible: visible, actions: model.skillActions(model.pickedSkills.ids))
             Divider()
             if skills.isEmpty {
@@ -238,7 +238,7 @@ private struct CheatSheet: View {
                         DisclosureGroup(isExpanded: Binding(get: { !collapsed.contains(g.name) }, set: { if $0 { collapsed.remove(g.name) } else { collapsed.insert(g.name) } })) {
                             ForEach(g.skills) { s in row(s, visible) }
                         } label: {
-                            HStack(spacing: Space.s) {
+                            HStack(spacing: PSpace.s2) {
                                 SelectAllBox(sel: $model.pickedSkills, visible: g.skills.map(\.id))
                                 Text(g.name).font(.headline)
                                 Text("\(g.skills.count)").foregroundStyle(.secondary).monospacedDigit()
@@ -254,7 +254,7 @@ private struct CheatSheet: View {
 
     private func row(_ s: Component, _ visible: [String]) -> some View {
         @Bindable var model = model
-        return HStack(alignment: .firstTextBaseline, spacing: Space.l) {
+        return HStack(alignment: .firstTextBaseline, spacing: PSpace.s4) {
                         SelectBox(sel: $model.pickedSkills, id: s.id, visible: visible, name: "/" + s.name)
                         Text("/" + s.name).font(.body.monospaced()).textSelection(.enabled)
                             .frame(minWidth: 200, alignment: .leading)
@@ -265,7 +265,7 @@ private struct CheatSheet: View {
                             .labelStyle(.iconOnly).buttonStyle(.borderless)
                             .help("Copy /\(s.name)")
                     }
-                    .padding(.vertical, Space.xs)
+                    .padding(.vertical, PSpace.s1)
     }
 }
 

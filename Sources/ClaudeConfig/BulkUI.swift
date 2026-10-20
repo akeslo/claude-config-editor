@@ -56,7 +56,7 @@ struct BulkBar<ID: Hashable, Trailing: View>: View {
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
-        HStack(spacing: Space.s) {
+        HStack(spacing: PSpace.s2) {
             SelectAllBox(sel: $sel, visible: visible)
             if sel.isEmpty {
                 Text("Select items to act on several at once").font(.callout).foregroundStyle(.secondary)
@@ -74,7 +74,7 @@ struct BulkBar<ID: Hashable, Trailing: View>: View {
             trailing()
         }
         .controlSize(.small)
-        .padding(.horizontal, Space.l).padding(.vertical, Space.s)
+        .padding(.horizontal, PSpace.s4).padding(.vertical, PSpace.s2)
         .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
         .background(.bar)
         .onChange(of: visible, initial: true) { sel.keepVisible(visible) }

@@ -12,7 +12,7 @@ struct ReviewView: View {
                 Text("Findings").tag("findings")
                 Text("Problems & Cleanup").tag("problems")
             }
-            .pickerStyle(.segmented).labelsHidden().fixedSize().padding(.vertical, Space.m)
+            .pickerStyle(.segmented).labelsHidden().fixedSize().padding(.vertical, PSpace.s3)
             Divider()
             if tab == "problems" { ProblemsView() } else { FindingsList() }
         }
@@ -21,6 +21,7 @@ struct ReviewView: View {
 
 /// Things that failed to load, plus stale items, each with one cleanup action (fix, delete with undo, or edit).
 struct ProblemsView: View {
+    @ScaledMetric private var iconW: CGFloat = 28
     @Environment(AppModel.self) private var model
     @State private var editing: ProblemEdit?
     @State private var sel = BulkSelection<String>()
@@ -34,33 +35,33 @@ struct ProblemsView: View {
         List {
             Section {
                 ForEach(failed) { issue in
-                    HStack(alignment: .center, spacing: Space.l) {
+                    HStack(alignment: .center, spacing: PSpace.s4) {
                         SelectBox(sel: $sel, id: issue.id, visible: visible, name: issue.title)
-                        Image(systemName: "xmark.octagon").font(.title2).foregroundStyle(.orange).frame(width: 28)
-                        VStack(alignment: .leading, spacing: Space.xs) {
+                        Image(systemName: "xmark.octagon").font(.title2).foregroundStyle(PColor.attention.fg).frame(width: iconW)
+                        VStack(alignment: .leading, spacing: PSpace.s1) {
                             Text(issue.title).font(.body.weight(.medium))
                             Text(issue.detail).font(.callout).foregroundStyle(.secondary).lineLimit(3)
                             Text(issue.subject).font(.caption).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
                         }
-                        Spacer(minLength: Space.l)
+                        Spacer(minLength: PSpace.s4)
                         if let fix = issue.fix { Button(Apply.needsConfirm(fix) ? "Fix…" : "Fix") { model.propose(issue.title, fix) }.help(fix.summary) }
                         if let t = issue.trashable { ConfirmDeleteButton(url: t) }
                         else if let f = issue.file, issue.fix == nil { Button("Edit…") { editing = ProblemEdit(url: f) } }
-                    }.padding(.vertical, Space.s)
+                    }.padding(.vertical, PSpace.s2)
                 }
             } header: { Text("Failed to load (\(failed.count))").font(.headline) }
             Section {
                 ForEach(stale, id: \.url) { item in
-                    HStack(spacing: Space.l) {
+                    HStack(spacing: PSpace.s4) {
                         SelectBox(sel: $sel, id: item.url.path, visible: visible, name: item.name)
-                        Image(systemName: "clock.badge.exclamationmark").font(.title2).foregroundStyle(.secondary).frame(width: 28)
-                        VStack(alignment: .leading, spacing: Space.xs) {
+                        Image(systemName: "clock.badge.exclamationmark").font(.title2).foregroundStyle(.secondary).frame(width: iconW)
+                        VStack(alignment: .leading, spacing: PSpace.s1) {
                             Text(item.name).font(.body.weight(.medium))
                             Text(item.reason).font(.callout).foregroundStyle(.secondary)
                         }
-                        Spacer(minLength: Space.l)
+                        Spacer(minLength: PSpace.s4)
                         ConfirmDeleteButton(url: item.url)
-                    }.padding(.vertical, Space.s)
+                    }.padding(.vertical, PSpace.s2)
                 }
             } header: { Text("Stale (\(stale.count))").font(.headline) }
         }
@@ -101,7 +102,7 @@ struct FindingsList: View {
             Section {
                 header(findings)
                     .listRowSeparator(.hidden)
-                    .padding(.vertical, Space.l)
+                    .padding(.vertical, PSpace.s4)
             }
             ForEach(Issue.Category.allCases, id: \.self) { cat in
                 let group = findings.filter { $0.category == cat }
@@ -110,7 +111,7 @@ struct FindingsList: View {
                         ForEach(group) { FindingRow(issue: $0, sel: $sel, visible: visible) }
                     } header: {
                         Label(cat.title, systemImage: cat.symbol).font(.headline).foregroundStyle(.primary)
-                            .padding(.top, Space.m)
+                            .padding(.top, PSpace.s3)
                     }
                 }
             }
@@ -120,7 +121,7 @@ struct FindingsList: View {
         .bulkSelectable($sel, visible: visible, actions: issueActions(model, findings.filter { sel.contains($0.id) }))
         .overlay {
             if findings.isEmpty && !model.loading {
-                if isFirstRun { FirstRunCard().padding(.top, 120) } else {
+                if isFirstRun { FirstRunPanel().padding(.top, 120) } else {
                     ContentUnavailableView("Your setup follows best practice", systemImage: "checkmark.seal",
                                            description: Text("No security, broken-config or context-cost findings."))
                         .padding(.top, 120)
@@ -132,7 +133,7 @@ struct FindingsList: View {
     private func header(_ findings: [Issue]) -> some View {
         let urgent = findings.filter { $0.category <= .broken }.count
         let skills = model.snapshot.components.filter { $0.kind == .skill }.reduce(0) { $0 + $1.listingTokens }
-        return VStack(alignment: .leading, spacing: Space.s) {
+        return VStack(alignment: .leading, spacing: PSpace.s2) {
             Text(findings.isEmpty ? "All clear" : urgent > 0 ? "\(urgent) thing\(urgent == 1 ? "" : "s") to fix first" : "\(findings.count) way\(findings.count == 1 ? "" : "s") to start lighter")
                 .font(.largeTitle.weight(.semibold))
             Text("Each session starts with \(formatTokens(model.startupTokens)) of your setup. Skill descriptions are \(formatTokens(skills)) of that.")
@@ -143,6 +144,7 @@ struct FindingsList: View {
 }
 
 struct FindingRow: View {
+    @ScaledMetric private var iconW: CGFloat = 28
     @Environment(AppModel.self) private var model
     let issue: Issue
     @Binding var sel: BulkSelection<String>
@@ -150,32 +152,32 @@ struct FindingRow: View {
 
     private var tint: Color {
         switch issue.category {
-        case .security: .red
-        case .broken: .orange
+        case .security: PColor.danger.fg
+        case .broken: PColor.attention.fg
         case .context, .tidy: .secondary
         }
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: Space.l) {
+        HStack(alignment: .center, spacing: PSpace.s4) {
             SelectBox(sel: $sel, id: issue.id, visible: visible, name: issue.title)
             Image(systemName: issue.category.symbol)
-                .font(.title2).foregroundStyle(tint).frame(width: 28)
+                .font(.title2).foregroundStyle(tint).frame(width: iconW)
                 .accessibilityLabel(issue.category.title)
-            VStack(alignment: .leading, spacing: Space.xs) {
+            VStack(alignment: .leading, spacing: PSpace.s1) {
                 Text(issue.title).font(.body.weight(.medium))
                 Text(issue.detail).font(.callout).foregroundStyle(.secondary).lineLimit(3).fixedSize(horizontal: false, vertical: true)
                 if let rule = issue.rule.flatMap(model.advice.rule) { adviceLine(rule) }
                 Text(issue.subject).font(.caption).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.middle)
             }
-            Spacer(minLength: Space.l)
+            Spacer(minLength: PSpace.s4)
             if issue.tokens > 0 {
                 Text(formatTokens(issue.tokens)).font(.callout.monospacedDigit()).foregroundStyle(.secondary)
                     .help("Context cost per session")
             }
             action.controlSize(.large)
         }
-        .padding(.vertical, Space.m)
+        .padding(.vertical, PSpace.s3)
         .contextMenu {
             Button("Copy AI Prompt") { copy(issue.aiPrompt) }
             if let file = issue.file { Button("Open \(file.lastPathComponent)") { openFile(file) } }
@@ -185,7 +187,7 @@ struct FindingRow: View {
 
     private func adviceLine(_ rule: AdviceRule) -> some View {
         let host = (rule.source.host ?? "").replacingOccurrences(of: "www.", with: "", options: .anchored)
-        return HStack(spacing: Space.s) {
+        return HStack(spacing: PSpace.s2) {
             if let why = rule.why { Text(why).foregroundStyle(.secondary) }
             Link("\(rule.kind == .official ? "Official" : "Community") · \(host)", destination: rule.source)
         }.font(.caption)
@@ -214,12 +216,12 @@ struct FindingRow: View {
 }
 
 /// First run: nothing to fix, so give the user something to act on instead of an "all clear" with nothing behind it.
-struct FirstRunCard: View {
+struct FirstRunPanel: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
         let always = uniqueSkills(model.snapshot.components).filter { $0.kind == .skill && $0.state == .always }
-        VStack(alignment: .leading, spacing: Space.m) {
+        VStack(alignment: .leading, spacing: PSpace.s3) {
             Label("Nothing set up yet", systemImage: "sparkles").font(.title2.weight(.semibold))
             Text("This Mac has no personal Claude Code skills or settings yet, so there's nothing to check. Start with a skill.")
                 .foregroundStyle(.secondary)
@@ -239,7 +241,7 @@ struct FirstRunCard: View {
                 Button("My on-demand skills") { open(.cheatSheet) }
             }
         }
-        .padding(Space.l)
+        .padding(PSpace.s4)
         .frame(maxWidth: 560, alignment: .leading)
     }
 

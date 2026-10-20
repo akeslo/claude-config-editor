@@ -17,7 +17,7 @@ struct CommunityView: View {
         let titles = Dictionary(uniqueKeysWithValues: CommunityList.allCases.map { ($0.rawValue, $0.title) })
         VStack(spacing: 0) {
             if let busy = model.communityBusy { ProgressView(busy).controlSize(.small).padding(6) }
-            if let error = model.communityError { Text(error).foregroundStyle(.red).font(.callout).padding(6).textSelection(.enabled) }
+            if let error = model.communityError { Text(error).foregroundStyle(PColor.danger.fg).font(.callout).padding(6).textSelection(.enabled) }
             if model.community.isEmpty {
                 switch model.communityStatus {
                 case .connecting, .connected: ProgressView("Fetching community skill lists…").frame(maxHeight: .infinity)

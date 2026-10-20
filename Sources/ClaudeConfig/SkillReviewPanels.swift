@@ -8,7 +8,7 @@ struct CleanupReviewRow: View {
     @State private var open = false
 
     var body: some View {
-        HStack(spacing: Space.s) {
+        HStack(spacing: PSpace.s2) {
             Label("Clean-up review", systemImage: "scissors").font(.headline)
             Group {
                 if let facts {
@@ -21,14 +21,14 @@ struct CleanupReviewRow: View {
             Spacer()
             Button("Review…") { open = true }.disabled(facts == nil)
         }
-        .padding(.horizontal, Space.m).frame(height: 40)
+        .padding(.horizontal, PSpace.s3).frame(height: 40)
         .background(Color(nsColor: .controlBackgroundColor), in: .rect(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5))
         .sheet(isPresented: $open) {
             VStack(spacing: 0) {
-                CleanupReviewPanel(facts: facts ?? []).padding(Space.l)
+                CleanupReviewPanel(facts: facts ?? []).padding(PSpace.s4)
                 Divider()
-                HStack { Spacer(); Button("Done") { open = false }.keyboardShortcut(.defaultAction) }.padding(Space.m)
+                HStack { Spacer(); Button("Done") { open = false }.keyboardShortcut(.defaultAction) }.padding(PSpace.s3)
             }
             .frame(width: 760, height: 560)
         }
@@ -41,6 +41,7 @@ struct CleanupReviewRow: View {
 
 /// What to prune, merge or demote. Facts first (computed, verified), then Claude's unverified suggestions.
 struct CleanupReviewPanel: View {
+    @ScaledMetric private var kindW: CGFloat = 170
     @Environment(AppModel.self) private var model
     let facts: [SkillFacts]
     @State private var sel = BulkSelection<String>()
@@ -53,33 +54,33 @@ struct CleanupReviewPanel: View {
             return (ad, c, fix)
         }
         let visible = findings.map(\.id)
-        VStack(alignment: .leading, spacing: Space.s) {
+        VStack(alignment: .leading, spacing: PSpace.s2) {
             header
-            ScrollView { VStack(alignment: .leading, spacing: Space.xs) {
+            ScrollView { VStack(alignment: .leading, spacing: PSpace.s1) {
                 Label("Facts from your usage data (\(findings.count))", systemImage: "checkmark.seal").font(.caption.weight(.semibold))
-                BulkBar(sel: $sel, visible: visible, actions: actions(findings)).padding(.horizontal, -Space.l)
+                BulkBar(sel: $sel, visible: visible, actions: actions(findings)).padding(.horizontal, -PSpace.s4)
                 if findings.isEmpty { Text("Nothing to clean up.").font(.callout).foregroundStyle(.secondary) }
                 ForEach(findings) { f in
-                    HStack(spacing: Space.s) {
+                    HStack(spacing: PSpace.s2) {
                         SelectBox(sel: $sel, id: f.id, visible: visible, name: f.title)
-                        Text(f.kind.rawValue).font(.caption).foregroundStyle(.secondary).frame(width: 170, alignment: .leading)
+                        Text(f.kind.rawValue).font(.caption).foregroundStyle(.secondary).frame(width: kindW, alignment: .leading)
                         Text(f.title).font(.callout.monospaced()).lineLimit(1)
                         Text(f.why).font(.caption).foregroundStyle(.secondary).lineLimit(1).help(f.why)
                         Spacer()
                         if let a = f.action { actionButton(a) }
                     }
                 }
-                Divider().padding(.vertical, Space.xs)
+                Divider().padding(.vertical, PSpace.s1)
                 HStack {
                     Label("Claude's clean-up suggestions", systemImage: "sparkles").font(.caption.weight(.semibold))
-                    Text("unverified AI suggestions").font(.caption).foregroundStyle(.orange)
+                    Text("unverified AI suggestions").font(.caption).foregroundStyle(PColor.attention.fg)
                 }
                 if let e = model.analysisError { Label(e, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary) }
                 if model.analysis == nil && !model.analyzing && model.analysisError == nil {
                     Text("No review yet. Ask Claude which skills to prune, merge or demote.").foregroundStyle(.secondary)
                 }
                 ForEach(advice, id: \.0) { ad, c, fix in
-                    HStack(spacing: Space.s) {
+                    HStack(spacing: PSpace.s2) {
                         Text("/" + c.name).font(.callout.monospaced())
                         Image(systemName: "arrow.right").foregroundStyle(.secondary)
                         Text(ad.state).font(.callout.weight(.medium))
@@ -90,7 +91,7 @@ struct CleanupReviewPanel: View {
                     }
                 }
             }
-            .padding(.top, Space.xs)
+            .padding(.top, PSpace.s1)
             .frame(maxWidth: .infinity, alignment: .leading)
             }
             .bulkKeys($sel, visible: visible)
@@ -98,7 +99,7 @@ struct CleanupReviewPanel: View {
     }
 
     private var header: some View {
-            HStack(spacing: Space.s) {
+            HStack(spacing: PSpace.s2) {
                 Label("Clean-up review", systemImage: "scissors").font(.headline)
                 if model.analyzing { ProgressView().controlSize(.small) }
                 else if let a = model.analysis { Text("AI part: unverified AI suggestions · \(a.date.formatted(.relative(presentation: .named)))").font(.caption).foregroundStyle(.secondary) }

@@ -39,7 +39,7 @@ struct FixSheet: View {
             }
             Text(fix.summary).font(.system(.body, design: .monospaced)).textSelection(.enabled)
             Text(result == nil ? "Preview" : failed ? "Failed" : "Done").font(.headline)
-                .foregroundStyle(failed ? .red : .primary)
+                .foregroundStyle(failed ? PColor.danger.fg : .primary)
             ScrollView {
                 Text(result ?? (preview.isEmpty ? "Loading preview…" : preview))
                     .font(.system(.callout, design: .monospaced))
@@ -51,7 +51,7 @@ struct FixSheet: View {
             .frame(minHeight: 160, maxHeight: 360)
             if case .cli(let args, _, _) = pending.fix, args.first == "purge", result == nil {
                 Text("Purge permanently deletes this project's transcripts, auto memory, history lines and its trust and allowed-tool approvals. It is not backed up and cannot be undone. Claude will ask to trust the folder again.")
-                    .font(.callout).foregroundStyle(.red)
+                    .font(.callout).foregroundStyle(PColor.danger.fg)
             }
             if pending.fix.editsSettings, result == nil {
                 Text("The file is backed up to ~/.claude/config-editor-backups/<tool> first, and the change is refused if Claude wrote the file after it was read.")

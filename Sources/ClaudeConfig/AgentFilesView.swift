@@ -35,7 +35,7 @@ struct AgentFilesView: View {
         let picked = rows.map(\.entry).filter { bulk.contains($0.id) && $0.exists }.map(\.url) + emptyDirs.filter { bulk.contains($0.path) }
         HSplitView {
             VStack(spacing: 0) {
-                HStack(spacing: Space.m) {
+                HStack(spacing: PSpace.s3) {
                     TextField("Filter memory", text: $search).textFieldStyle(.roundedBorder).frame(minWidth: 120, maxWidth: 220)
                     Picker("Project", selection: $project) {
                         Text("All projects").tag("All")
@@ -53,7 +53,7 @@ struct AgentFilesView: View {
                         Toggle("Empty (\(emptyCount))", isOn: $showEmpty).toggleStyle(.checkbox).font(.caption)
                             .help("Folders whose files add ≈0 tokens to context and need no cleanup")
                     }
-                }.padding(Space.m)
+                }.padding(PSpace.s3)
                 BulkBar(sel: $bulk, visible: visible, actions: [
                     BulkAction(title: "Move to Trash", icon: "trash", check: bulkCheck(picked) { trashRefusal($0) }) {
                         model.propose("Move \(picked.count) to the Trash", Memory.removal(picked))
@@ -69,9 +69,9 @@ struct AgentFilesView: View {
                     TableColumn("Name", value: \MemRow.name) { (r: MemRow) in
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 4) {
-                                if !r.entry.recommendations.isEmpty { Image(systemName: "lightbulb.fill").foregroundStyle(.orange).help(r.entry.recommendations.joined(separator: "\n")) }
+                                if !r.entry.recommendations.isEmpty { Image(systemName: "lightbulb.fill").foregroundStyle(PColor.attention.fg).help(r.entry.recommendations.joined(separator: "\n")) }
                                 Text(r.name).font(.body.weight(.medium)).foregroundStyle(r.entry.exists ? .primary : .secondary)
-                                if let s = r.entry.stale { Image(systemName: "clock.badge.exclamationmark").foregroundStyle(.orange).help(s) }
+                                if let s = r.entry.stale { Image(systemName: "clock.badge.exclamationmark").foregroundStyle(PColor.attention.fg).help(s) }
                                 else if r.entry.exists { StaleBadge(Staleness.of(modified: r.entry.modified)) }
                                 else { Text("missing").font(.caption2).foregroundStyle(.tertiary) }
                             }
@@ -132,7 +132,7 @@ struct AgentFilesView: View {
     @ViewBuilder private func detail(_ e: MemoryEntry?) -> some View {
         if let e {
             ScrollView {
-                VStack(alignment: .leading, spacing: Space.m) {
+                VStack(alignment: .leading, spacing: PSpace.s3) {
                     Text(e.url.lastPathComponent).font(.title2.weight(.semibold))
                     Text(shortPath(e.url)).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
                     HStack { actions(e) }
@@ -141,13 +141,13 @@ struct AgentFilesView: View {
                             Text(e.type.purpose)
                             ForEach(e.type.whatToPut, id: \.self) { Label($0, systemImage: "checkmark").font(.callout) }
                             Text("Recommended: under \(e.type.lineLimit) lines" + (e.exists ? " · yours: \(e.lines)" : ""))
-                                .font(.caption).foregroundStyle(e.lines > e.type.lineLimit ? .orange : .secondary)
+                                .font(.caption).foregroundStyle(e.lines > e.type.lineLimit ? PColor.attention.fg : .secondary)
                         }.frame(maxWidth: .infinity, alignment: .leading)
                     }
                     if !e.recommendations.isEmpty {
                         GroupBox("Recommendations") {
                             VStack(alignment: .leading, spacing: 6) {
-                                ForEach(e.recommendations, id: \.self) { Label($0, systemImage: "lightbulb").foregroundStyle(.orange) }
+                                ForEach(e.recommendations, id: \.self) { Label($0, systemImage: "lightbulb").foregroundStyle(PColor.attention.fg) }
                                 ForEach(e.actions) { a in Button(a.button) { model.propose(a.title, a.fix) } }
                             }.frame(maxWidth: .infinity, alignment: .leading)
                         }
@@ -158,7 +158,7 @@ struct AgentFilesView: View {
                                 .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
-                }.padding(Space.l)
+                }.padding(PSpace.s4)
             }
         } else {
             ContentUnavailableView("Select a file", systemImage: "doc.text", description: Text("See what it's for, recommendations, and edit, reset or delete it."))

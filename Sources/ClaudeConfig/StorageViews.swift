@@ -38,7 +38,7 @@ struct StorageView: View {
                 TableColumn("Items", value: \.itemCount) { Text("\($0.itemCount)").monospacedDigit() }.width(50)
                 TableColumn("Oldest", value: \.oldest, comparator: OptionalDateComparator()) { Text(relative($0.oldest)) }.width(110)
                 TableColumn("Safety", value: \.safety.rawValue) { a in
-                    Text(a.safety.rawValue).foregroundStyle(a.safety == .safe ? .green : a.safety == .keep ? .secondary : .orange)
+                    Text(a.safety.rawValue).foregroundStyle(a.safety == .safe ? PColor.success.fg : a.safety == .keep ? .secondary : PColor.attention.fg)
                         .help(safetyHelp(a.safety))
                 }.width(110)
                 TableColumn("Auto-cleaned") { a in
@@ -63,7 +63,7 @@ struct StorageView: View {
                         }
                     }
                 }
-                .padding(Space.s)
+                .padding(PSpace.s2)
                 let shown = items.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }.sorted(using: itemSort)
                 let pickedItems = items.filter { picked.contains($0.id) }
                 Table(shown, selection: $picked.ids, sortOrder: $itemSort) {
@@ -151,7 +151,7 @@ struct ProjectsView: View {
             TableColumn("", value: \Row.name) { (r: Row) in SelectBox(sel: $sel, id: r.id, visible: rows.map(\.id), name: shortPath(URL(filePath: r.p.path))) }.width(22)
             TableColumn("Folder", value: \Row.name) { (r: Row) in
                 HStack {
-                    if !r.p.folderExists { Image(systemName: "folder.badge.questionmark").foregroundStyle(.orange).help("This folder no longer exists.") }
+                    if !r.p.folderExists { Image(systemName: "folder.badge.questionmark").foregroundStyle(PColor.attention.fg).help("This folder no longer exists.") }
                     Text(shortPath(URL(filePath: r.p.path))).lineLimit(1).truncationMode(.middle)
                     StaleBadge(stale(r.p))
                 }

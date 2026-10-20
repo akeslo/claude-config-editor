@@ -60,7 +60,7 @@ struct SettingsView: View {
         let readOnly = source.scope == .managed
         let keys = source.root.keys.sorted().filter { search.isEmpty || $0.localizedCaseInsensitiveContains(search) }
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: Space.m) {
+            HStack(spacing: PSpace.s3) {
                 Picker("Editing", selection: $fileID) {
                     ForEach(sources) { s in Text("\(sourceLabel(s))  —  \(shortPath(s.url))").tag(s.id) }
                 }
@@ -71,10 +71,10 @@ struct SettingsView: View {
                     .disabled(readOnly)
                     .keyboardShortcut("n")
             }
-            .padding(Space.m)
+            .padding(PSpace.s3)
             Text(readOnly ? "Managed settings are set by your organization and are read-only."
                  : "Changes save immediately (a backup is taken; Undo appears below). Precedence: managed › project local › project › user local › user.")
-                .font(.caption).foregroundStyle(.secondary).padding(.horizontal, Space.m).padding(.bottom, Space.s)
+                .font(.caption).foregroundStyle(.secondary).padding(.horizontal, PSpace.s3).padding(.bottom, PSpace.s2)
             Divider()
             if keys.isEmpty {
                 ContentUnavailableView(search.isEmpty ? "No keys in this file" : "No matching keys", systemImage: "slider.horizontal.3",
@@ -117,7 +117,7 @@ private struct SettingRow: View {
 
     var body: some View {
         LabeledContent {
-            HStack(spacing: Space.s) {
+            HStack(spacing: PSpace.s2) {
                 editor.disabled(readOnly)
                 if !readOnly, let from = ScopeMove.target(ofSettings: source.url) {
                     ScopeMenu(current: from) { t in model.moveScope(key, to: t) { try ScopeMove.move(settingKey: key, from: source.url, to: t) } }
@@ -135,7 +135,7 @@ private struct SettingRow: View {
         } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Text(key).fontWeight(.medium).help(settingTerm(key).tooltip)
-                if let over = overriddenBy { Text("Overridden by \(sourceLabel(over))").font(.caption).foregroundStyle(.orange) }
+                if let over = overriddenBy { Text("Overridden by \(sourceLabel(over))").font(.caption).foregroundStyle(PColor.attention.fg) }
             }
         }
         .onAppear { text = scalarText }
@@ -199,10 +199,10 @@ private struct JSONValueSheet: View {
     @State private var error: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.s) {
+        VStack(alignment: .leading, spacing: PSpace.s2) {
             Text(title).font(.headline)
             TextEditor(text: $text).font(.system(.body, design: .monospaced)).frame(minWidth: 560, minHeight: 360)
-            if let error { Text(error).foregroundStyle(.red).font(.callout) }
+            if let error { Text(error).foregroundStyle(PColor.danger.fg).font(.callout) }
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
@@ -212,7 +212,7 @@ private struct JSONValueSheet: View {
                 }.keyboardShortcut("s")
             }
         }
-        .padding(Space.l)
+        .padding(PSpace.s4)
         .onAppear { text = initial }
     }
 }
@@ -230,7 +230,7 @@ private struct AddKeySheet: View {
             TextField("Key", text: $key, prompt: Text("e.g. model, cleanupPeriodDays"))
             TextField("Value", text: $value, prompt: Text("true, 30, opus, or JSON like {\"A\": \"1\"}"), axis: .vertical).lineLimit(1...6)
                 .font(.system(.body, design: .monospaced))
-            if source.root[key] != nil { Text("\(key) already exists; this replaces it.").foregroundStyle(.orange).font(.caption) }
+            if source.root[key] != nil { Text("\(key) already exists; this replaces it.").foregroundStyle(PColor.attention.fg).font(.caption) }
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
@@ -267,12 +267,12 @@ struct PermissionsView: View {
         Table(rules, selection: $sel.ids, sortOrder: $sort) {
             TableColumn("", value: \PermissionRule.rule) { (r: PermissionRule) in SelectBox(sel: $sel, id: r.id, visible: rules.map(\.id), name: r.rule) }.width(22)
             TableColumn("Type", value: \PermissionRule.kind) { (r: PermissionRule) in
-                Text(r.kind).foregroundStyle(r.kind == "deny" ? .red : r.kind == "ask" ? .orange : .primary)
+                Text(r.kind).foregroundStyle(r.kind == "deny" ? PColor.danger.fg : r.kind == "ask" ? PColor.attention.fg : .primary)
                     .help(r.kind == "allowedTools" ? Term.allowedTools.tooltip : "\(r.kind): " + Term.permissions.tooltip)
             }.width(90)
             TableColumn("Rule", value: \PermissionRule.rule) { (r: PermissionRule) in Text(r.rule).font(.system(.body, design: .monospaced)).lineLimit(1).truncationMode(.middle) }
             TableColumn("Scope", value: \PermissionRule.source) { (r: PermissionRule) in
-                HStack(spacing: Space.s) {
+                HStack(spacing: PSpace.s2) {
                     ScopeMenu(current: editable(r) ? ScopeMove.target(ofSettings: r.sourceURL) : nil, fixedLabel: r.kind == "allowedTools" ? "Approval" : "Managed") { t in
                         model.moveScope(r.rule, to: t) { try ScopeMove.move(rule: r, to: t) }
                     }

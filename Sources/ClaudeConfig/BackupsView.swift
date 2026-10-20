@@ -3,6 +3,8 @@ import SwiftUI
 
 /// Backups: every *.bak / *-bak-* / *~ copy left next to a Claude config file, with a diff against its original and restore/reveal/trash.
 struct BackupsView: View {
+    @ScaledMetric private var sizeW: CGFloat = 70
+    @ScaledMetric private var dateW: CGFloat = 140
     @Environment(AppModel.self) private var model
     @State private var files: [BackupFile] = []
     @State private var loading = true
@@ -55,8 +57,8 @@ struct BackupsView: View {
                 Text(shortPath(b.url.deletingLastPathComponent())).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
             Spacer()
-            Text(formatBytes(b.size)).monospacedDigit().font(.caption).frame(width: 70, alignment: .trailing)
-            Text(b.modified?.formatted(date: .abbreviated, time: .shortened) ?? "").font(.caption).foregroundStyle(.secondary).frame(width: 140, alignment: .trailing)
+            Text(formatBytes(b.size)).monospacedDigit().font(.caption).frame(width: sizeW, alignment: .trailing)
+            Text(b.modified?.formatted(date: .abbreviated, time: .shortened) ?? "").font(.caption).foregroundStyle(.secondary).frame(width: dateW, alignment: .trailing)
         }
         .contextMenu { actions(b) }
     }
@@ -72,10 +74,10 @@ struct BackupsView: View {
     @ViewBuilder private func detail(_ b: BackupFile?) -> some View {
         if let b {
             ScrollView {
-                VStack(alignment: .leading, spacing: Space.m) {
+                VStack(alignment: .leading, spacing: PSpace.s3) {
                     Text(b.url.lastPathComponent).font(.title2.weight(.semibold))
                     Text(shortPath(b.url)).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                    Text(b.original.map { "Shadows " + shortPath($0) } ?? "Original location unknown").font(.callout).foregroundStyle(b.original == nil ? .orange : .primary)
+                    Text(b.original.map { "Shadows " + shortPath($0) } ?? "Original location unknown").font(.callout).foregroundStyle(b.original == nil ? PColor.attention.fg : .primary)
                     Text("\(formatBytes(b.size)) · \(b.modified?.formatted(date: .abbreviated, time: .shortened) ?? "unknown date")").font(.caption).foregroundStyle(.secondary)
                     HStack { actions(b) }
                     GroupBox("Diff: current original → this backup") {
@@ -83,12 +85,12 @@ struct BackupsView: View {
                         VStack(alignment: .leading, spacing: 0) {
                             if d.isEmpty { Text("Identical to the current original.").foregroundStyle(.secondary) }
                             ForEach(Array(d.split(separator: "\n", omittingEmptySubsequences: false).enumerated()), id: \.offset) { _, line in
-                                Text(line.isEmpty ? " " : String(line)).foregroundStyle(line.hasPrefix("+") ? .green : line.hasPrefix("-") ? .red : line.hasPrefix("@@") ? .secondary : .primary)
+                                Text(line.isEmpty ? " " : String(line)).foregroundStyle(line.hasPrefix("+") ? PColor.success.fg : line.hasPrefix("-") ? PColor.danger.fg : line.hasPrefix("@@") ? .secondary : .primary)
                             }
                         }
                         .font(.system(.caption, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                     }
-                }.padding(Space.l)
+                }.padding(PSpace.s4)
             }
         } else {
             ContentUnavailableView("Select a backup", systemImage: "clock.arrow.circlepath", description: Text("See its diff against the current file, then restore, reveal or trash it."))

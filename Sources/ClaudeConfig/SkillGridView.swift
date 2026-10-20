@@ -23,7 +23,7 @@ struct SkillGridView: View {
         let ordered = groups.map { ($0.key, $0.value.sorted { ($0.usageCount, $1.name) > ($1.usageCount, $0.name) }) }
         let visible = ordered.flatMap { $0.1.map(\.id) }
         VStack(spacing: 0) {
-            HStack(spacing: Space.m) {
+            HStack(spacing: PSpace.s3) {
                 TextField("Filter skills", text: $filter).textFieldStyle(.roundedBorder).frame(maxWidth: 280)
                 Picker("From", selection: $source) {
                     Text("All sources").tag("All")
@@ -40,25 +40,25 @@ struct SkillGridView: View {
                 Spacer()
                 Text("\(shown.count) skills in \(groups.count) groups").font(.callout).foregroundStyle(.secondary)
             }
-            .padding(Space.l)
+            .padding(PSpace.s4)
             BulkBar(sel: $model.pickedSkills, visible: visible, actions: model.skillActions(picked.ids))
             Divider()
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: Space.l, pinnedViews: .sectionHeaders) {
+                LazyVStack(alignment: .leading, spacing: PSpace.s4, pinnedViews: .sectionHeaders) {
                     ForEach(ordered, id: \.0) { cat, items in
                         Section {
-                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: Space.m, alignment: .top)], spacing: Space.m) {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), spacing: PSpace.s3, alignment: .top)], spacing: PSpace.s3) {
                                 ForEach(items) { s in
-                                    SkillGridCard(skill: s, sel: $model.pickedSkills, visible: visible)
+                                    SkillGridTile(skill: s, sel: $model.pickedSkills, visible: visible)
                                 }
                             }
                         } header: {
-                            Text("\(cat)  \(items.count)").font(.headline).padding(.vertical, Space.xs)
+                            Text("\(cat)  \(items.count)").font(.headline).padding(.vertical, PSpace.s1)
                                 .frame(maxWidth: .infinity, alignment: .leading).background(.background)
                         }
                     }
                 }
-                .padding([.horizontal, .bottom], Space.l)
+                .padding([.horizontal, .bottom], PSpace.s4)
             }
             .overlay { if shown.isEmpty { ContentUnavailableView.search(text: filter) } }
             .focusable().focusEffectDisabled()
@@ -67,14 +67,14 @@ struct SkillGridView: View {
     }
 }
 
-private struct SkillGridCard: View {
+private struct SkillGridTile: View {
     @Environment(AppModel.self) private var model
     let skill: Component
     @Binding var sel: BulkSelection<String>
     let visible: [String]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Space.s) {
+        VStack(alignment: .leading, spacing: PSpace.s2) {
             HStack(alignment: .firstTextBaseline) {
                 Text("/" + skill.shortName).font(.body.weight(.semibold).monospaced()).lineLimit(1)
                 Spacer()
@@ -84,7 +84,7 @@ private struct SkillGridCard: View {
             Text(purpose(skill)).font(.callout).lineLimit(2).help(skill.description)
             if skill.whenToUse != purpose(skill) { Text(skill.whenToUse).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
             Spacer(minLength: 0)
-            HStack(spacing: Space.s) {
+            HStack(spacing: PSpace.s2) {
                 ScopeMenu(current: ScopeMove.target(of: skill), fixedLabel: skill.scope == .plugin ? "Plugin" : skill.belongsTo, allowLocal: false) { t in
                     model.moveScope("/" + skill.name, to: t) { try ScopeMove.move(component: skill, to: t) }
                 }
@@ -102,7 +102,7 @@ private struct SkillGridCard: View {
             Text(skill.agents.map(\.rawValue).joined(separator: " · ")).font(.caption2).foregroundStyle(.tertiary)
                 .help((skill.locations.isEmpty ? "" : "Also at:\n" + skill.locations.map(shortPath).joined(separator: "\n")))
         }
-        .padding(Space.m)
+        .padding(PSpace.s3)
         .frame(maxWidth: .infinity, minHeight: 130, alignment: .topLeading)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.separator, lineWidth: 0.5))
@@ -134,13 +134,13 @@ struct SkillOverlapsView: View {
                     }
                     .help("Shows every removal in a confirm sheet first; nothing changes until you apply")
                 }
-                .padding(Space.l)
+                .padding(PSpace.s4)
                 Divider()
                 List(overlaps) { o in
-                    VStack(alignment: .leading, spacing: Space.s) {
+                    VStack(alignment: .leading, spacing: PSpace.s2) {
                         Label(o.reason, systemImage: o.kind == .sameName ? "doc.on.doc" : "equal.circle").font(.headline)
                         ForEach(o.skills) { s in
-                            HStack(spacing: Space.m) {
+                            HStack(spacing: PSpace.s3) {
                                 Text("/" + s.name).font(.body.monospaced())
                                 Text(s.belongsTo).foregroundStyle(.secondary)
                                 Text(s.usageCount == 0 ? "never used" : "used \(s.usageCount)×").foregroundStyle(.secondary).monospacedDigit()
@@ -163,7 +163,7 @@ struct SkillOverlapsView: View {
                             .controlSize(.small)
                         }
                     }
-                    .padding(.vertical, Space.s)
+                    .padding(.vertical, PSpace.s2)
                 }
                 .listStyle(.inset)
             }
@@ -178,7 +178,7 @@ struct CopyPromptButton: View {
     @State private var copied: Int?
 
     var body: some View {
-        HStack(spacing: Space.s) {
+        HStack(spacing: PSpace.s2) {
             if let copied { Label("Copied \(copied) skill\(copied == 1 ? "" : "s")", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(Color.accentColor) }
             if !picked.isEmpty { Button("Clear") { picked.clear() }.buttonStyle(.link) }
             Button("Copy prompt (\(skills.count))", systemImage: "doc.on.clipboard") {

@@ -13,7 +13,7 @@ struct ClaudeConfigApp: App {
         WindowGroup("Claude Config", id: "main") {
             RootView()
                 .environment(model)
-                .tint(.brand)
+                .tint(PColor.accent.fg)
                 .frame(minWidth: 980, minHeight: 600)
                 .task {
                     applyDockPolicy()
@@ -32,7 +32,7 @@ struct ClaudeConfigApp: App {
         }
         Settings { AppSettingsView(showMenuBar: $showMenuBar) }
         MenuBarExtra("Skills", systemImage: "wand.and.stars", isInserted: $showMenuBar) {
-            MenuBarSkills().environment(model).tint(.brand)
+            MenuBarSkills().environment(model).tint(PColor.accent.fg)
         }
         .menuBarExtraStyle(.window)
     }
@@ -139,13 +139,13 @@ struct InfoPanel: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: Space.m) {
+            VStack(alignment: .leading, spacing: PSpace.s3) {
                 Text(item.title).font(.title3.weight(.semibold)).textSelection(.enabled)
                 if item.title != item.term.title {
                     Text(item.term.title).font(.subheadline).foregroundStyle(.secondary)
                 }
                 if !item.facts.isEmpty {
-                    Grid(alignment: .leading, horizontalSpacing: Space.m, verticalSpacing: Space.s) {
+                    Grid(alignment: .leading, horizontalSpacing: PSpace.s3, verticalSpacing: PSpace.s2) {
                         ForEach(item.facts) { f in
                             GridRow {
                                 Text(f.label).foregroundStyle(.secondary)
@@ -164,7 +164,7 @@ struct InfoPanel: View {
                     .controlSize(.small)
                 }
                 Divider()
-                Text("How it fits into Claude Code").font(.cardTitle)
+                Text("How it fits into Claude Code").font(PType.subtitle)
                 Text(item.term.detail).fixedSize(horizontal: false, vertical: true)
                 Link("Read the docs", destination: item.term.docURL)
                 if let link = item.link { Link("View Source", destination: link).help(link.absoluteString) }
@@ -177,7 +177,7 @@ struct InfoPanel: View {
                     Text(text).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                 }
             }
-            .padding(Space.l)
+            .padding(PSpace.s4)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -243,7 +243,7 @@ struct CatalogueView: View {
     @State private var search = ""
     var body: some View {
         VStack(spacing: 0) {
-            TextField("Filter skills", text: $search).textFieldStyle(.roundedBorder).frame(maxWidth: 260).padding(Space.m)
+            TextField("Filter skills", text: $search).textFieldStyle(.roundedBorder).frame(maxWidth: 260).padding(PSpace.s3)
                 .frame(maxWidth: .infinity, alignment: .leading)
             CommunityView(search: search)
         }
