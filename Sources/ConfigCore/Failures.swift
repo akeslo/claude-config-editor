@@ -28,14 +28,14 @@ public enum Failures {
         for dir in skillDirs where isDir(dir) {
             let file = dir.appending(path: "SKILL.md")
             if !exists(file) {
-                out.append(broken("Skill folder has no SKILL.md", dir, "Claude Code skips this folder: a skill needs a SKILL.md inside it.", .mySkills, .skill, trash: dir))
+                out.append(broken("Skill folder has no SKILL.md", dir, "Claude Code skips this folder: a skill needs a SKILL.md inside it.", .skills, .skill, trash: dir))
                 continue
             }
             let fm = Frontmatter(readText(file) ?? "")
             if fm.keys.isEmpty {
-                out.append(broken("Skill has no frontmatter", file, "SKILL.md must start with a --- block holding name and description; without it Claude can't list the skill.", .mySkills, .skill, trash: dir))
+                out.append(broken("Skill has no frontmatter", file, "SKILL.md must start with a --- block holding name and description; without it Claude can't list the skill.", .skills, .skill, trash: dir))
             } else if (fm.values["description"] ?? "").isEmpty {
-                out.append(broken("Skill has no description", file, "Without a description Claude never knows when to use it.", .mySkills, .skill, trash: dir))
+                out.append(broken("Skill has no description", file, "Without a description Claude never knows when to use it.", .skills, .skill, trash: dir))
             }
         }
 

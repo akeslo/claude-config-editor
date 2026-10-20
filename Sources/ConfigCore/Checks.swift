@@ -3,7 +3,7 @@ import Foundation
 public enum AppSection: String, CaseIterable, Identifiable, Sendable {
     // Case order is sidebar order within each group.
     case health = "Review", guide = "Guide", context = "Context Budget"
-    case instructions = "Memory", mySkills = "Skills", skills = "Agents & Commands", plugins = "Plugins", mcp = "MCP Servers", hooks = "Hooks"
+    case instructions = "Memory", skills = "Skills", agents = "Agents & Commands", plugins = "Plugins", mcp = "MCP Servers", hooks = "Hooks"
     case settings = "Settings", permissions = "Permissions"
     case projects = "Projects & History", storage = "Storage", backups = "Backups", analytics = "Analytics"
     case discover = "Discover"
@@ -14,7 +14,7 @@ public enum AppSection: String, CaseIterable, Identifiable, Sendable {
     public var group: String {
         switch self {
         case .health, .guide, .context: "Overview"
-        case .instructions, .mySkills, .skills, .plugins, .mcp, .hooks: "Context"
+        case .instructions, .skills, .agents, .plugins, .mcp, .hooks: "Context"
         case .settings, .permissions: "Config"
         case .projects, .storage, .backups, .analytics: "Data"
         case .discover: "Discover"
@@ -24,7 +24,7 @@ public enum AppSection: String, CaseIterable, Identifiable, Sendable {
     public var symbol: String {
         switch self {
         case .health: "checklist"
-        case .mySkills: "wand.and.rays"
+        case .skills: "wand.and.rays"
         case .guide: "book"
         case .context: "gauge.with.dots.needle.50percent"
         case .analytics: "chart.bar.xaxis"
@@ -33,7 +33,7 @@ public enum AppSection: String, CaseIterable, Identifiable, Sendable {
         case .projects: "folder"
         case .permissions: "lock.shield"
         case .mcp: "server.rack"
-        case .skills: "wand.and.stars"
+        case .agents: "wand.and.stars"
         case .plugins: "puzzlepiece.extension"
         case .hooks: "arrow.triangle.branch"
         case .instructions: "doc.text"
@@ -51,7 +51,7 @@ public enum AppSection: String, CaseIterable, Identifiable, Sendable {
         case .projects: .project
         case .permissions: .permissions
         case .mcp: .mcpServer
-        case .skills, .mySkills: .skill
+        case .agents, .skills: .skill
         case .plugins, .discover: .plugin
         case .hooks: .hook
         case .instructions: .claudeMD
@@ -237,7 +237,7 @@ public enum Checks {
         let listing = skills.reduce(0) { $0 + $1.listingTokens }
         // shortcut: assumes a 200k context (1% ≈ 2,000 tokens); 1M-context models get 5x more room.
         if listing > 2_000 {
-            out.append(Issue(severity: .warning, section: .mySkills, title: "Too many skill descriptions: Claude can't see them all",
+            out.append(Issue(severity: .warning, section: .skills, title: "Too many skill descriptions: Claude can't see them all",
                              subject: "\(skills.count) skills",
                              detail: "Skill descriptions total \(formatTokens(listing)). The list of skills Claude reads each session gets about 1% of the context window (≈2k tokens at 200k), so the least-used skills lose their description and Claude may not pick them. Switch rarely used ones to On demand on the Skills page.",
                              term: .skillListing, tokens: listing, rule: "skill-listing-budget"))
@@ -246,24 +246,24 @@ public enum Checks {
         let suggested = skills.filter { triage[$0.id]?.state != nil }
         if !suggested.isEmpty {
             let saving = suggested.reduce(0) { $0 + $1.listingTokens }
-            out.append(Issue(severity: .warning, section: .mySkills, title: "\(suggested.count) skill\(suggested.count == 1 ? "" : "s") you rarely use \(suggested.count == 1 ? "has" : "have") a suggested state",
+            out.append(Issue(severity: .warning, section: .skills, title: "\(suggested.count) skill\(suggested.count == 1 ? "" : "s") you rarely use \(suggested.count == 1 ? "has" : "have") a suggested state",
                              subject: suggested.prefix(4).map(\.name).joined(separator: ", ") + (suggested.count > 4 ? "…" : ""),
                              detail: "Accepting the suggestions saves \(formatTokens(saving)) per session. You still call each one with /name, and the cheat sheet on the Skills page keeps them findable.",
                              term: .skill, fix: .many(suggested.compactMap { c in triage[c.id]?.state.flatMap(c.fix(to:)) }), tokens: saving))
         }
         for c in s.components where c.kind == .skill {
             if c.lineCount > 500 {
-                out.append(Issue(severity: .info, section: .mySkills, title: "SKILL.md over 500 lines", subject: c.name,
+                out.append(Issue(severity: .info, section: .skills, title: "SKILL.md over 500 lines", subject: c.name,
                                  detail: "\(c.lineCount) lines load every time the skill runs. Move reference material into linked files.", term: .skill, file: c.file, rule: "skillmd-500-lines"))
             }
             if c.description.count > 1_536 {
-                out.append(Issue(severity: .warning, section: .mySkills, title: "Description is too long and gets cut off", subject: c.name,
+                out.append(Issue(severity: .warning, section: .skills, title: "Description is too long and gets cut off", subject: c.name,
                                  detail: "description + when_to_use is \(c.description.count) characters; Claude reads only the first 1,536.", term: .skillListing, file: c.file, rule: "skill-listing-budget"))
             }
         }
         let byName = Dictionary(grouping: s.components.filter { $0.kind == .skill || $0.kind == .command }, by: \.name)
         for (name, items) in byName where items.count > 1 {
-            out.append(Issue(severity: .warning, section: .mySkills, title: "Same name defined more than once", subject: name,
+            out.append(Issue(severity: .warning, section: .skills, title: "Same name defined more than once", subject: name,
                              detail: "/\(name) exists in: " + items.map { "\($0.kind.rawValue) (\($0.scope.rawValue))" }.joined(separator: ", ") + ". Only one runs; skills beat commands, and personal beats project.",
                              term: .command, file: items.first?.file))
         }

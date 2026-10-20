@@ -131,11 +131,34 @@ struct AskClaudeBar: View {
 }
 
 extension AppModel {
+    var screenProvider: (any Provider)? { detected.first { $0.0.id == screen.provider }?.0 }
+    var isClaudeScreen: Bool { (screen.provider ?? .claude) == .claude }
+    /// Existing files for the open provider screen (folders one level down), credentials never included.
+    func providerFiles(_ p: any Provider) -> [URL] {
+        guard case .kind(_, let k) = screen else { return [] }
+        return p.paths(for: k, home: Paths.home, project: nil).flatMap { u in
+            u.hasDirectoryPath || (try? u.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+                ? ((try? FileManager.default.contentsOfDirectory(at: u, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? [])
+                : [u]
+        }.filter { exists($0) && !$0.hasDirectoryPath }
+    }
+
     /// Sends the full screen snapshot (ScreenContext) plus copies of the listed config files (never ~/.claude itself, never credentials).
     func askWithScreen(_ question: String, about section: AppSection) async -> Result<String, AskFailure> {
+        // The open screen's provider asks when it can; else Claude Code (only Claude has a sandboxed ask today, so that is ClaudeCLI below).
+        guard ProviderRegistry.askCommand(for: self.screen.provider, home: Paths.home, env: ProcessInfo.processInfo.environment) != nil else {
+            return .failure(AskFailure(reason: "No provider on this machine can answer: install Claude Code."))
+        }
+        if !isClaudeScreen, let p = screenProvider {
+            let files = providerFiles(p)
+            let prompt = askPrompt(question: question, screen: screenInfo(section, question: question), section: section, cap: ScreenContext.defaultBudget + 10_000)
+                + "\nCopies of the listed \(p.displayName) config files are in the current directory (by file name); read them with Read, Grep and Glob. Do not modify anything."
+                + " Answer in plain short paragraphs or bullets, citing file names."
+            return await ClaudeCLI.askResult(prompt, model: "sonnet", tools: ["Read", "Grep", "Glob"], files: files)
+        }
         let screen = screenInfo(section, question: question)
         // Skills: the list above is complete, so no file tools; other screens get copies of the shown files in the ask cwd.
-        let readFiles = section != .mySkills
+        let readFiles = section != .skills
         let prompt = askPrompt(question: question, screen: screen, section: section, cap: ScreenContext.defaultBudget + 10_000)
             + (readFiles ? "\nCopies of the user settings, CLAUDE.md and the listed component files are in the current directory (by file name); read them with Read, Grep and Glob for detail. Do not modify anything."
                          : "\nAnswer only from the list above; it is complete. Do not offer to search, read files or run anything.")
@@ -147,11 +170,14 @@ extension AppModel {
 
     /// What the screen shows, as text (secrets masked): rows with source/scope labels, usage, warnings. Shared by Ask Claude and Copy info.
     func screenInfo(_ section: AppSection, question: String = "") -> String {
+        if !isClaudeScreen, let p = screenProvider {
+            return "\(p.displayName) · \(screen.title)\n\nFiles:\n" + providerFiles(p).map { "- " + $0.path }.joined(separator: "\n")
+        }
         let discover = section == .discover ? ScreenContext.Discover(
             tab: UserDefaults.standard.string(forKey: "discoverTab") ?? "community", search: discoverSearch,
             available: available, community: community, communityInstalled: Set(community.filter(communityInstalled()).map(\.id))) : nil
         let screen = ScreenContext.build(section, snapshot, issues: issues, advice: advice, storage: storage,
-                                         discover: discover, analytics: analytics, skillMap: section == .mySkills ? skillMapContext : nil, question: question)
+                                         discover: discover, analytics: analytics, skillMap: section == .skills ? skillMapContext : nil, question: question)
         return screen
     }
 

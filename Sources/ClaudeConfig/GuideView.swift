@@ -4,12 +4,12 @@ import SwiftUI
 /// Best practices per area, with what the user has in each ("what you have") beside it.
 struct GuideView: View {
     @Environment(AppModel.self) private var model
-    @State private var area: AppSection = .mySkills
+    @State private var area: AppSection = .skills
 
     private func count(_ a: AppSection) -> Int {
         let s = model.snapshot
         switch a {
-        case .mySkills: return s.components.filter { $0.kind == .skill }.count
+        case .skills: return s.components.filter { $0.kind == .skill }.count
         case .plugins: return s.plugins.count
         case .mcp: return s.mcpServers.count
         case .hooks: return s.hooks.count
@@ -21,7 +21,7 @@ struct GuideView: View {
     }
 
     private let areas: [(AppSection, String)] = [
-        (.mySkills, "Skills"), (.plugins, "Plugins"), (.mcp, "MCP servers"), (.hooks, "Hooks"),
+        (.skills, "Skills"), (.plugins, "Plugins"), (.mcp, "MCP servers"), (.hooks, "Hooks"),
         (.instructions, "Instructions"), (.settings, "Settings files"), (.permissions, "Permissions"),
     ]
 

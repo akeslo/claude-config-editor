@@ -179,9 +179,9 @@ public enum ScreenContext {
             data = discoverData()
         case .analytics:
             data = analyticsData() + [""] + inventory()
-        case .mySkills:
+        case .skills:
             data = skillList()
-        case .skills, .plugins, .mcp, .hooks:
+        case .agents, .plugins, .mcp, .hooks:
             data = inventory()
         case .instructions:
             data = memory()

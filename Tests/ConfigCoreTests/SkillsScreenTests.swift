@@ -26,7 +26,7 @@ import Testing
 
     @Test func fourHundredSkillsFitTheAskBudget() {
         var snap = Snapshot(); snap.components = (0..<400).map { skill($0) }
-        let text = ScreenContext.build(.mySkills, snap, issues: [], advice: Advice(rules: []))
+        let text = ScreenContext.build(.skills, snap, issues: [], advice: Advice(rules: []))
         #expect(!text.contains("were omitted"))
         #expect(text.contains("skill-number-399"))
         #expect(text.contains("complete list"))

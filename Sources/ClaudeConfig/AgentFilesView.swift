@@ -200,4 +200,4 @@ private struct MemRow: Identifiable {
     }
 }
 
-private struct EditTarget: Identifiable { let url: URL; var id: String { url.path } }
+struct EditTarget: Identifiable { let url: URL; var id: String { url.path } }

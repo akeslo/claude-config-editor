@@ -49,9 +49,16 @@ struct PendingFix: Identifiable {
 final class AppModel {
     /// The app's one model, for views SwiftUI renders without the environment (Table cells on macOS 26 lose it).
     private(set) static weak var current: AppModel?
-    // `-section <name>` on the command line opens a given section (used for screenshots).
-    var section: AppSection = UserDefaults.standard.string(forKey: "section").flatMap { AppSection(rawValue: $0) } ?? .health
-    var snapshot = Snapshot()
+    // `-section <name>` on the command line opens a given Claude section (used for screenshots); `-screen <provider>/<kind>` any provider's.
+    var screen: Screen = UserDefaults.standard.string(forKey: "screen").flatMap(Screen.parse)
+        ?? Screen(UserDefaults.standard.string(forKey: "section").flatMap { AppSection(rawValue: $0) } ?? .health)
+    /// The Claude-era section behind the open screen; setting it opens that section's Claude screen.
+    var section: AppSection { get { screen.section } set { screen = Screen(newValue) } }
+    /// Providers found on this machine, for the sidebar.
+    var detected: [(any Provider, Detection)] = ProviderRegistry.detected(home: Paths.home, env: ProcessInfo.processInfo.environment)
+    /// Scanned config per provider; only Claude Code has a scanner so far.
+    var snapshots: [ProviderID: Snapshot] = [:]
+    var snapshot: Snapshot { snapshots[.claude] ?? Snapshot() }
     /// Skill map state for Ask Claude, set while the map is on screen.
     var skillMapContext: String?
     /// Skills picked for Copy prompt, shared by By category and the map inspector.
@@ -91,11 +98,13 @@ final class AppModel {
     /// ccusage cost report, cached for the launch; nil while loading.
     var usage: Result<UsageReport, UsageError>?
 
-    var issues: [Issue] {
+    /// Cached: recomputed when a scan or measurement finishes, not on every redraw (audit #17).
+    private(set) var issues: [Issue] = []
+    private func recomputeIssues() {
         var s = snapshot
         for i in s.plugins.indices { s.plugins[i].alwaysOnTokens = pluginTokens[s.plugins[i].id] }
         for i in s.projects.indices { s.projects[i].dataBytes = projectBytes[s.projects[i].path] ?? 0 }
-        return Checks.run(s, storage: storage)
+        issues = Checks.run(s, storage: storage)
     }
 
     init() {
@@ -107,7 +116,9 @@ final class AppModel {
 
     func refresh() async {
         loading = true
-        snapshot = await Scanner.load()
+        detected = ProviderRegistry.detected(home: Paths.home, env: ProcessInfo.processInfo.environment)
+        snapshots[.claude] = await Scanner.load()
+        recomputeIssues()
         loading = false
         Task { await measure() }
         Task { await loadPluginTokens() }
@@ -135,12 +146,14 @@ final class AppModel {
             Dictionary(projects.map { ($0.path, directorySize($0.dataDir)) }, uniquingKeysWith: { a, _ in a })
         }.value
         measuringStorage = false
+        recomputeIssues()
     }
 
     func loadPluginTokens() async {
         for p in snapshot.plugins where p.enabled && pluginTokens[p.id] == nil {
             pluginTokens[p.id] = await Scanner.alwaysOnTokens(plugin: p.id)
         }
+        recomputeIssues()
     }
 
     func loadAvailable() async {

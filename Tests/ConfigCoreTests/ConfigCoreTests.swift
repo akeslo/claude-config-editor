@@ -378,7 +378,7 @@ struct AdviceTests {
     @Test func dropsOnlyInvalidRules() {
         let a = Advice.decode(Data(#"{"version":1,"rules":[\#(good),{"id":"x","area":"skills"},{"id":"y","area":"skills","kind":"blog","text":"t","source":"https://a.b"}]}"#.utf8))
         #expect(a?.rules.map(\.id) == ["skill-500"])
-        #expect(a?.rules(for: .mySkills).count == 1)
+        #expect(a?.rules(for: .skills).count == 1)
     }
     @Test func dropsDuplicateIds() {
         let dup = good.replacingOccurrences(of: "Keep SKILL.md under 500 lines", with: "Second")

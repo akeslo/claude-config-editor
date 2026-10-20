@@ -13,7 +13,7 @@ public struct AdviceRule: Codable, Identifiable, Sendable {
 
     /// JSON area keys -> sections; anything else is invalid.
     static let areaKeys: [String: AppSection] = [
-        "skills": .mySkills, "instructions": .instructions, "mcp": .mcp, "hooks": .hooks,
+        "skills": .skills, "instructions": .instructions, "mcp": .mcp, "hooks": .hooks,
         "permissions": .permissions, "settings": .settings, "plugins": .plugins,
     ]
 

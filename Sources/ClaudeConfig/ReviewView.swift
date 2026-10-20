@@ -246,6 +246,6 @@ struct FirstRunCard: View {
 
     private func open(_ page: SkillsView.Page) {
         UserDefaults.standard.set(page.rawValue, forKey: "skillsPage2")
-        model.section = .mySkills
+        model.section = .skills
     }
 }

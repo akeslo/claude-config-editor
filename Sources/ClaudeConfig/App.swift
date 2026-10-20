@@ -47,9 +47,9 @@ struct RootView: View {
     var body: some View {
         @Bindable var model = model
         NavigationSplitView {
-            List(selection: $model.section) {
-                ForEach(AppSection.groups, id: \.self) { g in
-                    Section(g) { ForEach(AppSection.allCases.filter { $0.group == g }) { sidebarRow($0) } }
+            List(selection: $model.screen) {
+                ForEach(Screen.sidebar(for: model.detected), id: \.title) { g in
+                    Section(g.title) { ForEach(g.screens, id: \.self) { sidebarRow($0) } }
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -66,21 +66,21 @@ struct RootView: View {
             Group {
                 if search.isEmpty {
                     VStack(spacing: 0) {
-                        if model.snapshot.cliAvailable { AskClaudeBar(section: model.section).id(model.section) }
+                        if model.snapshot.cliAvailable { AskClaudeBar(section: model.section).id(model.screen) }
                         detail
                     }
                 } else { SearchResultsView(query: search) { search = "" } }
             }
                 .appListStyle()
-                .navigationTitle(search.isEmpty ? model.section.rawValue : "Search")
+                .navigationTitle(search.isEmpty ? title(model.screen) : "Search")
                 .toolbar {
                     ToolbarItemGroup {
-                        let issues = model.issues.filter { model.section == .health || $0.section == model.section }
+                        let issues = model.isClaudeScreen ? model.issues.filter { model.section == .health || $0.section == model.section } : []
                         if !issues.isEmpty {
                             Button { copy(Issue.aiPrompt(for: issues)) } label: { Label("Copy AI Prompt", systemImage: "doc.on.clipboard") }
                                 .help(promptHelp(Issue.aiPrompt(for: issues)))
                         }
-                        Button { copy("# Claude Config · \(model.section.rawValue)\n\n" + model.screenInfo(model.section)) } label: { Label("Copy info", systemImage: "doc.text") }
+                        Button { copy("# Claude Config · \(title(model.screen))\n\n" + model.screenInfo(model.section)) } label: { Label("Copy info", systemImage: "doc.text") }
                             .help("Copy a Markdown summary of this screen (rows, sources, warnings; secrets masked) to paste into another chat")
                         if model.loading || model.measuringStorage { ProgressView().controlSize(.small).help("Scanning…") }
                         Button { Task { await model.rescan() } } label: { Label("Rescan", systemImage: "arrow.clockwise") }
@@ -95,41 +95,52 @@ struct RootView: View {
                 }
         }
         .searchable(text: $search, placement: .sidebar, prompt: "Search everything")
-        .onChange(of: model.section) { model.info = nil }
+        .onChange(of: model.screen) { model.info = nil }
         .sheet(item: $model.pendingFix) { FixSheet(pending: $0) }
         .overlay(alignment: .bottom) { UndoToast() }
     }
 
     @ViewBuilder private var detail: some View {
-        switch model.section {
-        case .health: ReviewView()
-        case .mySkills: SkillsView()
-        case .guide: GuideView()
-        case .context: ContextView()
-        case .analytics: AnalyticsView()
-        case .storage: StorageView()
-        case .backups: BackupsView()
-        case .projects: ProjectsView()
-        case .permissions: PermissionsView()
-        case .mcp: MCPView()
-        case .skills: ComponentsView()
-        case .plugins: PluginsView()
-        case .hooks: HooksView()
-        case .instructions: AgentFilesView()
-        case .settings: SettingsView()
-        case .discover: DiscoverView()
+        switch model.screen {
+        case .overview: ReviewView()
+        case .library(.catalogue): CatalogueView()
+        case .library(.backups): BackupsView()
+        case .library(.disk): VSplitView { StorageView(); ProjectsView() }
+        case .kind(let id, let kind):
+            if id != .claude, let p = model.detected.first(where: { $0.0.id == id })?.0 {
+                ProviderKindView(provider: p, kind: kind).id(model.screen)
+            } else {
+                switch model.section {
+                case .skills: SkillsView()
+                case .permissions: PermissionsView()
+                case .mcp: MCPView()
+                case .agents: ComponentsView()
+                case .plugins: PluginsView()
+                case .hooks: HooksView()
+                case .instructions: AgentFilesView()
+                default: SettingsView()
+                }
+            }
         }
     }
 
-    private func sidebarRow(_ s: AppSection) -> some View {
-        Label(s.rawValue, systemImage: s.symbol)
+    private func title(_ s: Screen) -> String {
+        guard let id = s.provider, id != .claude, let p = model.detected.first(where: { $0.0.id == id })?.0 else { return s.title }
+        return "\(p.displayName) · \(s.title)"
+    }
+
+    private func sidebarRow(_ s: Screen) -> some View {
+        Label(s.title, systemImage: s.symbol)
             .badge(badge(for: s))
-            .help(s.term.tooltip)
+            .help(s.section.term.tooltip)
             .tag(s)
     }
 
-    private func badge(for s: AppSection) -> Int {
-        s == .health ? model.issues.filter { $0.severity >= .warning }.count : model.issues.filter { $0.section == s && $0.severity >= .warning }.count
+    private func badge(for s: Screen) -> Int {
+        if s == .overview { return model.issues.filter { $0.severity >= .warning }.count }
+        // Issues come from the Claude scan; Commands shares Agents' section, so only Agents carries the badge.
+        guard s.provider == .claude, s != .kind(.claude, .commands) else { return 0 }
+        return model.issues.filter { $0.section == s.section && $0.severity >= .warning }.count
     }
 }
 
@@ -199,7 +210,7 @@ struct SearchResultsView: View {
     private var hits: [Hit] {
         let s = model.snapshot
         var all: [Hit] = model.issues.map { Hit(section: $0.section, title: $0.title, detail: $0.subject) }
-        all += s.components.map { Hit(section: $0.kind == .skill ? .mySkills : .skills, title: $0.name, detail: $0.description) }
+        all += s.components.map { Hit(section: $0.kind == .skill ? .skills : .agents, title: $0.name, detail: $0.description) }
         all += s.mcpServers.map { Hit(section: .mcp, title: $0.name, detail: $0.command) }
         all += s.hooks.map { Hit(section: .hooks, title: $0.event, detail: $0.command) }
         all += s.plugins.map { Hit(section: .plugins, title: $0.id, detail: $0.description) }
@@ -234,6 +245,18 @@ struct SearchResultsView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+/// Library › Skills catalogue: the Community list with its own filter box.
+struct CatalogueView: View {
+    @State private var search = ""
+    var body: some View {
+        VStack(spacing: 0) {
+            TextField("Filter skills", text: $search).textFieldStyle(.roundedBorder).frame(maxWidth: 260).padding(Space.m)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            CommunityView(search: search)
         }
     }
 }
