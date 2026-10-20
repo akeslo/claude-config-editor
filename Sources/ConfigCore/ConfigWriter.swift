@@ -18,6 +18,8 @@ public enum ConfigWriter {
     @discardableResult
     public static func mutateJSON(_ url: URL, provider: any Provider, home: URL, projects: [URL], expectedModified: Date?,
                                   _ edit: (inout [String: Any]) throws -> Void) throws -> URL? {
+        // Write through symlinks (dotfile setups): check, back up and replace the real file, so the link stays.
+        let url = url.resolvingSymlinksInPath()
         try guardWrite(url, provider: provider, home: home, projects: projects, expectedModified: expectedModified)
         var root: JSON = [:], shape: Shape?, trailingNewline = true
         if exists(url) {
@@ -37,6 +39,8 @@ public enum ConfigWriter {
     /// Replaces a whole text file (Markdown, TOML, ...). Returns the backup (nil for a new file).
     @discardableResult
     public static func writeText(_ text: String, to url: URL, provider: any Provider, home: URL, projects: [URL], expectedModified: Date?) throws -> URL? {
+        // Write through symlinks (dotfile setups): check, back up and replace the real file, so the link stays.
+        let url = url.resolvingSymlinksInPath()
         try guardWrite(url, provider: provider, home: home, projects: projects, expectedModified: expectedModified)
         let backup = try backUp(url, provider: provider, home: home)
         try commit(Data(text.utf8), to: url)
@@ -94,11 +98,13 @@ public enum ConfigWriter {
         let mode = (try? fm.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int) ?? 0o600
         try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let tmp = url.deletingLastPathComponent().appending(path: ".\(url.lastPathComponent).\(UUID().uuidString).tmp")
-        guard fm.createFile(atPath: tmp.path, contents: data, attributes: [.posixPermissions: mode]) else { throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: tmp.path]) }
+        guard fm.createFile(atPath: tmp.path, contents: data, attributes: [.posixPermissions: mode]) else {
+            try? fm.removeItem(at: tmp)
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: tmp.path])
+        }
         do {
             if exists(url) { _ = try fm.replaceItemAt(url, withItemAt: tmp) } else { try fm.moveItem(at: tmp, to: url) }
         } catch { try? fm.removeItem(at: tmp); throw error }
-        try fm.setAttributes([.posixPermissions: mode], ofItemAtPath: url.path)
     }
 
     // MARK: Order-keeping JSON output (JSONSerialization loses key order)

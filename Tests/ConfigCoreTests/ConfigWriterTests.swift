@@ -92,4 +92,14 @@ struct ConfigWriterTests {
         #expect(readText(b) == "model = \"o3\"\n" && readText(f) == "model = \"gpt-5\"\n")
         #expect(ConfigWriter.owner(of: f, home: home)?.provider.id == .codex)
     }
+
+    @Test func symlinkedSettingsStaysALink() throws {
+        let real = home.appending(path: ".claude/dotfiles/settings.json"), link = home.appending(path: ".claude/settings.json")
+        try FileManager.default.createDirectory(at: real.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"model":"opus"}"#.utf8).write(to: real)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        try SettingsEdit.setKey(link, path: ["model"], value: "sonnet", home: home)
+        #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) == real.path)
+        #expect(readJSON(real)?["model"] as? String == "sonnet")
+    }
 }

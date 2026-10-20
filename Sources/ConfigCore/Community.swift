@@ -435,6 +435,7 @@ public func installSkill(_ c: SkillCopy, into skillsDir: URL? = nil) throws -> B
     if c.userInvokedOnly {
         do {
             guard let text = readText(md) else { throw CocoaError(.fileReadUnknown) }
+            // Exempt from ConfigWriter: a fresh copy this install just made, nothing to back up or guard; on failure the copy is removed.
             try Data(frontmatterSetting(text, key: "disable-model-invocation", value: "true").utf8).write(to: md)
         } catch {
             try? fm.removeItem(at: target)
