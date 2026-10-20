@@ -1,0 +1,5 @@
+model = "o3"
+
+[mcp_servers.docs]
+command = "npx"
+args = ["-y", "docs"]

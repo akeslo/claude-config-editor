@@ -41,3 +41,46 @@ func tempHome(_ files: [String] = []) -> URL {
     }
     let h0 = URL(filePath: "/fx/home/.claude")
 }
+
+@Suite struct ProviderMultiDetectionTests {
+    func script(_ dir: URL, _ name: String) -> URL {
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let f = dir.appending(path: name)
+        FileManager.default.createFile(atPath: f.path, contents: Data("#!/bin/sh\n".utf8), attributes: [.posixPermissions: 0o755])
+        return f
+    }
+
+    @Test func shimOnPathResolvesRealBinary() {
+        let h = tempHome(), shim = h.appending(path: "shims"), spot = h.appending(path: "brew/bin")
+        _ = script(shim, "codex")
+        let real = script(spot, "codex")
+        let d = CodexProvider(installSpots: [spot]).detect(home: h, env: ["PATH": shim.path])
+        #expect(d.executable == real)
+        #expect(CodexProvider(installSpots: []).detect(home: h, env: ["PATH": shim.path]).executable == shim.appending(path: "codex"))
+    }
+
+    @Test func configWithoutCLI() {
+        let o = OpenCodeProvider(installSpots: []), d = o.detect(home: fixture("opencode"), env: ["PATH": ""])
+        #expect(d.installed && d.executable == nil)
+        #expect(d.configRoot == fixture("opencode").appending(path: ".config/opencode"))
+        #expect(o.askCommand(model: nil, detection: d) == nil)
+    }
+
+    @Test func nothingInstalled() {
+        let none: [any Provider] = [ClaudeProvider(installSpots: []), CodexProvider(installSpots: []), GeminiProvider(installSpots: []),
+                                    CursorProvider(installSpots: []), OpenCodeProvider(installSpots: [])]
+        #expect(ProviderRegistry.detected(home: tempHome(), env: ["PATH": ""], providers: none).isEmpty)
+        #expect(ProviderRegistry.all.map(\.id.rawValue) == ["claude", "codex", "gemini", "cursor", "opencode"])
+    }
+
+    @Test func readOnlyAskArgs() {
+        let x = URL(filePath: "/b/x")
+        let c = CodexProvider().askCommand(model: "o3", detection: Detection(executable: x, configRoot: nil))!
+        #expect(c.args == ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "-m", "o3", "-"])
+        let g = GeminiProvider().askCommand(model: nil, detection: Detection(executable: x, configRoot: nil))!
+        #expect(g.args == ["-p", "", "--approval-mode", "default", "--sandbox"])
+        let cu = CursorProvider().askCommand(model: nil, detection: Detection(executable: x, configRoot: nil))!
+        #expect(cu.args == ["-p", "--output-format", "text"] && !cu.args.contains("--force"))
+        #expect(c.env["PATH"] == "/b:/usr/bin:/bin")
+    }
+}
