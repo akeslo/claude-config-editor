@@ -19,8 +19,8 @@ public enum ConfigWriter {
     public static func mutateJSON(_ url: URL, provider: any Provider, home: URL, projects: [URL], expectedModified: Date?,
                                   _ edit: (inout [String: Any]) throws -> Void) throws -> URL? {
         // Write through symlinks (dotfile setups): check, back up and replace the real file, so the link stays.
-        let url = url.resolvingSymlinksInPath()
-        try guardWrite(url, provider: provider, home: home, projects: projects, expectedModified: expectedModified)
+        let link = url, url = url.resolvingSymlinksInPath()
+        try guardWrite(url, link: link, provider: provider, home: home, projects: projects, expectedModified: expectedModified)
         var root: JSON = [:], shape: Shape?, trailingNewline = true
         if exists(url) {
             guard let data = try? Data(contentsOf: url), let obj = (try? JSONSerialization.jsonObject(with: data)) as? JSON else { throw WriteError.unparseable(url) }
@@ -40,8 +40,8 @@ public enum ConfigWriter {
     @discardableResult
     public static func writeText(_ text: String, to url: URL, provider: any Provider, home: URL, projects: [URL], expectedModified: Date?) throws -> URL? {
         // Write through symlinks (dotfile setups): check, back up and replace the real file, so the link stays.
-        let url = url.resolvingSymlinksInPath()
-        try guardWrite(url, provider: provider, home: home, projects: projects, expectedModified: expectedModified)
+        let link = url, url = url.resolvingSymlinksInPath()
+        try guardWrite(url, link: link, provider: provider, home: home, projects: projects, expectedModified: expectedModified)
         let backup = try backUp(url, provider: provider, home: home)
         try commit(Data(text.utf8), to: url)
         return backup
@@ -81,8 +81,9 @@ public enum ConfigWriter {
         return p.ownedPaths(home: home, projects: projects).contains { let o = $0.standardizedFileURL.path; return path == o || path.hasPrefix(o + "/") }
     }
 
-    static func guardWrite(_ url: URL, provider: any Provider, home: URL, projects: [URL], expectedModified: Date?) throws {
-        guard owns(provider, url, home: home, projects: projects) else { throw WriteError.outsideKnownPaths(url) }
+    /// Owned if the path asked for (a deliberate link to a known config path) or the real target is owned.
+    static func guardWrite(_ url: URL, link: URL, provider: any Provider, home: URL, projects: [URL], expectedModified: Date?) throws {
+        guard owns(provider, link, home: home, projects: projects) || owns(provider, url, home: home, projects: projects) else { throw WriteError.outsideKnownPaths(url) }
         if let e = expectedModified, exists(url), modificationDate(url) != e { throw WriteError.changedOnDisk(url) }
     }
 

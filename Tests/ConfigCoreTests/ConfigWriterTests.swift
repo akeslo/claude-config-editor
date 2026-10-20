@@ -102,4 +102,19 @@ struct ConfigWriterTests {
         #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) == real.path)
         #expect(readJSON(real)?["model"] as? String == "sonnet")
     }
+
+    @Test func ownedLinkToOutsideTargetWritesThrough() throws {
+        let real = FileManager.default.temporaryDirectory.appending(path: "dot-\(UUID().uuidString)/settings.json"), link = home.appending(path: ".claude/settings.json")
+        try FileManager.default.createDirectory(at: real.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(#"{"model":"opus"}"#.utf8).write(to: real)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        let b = try #require(try ConfigWriter.mutateJSON(link, provider: claude, home: home, projects: [], expectedModified: nil) { $0["model"] = "sonnet" })
+        #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) == real.path)
+        #expect(readJSON(real)?["model"] as? String == "sonnet")
+        #expect(readJSON(b)?["model"] as? String == "opus")
+        // Neither the link's path nor the target owned: refused.
+        let stray = real.deletingLastPathComponent().appending(path: "x.json")
+        try FileManager.default.createSymbolicLink(at: stray, withDestinationURL: real)
+        #expect(throws: WriteError.self) { try ConfigWriter.mutateJSON(stray, provider: claude, home: home, projects: [], expectedModified: nil) { $0["m"] = 1 } }
+    }
 }
