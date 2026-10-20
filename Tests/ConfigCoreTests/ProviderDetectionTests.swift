@@ -75,12 +75,10 @@ func tempHome(_ files: [String] = []) -> URL {
 
     @Test func readOnlyAskArgs() {
         let x = URL(filePath: "/b/x")
-        let c = CodexProvider().askCommand(model: "o3", detection: Detection(executable: x, configRoot: nil))!
-        #expect(c.args == ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "-m", "o3", "-"])
-        let g = GeminiProvider().askCommand(model: nil, detection: Detection(executable: x, configRoot: nil))!
-        #expect(g.args == ["-p", "", "--approval-mode", "plan", "--sandbox"])
-        let cu = CursorProvider().askCommand(model: nil, detection: Detection(executable: x, configRoot: nil))!
-        #expect(cu.args == ["-p", "--output-format", "text"] && !cu.args.contains("--force"))
-        #expect(c.env["PATH"] == "/b:/usr/bin:/bin")
+        let d = Detection(executable: x, configRoot: nil)
+        #expect(CodexProvider().askCommand(model: "o3", detection: d) == nil)
+        #expect(GeminiProvider().askCommand(model: nil, detection: d) == nil)
+        #expect(CursorProvider().askCommand(model: nil, detection: d) == nil)
+        #expect(ClaudeProvider().askCommand(model: nil, detection: d)?.env["PATH"] == "/b:/usr/bin:/bin")
     }
 }

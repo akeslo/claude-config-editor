@@ -28,9 +28,6 @@ public struct GeminiProvider: Provider {
     }
 
     /// Headless `-p` (stdin is appended to the empty prompt), approval prompts on (so tools are denied headless), sandboxed.
-    public func askCommand(model: String?, detection: Detection) -> AskCommand? {
-        guard let exe = detection.executable else { return nil }
-        let args = ["-p", "", "--approval-mode", "plan", "--sandbox"] + (model.map { ["-m", $0] } ?? [])
-        return AskCommand(executable: exe, args: args, env: askEnv(exe: exe))
-    }
+    /// nil: plan mode is read-only but file tools are not confirmed cwd-confined (could read ~/.gemini/oauth_creds.json) and hooks have no off flag. Ask falls back to Claude Code.
+    public func askCommand(model: String?, detection: Detection) -> AskCommand? { nil }
 }

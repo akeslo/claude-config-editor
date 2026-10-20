@@ -30,9 +30,6 @@ public struct CodexProvider: Provider {
     }
 
     /// Read-only sandbox, no git check, no saved session; `-` reads the prompt from stdin.
-    public func askCommand(model: String?, detection: Detection) -> AskCommand? {
-        guard let exe = detection.executable else { return nil }
-        let args = ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral"] + (model.map { ["-m", $0] } ?? []) + ["-"]
-        return AskCommand(executable: exe, args: args, env: askEnv(exe: exe))
-    }
+    /// nil: `--sandbox read-only` still lets shell reads hit ~/.codex/auth.json and config.toml MCP/hooks load; no tools-off flag in `codex exec --help`. Ask falls back to Claude Code.
+    public func askCommand(model: String?, detection: Detection) -> AskCommand? { nil }
 }

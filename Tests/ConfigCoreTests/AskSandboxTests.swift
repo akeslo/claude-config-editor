@@ -4,13 +4,13 @@ import Testing
 
 @Suite struct AskSandboxTests {
     @Test func argvIsSandboxed() {
-        let a = ClaudeCLI.askArgs("hi", model: "haiku", tools: [], addDir: nil)
+        let a = ClaudeCLI.askArgs("hi", model: "haiku", tools: [])
         #expect(a == ["-p", "hi", "--model", "haiku", "--system-prompt", ClaudeCLI.askSystemPrompt,
                       "--setting-sources", "", "--settings", #"{"disableAllHooks":true}"#,
                       "--strict-mcp-config", "--mcp-config", #"{"mcpServers":{}}"#,
                       "--disable-slash-commands", "--no-session-persistence", "--tools", ""])
-        let r = ClaudeCLI.askArgs("q", model: "sonnet", tools: ["Read", "Grep"], addDir: URL(filePath: "/x/.claude"))
-        #expect(Array(r.suffix(6)) == ["Read,Grep", "--allowedTools", "Read", "Grep", "--add-dir", "/x/.claude"])
+        let r = ClaudeCLI.askArgs("q", model: "sonnet", tools: ["Read", "Grep"])
+        #expect(Array(r.suffix(4)) == ["Read,Grep", "--allowedTools", "Read", "Grep"])
     }
 
     @Test func environmentIsScrubbed() {

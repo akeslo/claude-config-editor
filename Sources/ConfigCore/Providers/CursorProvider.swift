@@ -27,9 +27,6 @@ public struct CursorProvider: Provider {
     }
 
     /// Print mode without `--force`, so it can't apply changes.
-    public func askCommand(model: String?, detection: Detection) -> AskCommand? {
-        guard let exe = detection.executable else { return nil }
-        let args = ["-p", "--output-format", "text"] + (model.map { ["--model", $0] } ?? [])
-        return AskCommand(executable: exe, args: args, env: askEnv(exe: exe))
-    }
+    /// nil: no confirmed sandbox or tools-off mode. Ask falls back to Claude Code.
+    public func askCommand(model: String?, detection: Detection) -> AskCommand? { nil }
 }

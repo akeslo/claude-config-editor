@@ -49,22 +49,28 @@ public enum ClaudeCLI {
     /// only `--bare` drops those and it refuses keychain/OAuth sign-in, so switch once an API key is used.
     /// `files` are copied into the ask's temp cwd (credential files refused); no config dir is ever granted.
     public static func ask(_ prompt: String, model: String, tools: [String] = [], files: [URL] = [], timeout: TimeInterval? = nil) async -> String? {
-        guard let exe = executable else { return nil }
+        try? await askResult(prompt, model: model, tools: tools, files: files, timeout: timeout).get()
+    }
+
+    /// `ask` keeping the failure reason (stderr tail, timeout, missing CLI, empty answer) for the UI.
+    public static func askResult(_ prompt: String, model: String, tools: [String] = [], files: [URL] = [], timeout: TimeInterval? = nil) async -> Result<String, AskFailure> {
+        guard let exe = executable else { return .failure(AskFailure(reason: "The claude command was not found in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin.")) }
         let cmd = AskCommand(executable: exe, args: stdinAskArgs(model: model, tools: tools), env: askEnvironment(ProcessInfo.processInfo.environment, exe: exe))
-        guard case .success(let text) = await ModelSandbox.run(cmd, prompt: prompt, files: files, timeout: timeout ?? 120), !text.isEmpty else { return nil }
-        return text
+        let r = await ModelSandbox.run(cmd, prompt: prompt, files: files, timeout: timeout ?? 120)
+        if case .success("") = r { return .failure(AskFailure(reason: "Claude returned an empty answer.")) }
+        return r
     }
 
     /// `askArgs` with the prompt slot removed: `claude -p` then reads the prompt from stdin.
     static func stdinAskArgs(model: String, tools: [String]) -> [String] {
-        var a = askArgs("", model: model, tools: tools, addDir: nil)
+        var a = askArgs("", model: model, tools: tools)
         a.remove(at: 1)
         return a
     }
 
     static let askSystemPrompt = "You are the assistant inside the Claude Config app. Work only from the input in the user message (and files you are allowed to read); you have no other context about the user or their machine. This is one answer with no follow-up: never offer to search, run commands or do anything later; if the data doesn't cover something, say so."
 
-    static func askArgs(_ prompt: String, model: String, tools: [String], addDir: URL?) -> [String] {
+    static func askArgs(_ prompt: String, model: String, tools: [String]) -> [String] {
         var a = ["-p", prompt, "--model", model,
                  "--system-prompt", askSystemPrompt,
                  "--setting-sources", "",
@@ -73,7 +79,6 @@ public enum ClaudeCLI {
                  "--disable-slash-commands", "--no-session-persistence",
                  "--tools", tools.joined(separator: ",")]
         if !tools.isEmpty { a += ["--allowedTools"] + tools }
-        if let addDir { a += ["--add-dir", addDir.path] }
         return a
     }
 

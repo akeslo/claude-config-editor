@@ -10,6 +10,7 @@ struct AskClaudeBar: View {
     @State private var picks: [Recommendations.Item] = []
     @State private var sel = BulkSelection<String>()
     @State private var failed = false
+    @State private var failReason = ""
     @State private var asking = false
     @State private var task: Task<Void, Never>?
     @State private var copied: String?
@@ -61,7 +62,7 @@ struct AskClaudeBar: View {
                     if asking {
                         LoadingState(title: "Asking Claude…").frame(height: 200)
                     } else if failed {
-                        Text("Claude didn't answer. Is the `claude` command installed?").foregroundStyle(.secondary)
+                        Text("Claude didn't answer: \(failReason)").foregroundStyle(.secondary).textSelection(.enabled)
                     } else if let answer {
                         ForEach(Array(AnswerBlocks.segments(answer).enumerated()), id: \.offset) { _, seg in
                             switch seg {
@@ -109,9 +110,11 @@ struct AskClaudeBar: View {
         guard !q.isEmpty, !asking else { return }
         asking = true; answer = nil; picks = []; failed = false; autoCopied = nil; copied = nil
         task = Task {
-            let a = await model.askWithScreen(q, about: section)
+            let r = await model.askWithScreen(q, about: section)
             guard !Task.isCancelled else { return }
             asking = false
+            let a = try? r.get()
+            if case .failure(let f) = r { failReason = f.reason }
             failed = a == nil
             if let a, section == .discover {
                 let parsed = Recommendations.parse(a)
@@ -129,7 +132,7 @@ struct AskClaudeBar: View {
 
 extension AppModel {
     /// Sends the full screen snapshot (ScreenContext) plus copies of the listed config files (never ~/.claude itself, never credentials).
-    func askWithScreen(_ question: String, about section: AppSection) async -> String? {
+    func askWithScreen(_ question: String, about section: AppSection) async -> Result<String, AskFailure> {
         let screen = screenInfo(section, question: question)
         // Skills: the list above is complete, so no file tools; other screens get copies of the shown files in the ask cwd.
         let readFiles = section != .mySkills
@@ -139,7 +142,7 @@ extension AppModel {
             + " Answer in plain short paragraphs or bullets, citing item names."
             + (section == .discover ? "\n" + Recommendations.instruction : "")
         let files = readFiles ? [Paths.userSettings, Paths.userClaudeMD] + snapshot.components.map(\.file) : []
-        return await ClaudeCLI.ask(prompt, model: "sonnet", tools: readFiles ? ["Read", "Grep", "Glob"] : [], files: files)
+        return await ClaudeCLI.askResult(prompt, model: "sonnet", tools: readFiles ? ["Read", "Grep", "Glob"] : [], files: files)
     }
 
     /// What the screen shows, as text (secrets masked): rows with source/scope labels, usage, warnings. Shared by Ask Claude and Copy info.

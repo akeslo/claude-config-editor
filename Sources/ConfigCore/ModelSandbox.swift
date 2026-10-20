@@ -1,6 +1,6 @@
 import Foundation
 
-public struct AskFailure: Error, Sendable { public let reason: String }
+public struct AskFailure: Error, Sendable { public let reason: String; public init(reason: String) { self.reason = reason } }
 
 /// Runs one model CLI call: fresh empty temp cwd holding only copies of `files`, the command's (scrubbed) env,
 /// prompt on stdin, killed on timeout or task cancellation, stderr tail returned on failure.

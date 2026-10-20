@@ -71,11 +71,12 @@ import Testing
 
     @Test func askArgsPerProvider() {
         let x = URL(filePath: "/b/x"), d = Detection(executable: x, configRoot: nil)
-        var claude = ClaudeCLI.askArgs("", model: "sonnet", tools: [], addDir: nil); claude.remove(at: 1)
+        var claude = ClaudeCLI.askArgs("", model: "sonnet", tools: []); claude.remove(at: 1)
         #expect(ClaudeProvider().askCommand(model: nil, detection: d)!.args == claude)
-        #expect(CodexProvider().askCommand(model: nil, detection: d)!.args.joined(separator: " ").contains("--sandbox read-only"))
-        let g = GeminiProvider().askCommand(model: nil, detection: d)!.args
-        #expect(g.contains("--sandbox") && g.joined(separator: " ").contains("--approval-mode plan"))
+        // No confirmed tools-off / cwd-confined mode: these must not ask at all.
+        #expect(CodexProvider().askCommand(model: nil, detection: d) == nil)
+        #expect(GeminiProvider().askCommand(model: nil, detection: d) == nil)
+        #expect(CursorProvider().askCommand(model: nil, detection: d) == nil)
         #expect(OllamaBackend().askCommand(model: "llama3", exe: x).args == ["run", "llama3"])
     }
 
