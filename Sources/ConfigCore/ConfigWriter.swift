@@ -99,13 +99,11 @@ public enum ConfigWriter {
         let mode = (try? fm.attributesOfItem(atPath: url.path)[.posixPermissions] as? Int) ?? 0o600
         try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let tmp = url.deletingLastPathComponent().appending(path: ".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+        defer { try? fm.removeItem(at: tmp) } // no-op after a successful replace/move: tmp no longer exists
         guard fm.createFile(atPath: tmp.path, contents: data, attributes: [.posixPermissions: mode]) else {
-            try? fm.removeItem(at: tmp)
             throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: tmp.path])
         }
-        do {
-            if exists(url) { _ = try fm.replaceItemAt(url, withItemAt: tmp) } else { try fm.moveItem(at: tmp, to: url) }
-        } catch { try? fm.removeItem(at: tmp); throw error }
+        if exists(url) { _ = try fm.replaceItemAt(url, withItemAt: tmp) } else { try fm.moveItem(at: tmp, to: url) }
     }
 
     // MARK: Order-keeping JSON output (JSONSerialization loses key order)
