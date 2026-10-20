@@ -40,8 +40,6 @@ public struct ClaudeProvider: Provider {
     /// Today's sandboxed `claude -p` argv minus the prompt (it goes on stdin, Task 4).
     public func askCommand(model: String?, detection: Detection) -> AskCommand? {
         guard let exe = detection.executable else { return nil }
-        var args = ClaudeCLI.askArgs("", model: model ?? "sonnet", tools: [], addDir: nil)
-        args.remove(at: 1)
-        return AskCommand(executable: exe, args: args, env: askEnv(exe: exe))
+        return AskCommand(executable: exe, args: ClaudeCLI.stdinAskArgs(model: model ?? "sonnet", tools: []), env: askEnv(exe: exe))
     }
 }

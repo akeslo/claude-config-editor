@@ -47,28 +47,19 @@ public enum ClaudeCLI {
     /// no skills/slash commands, no saved session, an app-only system prompt, a fresh empty cwd and a scrubbed env.
     /// shortcut: the CLI still attaches its built-in env block (OS, temp cwd) and the signed-in account email;
     /// only `--bare` drops those and it refuses keychain/OAuth sign-in, so switch once an API key is used.
-    public static func ask(_ prompt: String, model: String, tools: [String] = [], addDir: URL? = nil, timeout: TimeInterval? = nil) async -> String? {
+    /// `files` are copied into the ask's temp cwd (credential files refused); no config dir is ever granted.
+    public static func ask(_ prompt: String, model: String, tools: [String] = [], files: [URL] = [], timeout: TimeInterval? = nil) async -> String? {
         guard let exe = executable else { return nil }
-        let cwd = FileManager.default.temporaryDirectory.appending(path: "claude-config-ask-\(UUID().uuidString)")
-        guard (try? FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)) != nil else { return nil }
-        defer { try? FileManager.default.removeItem(at: cwd) }
-        return await Task.detached { () -> String? in
-            let p = Process()
-            p.executableURL = exe
-            p.arguments = askArgs(prompt, model: model, tools: tools, addDir: addDir)
-            p.currentDirectoryURL = cwd
-            p.environment = askEnvironment(ProcessInfo.processInfo.environment, exe: exe)
-            let pipe = Pipe()
-            p.standardOutput = pipe; p.standardError = FileHandle.nullDevice; p.standardInput = FileHandle.nullDevice
-            do { try p.run() } catch { return nil }
-            let timer = DispatchWorkItem { p.terminate() }
-            if let timeout { DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timer) }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            p.waitUntilExit()
-            timer.cancel()
-            let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-            return p.terminationStatus == 0 && !text.isEmpty ? text : nil
-        }.value
+        let cmd = AskCommand(executable: exe, args: stdinAskArgs(model: model, tools: tools), env: askEnvironment(ProcessInfo.processInfo.environment, exe: exe))
+        guard case .success(let text) = await ModelSandbox.run(cmd, prompt: prompt, files: files, timeout: timeout ?? 120), !text.isEmpty else { return nil }
+        return text
+    }
+
+    /// `askArgs` with the prompt slot removed: `claude -p` then reads the prompt from stdin.
+    static func stdinAskArgs(model: String, tools: [String]) -> [String] {
+        var a = askArgs("", model: model, tools: tools, addDir: nil)
+        a.remove(at: 1)
+        return a
     }
 
     static let askSystemPrompt = "You are the assistant inside the Claude Config app. Work only from the input in the user message (and files you are allowed to read); you have no other context about the user or their machine. This is one answer with no follow-up: never offer to search, run commands or do anything later; if the data doesn't cover something, say so."

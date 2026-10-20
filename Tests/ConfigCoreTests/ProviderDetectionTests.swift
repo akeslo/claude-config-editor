@@ -78,7 +78,7 @@ func tempHome(_ files: [String] = []) -> URL {
         let c = CodexProvider().askCommand(model: "o3", detection: Detection(executable: x, configRoot: nil))!
         #expect(c.args == ["exec", "--sandbox", "read-only", "--skip-git-repo-check", "--ephemeral", "-m", "o3", "-"])
         let g = GeminiProvider().askCommand(model: nil, detection: Detection(executable: x, configRoot: nil))!
-        #expect(g.args == ["-p", "", "--approval-mode", "default", "--sandbox"])
+        #expect(g.args == ["-p", "", "--approval-mode", "plan", "--sandbox"])
         let cu = CursorProvider().askCommand(model: nil, detection: Detection(executable: x, configRoot: nil))!
         #expect(cu.args == ["-p", "--output-format", "text"] && !cu.args.contains("--force"))
         #expect(c.env["PATH"] == "/b:/usr/bin:/bin")
