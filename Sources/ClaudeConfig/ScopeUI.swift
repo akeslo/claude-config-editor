@@ -4,7 +4,8 @@ import SwiftUI
 /// The scope cell used on every screen: a compact menu showing where an item applies; choosing another scope moves it.
 /// `current == nil` shows a read-only tag (managed, plugin, other agent).
 struct ScopeMenu: View {
-    @Environment(AppModel.self) private var model
+    // Not @Environment: in a Table cell it can be missing and that traps at launch (Agents & Commands, MCP Servers).
+    private var model: AppModel? { AppModel.current }
     let current: Target?
     /// Shown when `current` is nil, e.g. "Managed" or "Plugin".
     var fixedLabel = "Managed"
@@ -38,7 +39,7 @@ struct ScopeMenu: View {
 
     /// Known project folders that still exist, current one first.
     private var projects: [String] {
-        let all = model.snapshot.projects.filter(\.folderExists).map(\.path).filter { $0 != Paths.home.path }
+        let all = (model?.snapshot.projects ?? []).filter(\.folderExists).map(\.path).filter { $0 != Paths.home.path }
         let cur = current?.folder
         return (cur.map { [$0] } ?? []) + all.filter { $0 != cur }.sorted { ($0 as NSString).lastPathComponent.lowercased() < ($1 as NSString).lastPathComponent.lowercased() }
     }

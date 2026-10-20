@@ -77,6 +77,7 @@ struct BulkBar<ID: Hashable, Trailing: View>: View {
         .padding(.horizontal, Space.l).padding(.vertical, Space.s)
         .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
         .background(.bar)
+        .onChange(of: visible, initial: true) { sel.keepVisible(visible) }
     }
 }
 

@@ -74,6 +74,8 @@ public struct Component: Identifiable, Sendable {
     public var locations: [URL] = []
     /// Install scope of the owning plugin (user, project, local), for plugin components.
     public var pluginScope: String?
+    /// What you type to run it: plugin skills keep their "plugin:" prefix, already part of `name`.
+    public var invocation: String { "/" + name }
     public var listingTokens: Int {
         guard alwaysLoaded, scope != .external, override != "user-invocable-only" else { return 0 }
         return override == "name-only" ? estimateTokens(name) + 4 : estimateTokens(name + description) + 4

@@ -14,7 +14,7 @@ public enum ClaudeCLI {
         return candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) }
     }()
 
-    public static func run(_ args: [String], in cwd: URL? = nil) async -> CLIResult {
+    public static func run(_ args: [String], in cwd: URL? = nil, timeout: TimeInterval? = nil) async -> CLIResult {
         guard let env = childEnvironment(ProcessInfo.processInfo.environment) else {
             return CLIResult(status: -1, output: "Refused: claude CLI calls under tests must target a fixture CLAUDE_CONFIG_DIR, never the real ~/.claude.")
         }
@@ -33,10 +33,65 @@ public enum ClaudeCLI {
             p.standardError = pipe
             p.standardInput = FileHandle.nullDevice
             do { try p.run() } catch { return CLIResult(status: -1, output: error.localizedDescription) }
+            let timer = DispatchWorkItem { p.terminate() }
+            if let timeout { DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timer) }
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             p.waitUntilExit()
+            timer.cancel()
             return CLIResult(status: p.terminationStatus, output: String(decoding: data, as: UTF8.self))
         }.value
+    }
+
+    /// The one way the app asks a model: `claude -p` sandboxed to the prompt the app built.
+    /// No user/project/local settings (so no CLAUDE.md, memory, env, plugins, hooks, statusline), no MCP,
+    /// no skills/slash commands, no saved session, an app-only system prompt, a fresh empty cwd and a scrubbed env.
+    /// shortcut: the CLI still attaches its built-in env block (OS, temp cwd) and the signed-in account email;
+    /// only `--bare` drops those and it refuses keychain/OAuth sign-in, so switch once an API key is used.
+    public static func ask(_ prompt: String, model: String, tools: [String] = [], addDir: URL? = nil, timeout: TimeInterval? = nil) async -> String? {
+        guard let exe = executable else { return nil }
+        let cwd = FileManager.default.temporaryDirectory.appending(path: "claude-config-ask-\(UUID().uuidString)")
+        guard (try? FileManager.default.createDirectory(at: cwd, withIntermediateDirectories: true)) != nil else { return nil }
+        defer { try? FileManager.default.removeItem(at: cwd) }
+        return await Task.detached { () -> String? in
+            let p = Process()
+            p.executableURL = exe
+            p.arguments = askArgs(prompt, model: model, tools: tools, addDir: addDir)
+            p.currentDirectoryURL = cwd
+            p.environment = askEnvironment(ProcessInfo.processInfo.environment, exe: exe)
+            let pipe = Pipe()
+            p.standardOutput = pipe; p.standardError = FileHandle.nullDevice; p.standardInput = FileHandle.nullDevice
+            do { try p.run() } catch { return nil }
+            let timer = DispatchWorkItem { p.terminate() }
+            if let timeout { DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timer) }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            p.waitUntilExit()
+            timer.cancel()
+            let text = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            return p.terminationStatus == 0 && !text.isEmpty ? text : nil
+        }.value
+    }
+
+    static let askSystemPrompt = "You are the assistant inside the Claude Config app. Work only from the input in the user message (and files you are allowed to read); you have no other context about the user or their machine. This is one answer with no follow-up: never offer to search, run commands or do anything later; if the data doesn't cover something, say so."
+
+    static func askArgs(_ prompt: String, model: String, tools: [String], addDir: URL?) -> [String] {
+        var a = ["-p", prompt, "--model", model,
+                 "--system-prompt", askSystemPrompt,
+                 "--setting-sources", "",
+                 "--settings", #"{"disableAllHooks":true}"#,
+                 "--strict-mcp-config", "--mcp-config", #"{"mcpServers":{}}"#,
+                 "--disable-slash-commands", "--no-session-persistence",
+                 "--tools", tools.joined(separator: ",")]
+        if !tools.isEmpty { a += ["--allowedTools"] + tools }
+        if let addDir { a += ["--add-dir", addDir.path] }
+        return a
+    }
+
+    /// Only what the CLI needs to find its keychain sign-in (HOME/USER) and run; nothing else from the app's env.
+    static func askEnvironment(_ base: [String: String], exe: URL) -> [String: String] {
+        var env = ["PATH": "\(exe.deletingLastPathComponent().path):/usr/bin:/bin", "NO_COLOR": "1",
+                   "HOME": base["CLAUDE_CONFIG_EDITOR_CLI_HOME"] ?? FileManager.default.homeDirectoryForCurrentUser.path]
+        for k in ["USER", "LOGNAME", "TMPDIR", "LANG"] { env[k] = base[k] }
+        return env
     }
 
     /// A fixture home must also redirect the CLI's own writes (plugin registry, project installs):

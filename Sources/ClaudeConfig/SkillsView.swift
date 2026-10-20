@@ -85,36 +85,27 @@ private struct StatesPage: View {
               Group {
                 TableColumn("", value: \SkillRow.name) { (r: SkillRow) in SelectBox(sel: $model.pickedSkills, id: r.id, visible: visible, name: "/" + r.name) }.width(22)
                 TableColumn("Skill", value: \SkillRow.name) { (r: SkillRow) in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("/" + r.name).font(.body.weight(.medium).monospaced())
-                        Text(purpose(r.skill)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    .help(r.skill.description)
-                    .contextMenu {
-                        Button("Copy /\(r.name)") { copy("/" + r.name) }
-                        Button("Open SKILL.md") { openFile(r.skill.file) }
-                        Button("Reveal in Finder") { reveal(r.skill.file) }
-                    }
+                    SkillNameCell(skill: r.skill, purpose: purpose(r.skill), selected: model.pickedSkills.ids.contains(r.id))
                 }
-                .width(min: 180, ideal: 260)
+                .width(min: 240, ideal: 420)
                 TableColumn("State", value: \SkillRow.stateRank) { (r: SkillRow) in StatePicker(model: model, skill: r.skill) }
-                    .width(min: 220, ideal: 230)
+                    .width(244)
                 TableColumn("Tokens", value: \SkillRow.tokens) { (r: SkillRow) in
                     Text(r.skill.state == .always ? formatTokens(r.tokens) : "0")
                         .monospacedDigit().foregroundStyle(r.skill.state == .always ? .primary : .secondary)
                         .help(r.skill.state == .always ? "Per session" : "Always would cost \(formatTokens(r.skill.tokens(in: .always)))")
                 }
-                .width(min: 50, ideal: 60)
+                .width(66)
                 TableColumn("Uses", value: \SkillRow.uses) { (r: SkillRow) in Text(r.uses == 0 ? "—" : "\(r.uses)").monospacedDigit() }
-                    .width(min: 40, ideal: 50)
+                    .width(40)
               }
               Group {
-                TableColumn("Last Used", value: \SkillRow.lastUsed) { (r: SkillRow) in Text(relative(r.skill.lastUsed)).foregroundStyle(.secondary) }
-                    .width(min: 70, ideal: 100)
+                TableColumn("Last Used", value: \SkillRow.lastUsed) { (r: SkillRow) in Text(relative(r.skill.lastUsed)).foregroundStyle(.secondary).lineLimit(1) }
+                    .width(104)
                 TableColumn("Installed", value: \SkillRow.installed) { (r: SkillRow) in
                     Text(r.skill.installedAt?.formatted(date: .abbreviated, time: .omitted) ?? "—").foregroundStyle(.secondary)
                 }
-                .width(min: 70, ideal: 100)
+                .width(88)
                 TableColumn("Stars", value: \SkillRow.starCount) { (r: SkillRow) in
                     if let repo = r.skill.repoURL, let slug = githubSlug(repo) {
                         Link(destination: repo) {
@@ -123,14 +114,14 @@ private struct StatesPage: View {
                         .help("\(slug) on GitHub")
                     }
                 }
-                .width(min: 50, ideal: 70)
+                .width(60)
                 TableColumn("Scope", value: \SkillRow.source) { (r: SkillRow) in
                     ScopeMenu(current: ScopeMove.target(of: r.skill), fixedLabel: r.skill.scope == .plugin ? "Plugin" : r.skill.scope == .external ? "Other agent" : r.skill.scope.rawValue, allowLocal: false) { t in
                         model.moveScope("/" + r.name, to: t) { try ScopeMove.move(component: r.skill, to: t) }
                     }
                     .help(r.source)
                 }
-                    .width(min: 90, ideal: 110)
+                    .width(90)
                 TableColumn("Suggestion", value: \SkillRow.suggestionText) { (r: SkillRow) in
                     if let s = r.suggestion {
                         VStack(alignment: .leading, spacing: 2) {
@@ -140,7 +131,7 @@ private struct StatesPage: View {
                         .help(s.reason)
                     }
                 }
-                .width(min: 140, ideal: 240)
+                .width(min: 110, ideal: 170, max: 260)
                 TableColumn("") { (r: SkillRow) in
                     if r.skill.ownsFile {
                         Button("Move to Trash", systemImage: "trash") { model.proposeTrash([trashURL(r.skill)]) }
@@ -155,48 +146,45 @@ private struct StatesPage: View {
             .overlay { if rows.isEmpty && !skills.isEmpty { ContentUnavailableView.search(text: filter) } }
             .safeAreaInset(edge: .top, spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: Space.s) {
-                Text("Skills cost \(formatTokens(total)) every session").font(.title.weight(.semibold))
-                Text("Always available skills are listed so Claude can pick them. On demand skills cost nothing and still run when you type /name.")
-                    .foregroundStyle(.secondary).lineLimit(2)
-                CleanupReviewPanel().padding(.top, Space.s)
-                if !suggested.isEmpty || advice > 0 {
-                    HStack(spacing: Space.m) {
-                        if !suggested.isEmpty {
-                            Button("Accept \(suggested.count) Suggestion\(suggested.count == 1 ? "" : "s")") {
-                                model.propose("Apply \(suggested.count) skill suggestion\(suggested.count == 1 ? "" : "s")",
-                                              .many(suggested.compactMap { s in triage[s.id]?.state.flatMap(s.fix(to:)) }))
-                            }
-                            .buttonStyle(.borderedProminent).controlSize(.large)
-                            Text("saves \(formatTokens(saving)) per session").foregroundStyle(.secondary)
-                        }
-                        if advice > 0 {
-                            Text("\(advice) more need\(advice == 1 ? "s" : "") a manual step: see the Suggestion column")
-                                .foregroundStyle(.secondary)
-                        }
+            VStack(alignment: .leading, spacing: Space.m) {
+                HStack(alignment: .firstTextBaseline, spacing: Space.m) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        (Text("Skills cost ") + Text(formatTokens(total)).foregroundStyle(Color.spark) + Text(" every session")).font(.title2.weight(.semibold))
+                        Text("Always available skills are listed so Claude can pick them. On demand skills cost nothing until you type /name.")
+                            .font(.callout).foregroundStyle(.secondary).lineLimit(1)
                     }
-                    .padding(.top, Space.s)
+                    Spacer()
+                    if !suggested.isEmpty {
+                        Button("Accept \(suggested.count) Suggestion\(suggested.count == 1 ? "" : "s")") {
+                            model.propose("Apply \(suggested.count) skill suggestion\(suggested.count == 1 ? "" : "s")",
+                                          .many(suggested.compactMap { s in triage[s.id]?.state.flatMap(s.fix(to:)) }))
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .help("Saves \(formatTokens(saving)) tokens per session" + (advice > 0 ? ". \(advice) more need a manual step: see the Suggestion column" : ""))
+                    }
                 }
+                CleanupReviewRow()
             }
             .padding(Space.l)
+            Divider()
             HStack(spacing: Space.m) {
                 TextField("Filter skills", text: $filter).textFieldStyle(.roundedBorder).frame(maxWidth: 280)
                 Picker("State", selection: $stateFilter) {
                     Text("All states").tag(SkillState?.none)
                     ForEach(SkillState.allCases, id: \.self) { Text($0.rawValue).tag(SkillState?.some($0)) }
                 }
-                .frame(width: 200)
+                .labelsHidden().pickerStyle(.menu).fixedSize()
                 Picker("From", selection: $sourceFilter) {
                     Text("All sources").tag("All")
                     Text("Personal & project").tag("Mine")
                     Text("Plugins").tag("Plugins")
                 }
-                .fixedSize()
-                .help("Plugin skills follow their plugin; manage those plugins in the list below")
+                .labelsHidden().pickerStyle(.menu).fixedSize()
+                .help("Plugin skills follow their plugin; manage those plugins in Plugins")
                 Spacer()
-                Text("\(rows.count) of \(skills.count)").font(.callout).foregroundStyle(.secondary)
+                Text("\(rows.count) of \(skills.count)").font(.callout).foregroundStyle(.secondary).monospacedDigit()
             }
-            .padding(.horizontal, Space.l).padding(.bottom, Space.m)
+            .padding(.horizontal, Space.l).padding(.vertical, Space.s)
             Divider()
             BulkBar(sel: $model.pickedSkills, visible: visible, actions: model.skillActions(model.pickedSkills.ids))
                 }
@@ -302,7 +290,7 @@ extension AppModel {
     func skillActions(_ ids: Set<String>) -> [BulkAction] {
         let picked = snapshot.components.filter { $0.kind == .skill && ids.contains($0.id) }
         let n = "\(picked.count) skill\(picked.count == 1 ? "" : "s")"
-        let owned = bulkCheck(picked, blocked: skillBlock)
+        let owned = skillBulkCheck(picked)
         func state(_ t: SkillState, _ title: String, _ icon: String) -> BulkAction {
             BulkAction(title: title, icon: icon, check: owned) { self.proposeBulk("\(title.dropLast()) \(n)", skillStatePlan(picked, to: t)) }
         }
@@ -325,4 +313,43 @@ func purpose(_ s: Component) -> String {
     let d = s.description.trimmingCharacters(in: .whitespaces)
     guard let end = d.range(of: ". ") else { return d }
     return String(d[..<end.lowerBound])
+}
+
+/// Name + purpose, with a copy button for the exact slash invocation on hover or selection.
+private struct SkillNameCell: View {
+    let skill: Component
+    let purpose: String
+    let selected: Bool
+    @State private var hovering = false
+    @State private var copied = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(skill.invocation).font(.body.weight(.medium).monospaced()).lineLimit(1).truncationMode(.middle)
+                Text(purpose).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            .help(skill.invocation + "\n" + skill.description)
+            Spacer(minLength: 0)
+            Button {
+                copy(skill.invocation)
+                copied = true
+                Task { try? await Task.sleep(for: .seconds(1.2)); copied = false }
+            } label: {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .foregroundStyle(copied ? Color.green : Color.secondary)
+            }
+            .buttonStyle(.borderless)
+            .opacity(hovering || selected || copied ? 1 : 0)
+            .help(copied ? "Copied" : "Copy \(skill.invocation)")
+            .accessibilityLabel(copied ? "Copied" : "Copy \(skill.invocation)")
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .contextMenu {
+            Button("Copy command") { copy(skill.invocation) }
+            Button("Open SKILL.md") { openFile(skill.file) }
+            Button("Reveal in Finder") { reveal(skill.file) }
+        }
+    }
 }

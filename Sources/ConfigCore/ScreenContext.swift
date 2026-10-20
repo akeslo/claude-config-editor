@@ -34,7 +34,7 @@ public enum ScreenContext {
     }
 
     /// Per-list caps for itemised screens: one line per item, short descriptions.
-    public static let listCap = 150, shortDescription = 120
+    public static let listCap = 150, shortDescription = 120, skillDescription = 90
     static let stopwords: Set<String> = ["the", "and", "for", "are", "any", "you", "your", "with", "about", "looking", "find", "show",
                                          "what", "which", "have", "there", "this", "that", "skill", "skills", "plugin", "plugins", "across", "like", "some"]
 
@@ -121,6 +121,18 @@ public enum ScreenContext {
                 + (items.count > listCap ? ["+\(items.count - listCap) more not shown (lower relevance); suggest a narrower search."] : [])
         }
 
+        /// Skills screen: every skill on one compact line so the whole list fits the budget; other kinds only as counts.
+        func skillList() -> [String] {
+            let skills = s.components.filter { $0.kind == .skill }.sorted { $0.name < $1.name }
+            var l = ["## All \(skills.count) skills (complete list): name | source | state | tokens | uses | last used | description",
+                     "Recommend only skills named here; there are no others."]
+            for x in skills {
+                l.append("\(c(x.name)) | \(x.scope.rawValue) | \(x.state.rawValue) | \(x.listingTokens) | \(x.usageCount) | \(ago(x.lastUsed)) | \(String(short(x.description).prefix(skillDescription)))")
+            }
+            l += ["", "## Plugins (\(s.plugins.count)): id | enabled"] + s.plugins.map { "\(c($0.id)) | \($0.enabled ? "on" : "off")" }
+            return l
+        }
+
         func discoverData() -> [String] {
             let d = discover ?? Discover(tab: "community", search: "", available: [], community: [], communityInstalled: [])
             let t = terms(d.search + " " + question)
@@ -167,7 +179,9 @@ public enum ScreenContext {
             data = discoverData()
         case .analytics:
             data = analyticsData() + [""] + inventory()
-        case .mySkills, .skills, .plugins, .mcp, .hooks:
+        case .mySkills:
+            data = skillList()
+        case .skills, .plugins, .mcp, .hooks:
             data = inventory()
         case .instructions:
             data = memory()
