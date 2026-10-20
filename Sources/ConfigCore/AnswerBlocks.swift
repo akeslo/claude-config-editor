@@ -51,10 +51,6 @@ public enum AnswerBlocks {
         return out
     }
 
-    public static func codeBlocks(_ text: String) -> [String] {
-        segments(text).compactMap { if case .code(_, let b) = $0 { b } else { nil } }
-    }
-
     /// "give me a prompt", "write a prompt for…", "draft prompt": the word prompt plus a verb asking for one.
     public static func asksForPrompt(_ question: String) -> Bool {
         let words = Set(question.lowercased().split { !$0.isLetter }.map(String.init))

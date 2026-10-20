@@ -209,3 +209,11 @@ struct ProjectsView: View {
 extension String {
     func ifEmpty(_ fallback: String) -> String { isEmpty ? fallback : self }
 }
+
+struct OptionalDateComparator: SortComparator {
+    var order: SortOrder = .forward
+    func compare(_ a: Date?, _ b: Date?) -> ComparisonResult {
+        let r = (a ?? .distantPast).compare(b ?? .distantPast)
+        return order == .forward ? r : (r == .orderedAscending ? .orderedDescending : r == .orderedDescending ? .orderedAscending : .orderedSame)
+    }
+}

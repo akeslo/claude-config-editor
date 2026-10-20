@@ -45,10 +45,10 @@ public enum Screen: Hashable, Sendable {
         }
     }
 
-    /// Where a legacy section lands (Claude screens; cut screens go to Overview).
+    /// Where a legacy section lands (Claude screens).
     public init(_ s: AppSection) {
         switch s {
-        case .health, .guide, .context, .analytics: self = .overview
+        case .health: self = .overview
         case .discover: self = .library(.catalogue)
         case .backups: self = .library(.backups)
         case .storage, .projects: self = .library(.disk)

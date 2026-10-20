@@ -177,7 +177,7 @@ extension AppModel {
             tab: UserDefaults.standard.string(forKey: "discoverTab") ?? "community", search: discoverSearch,
             available: available, community: community, communityInstalled: Set(community.filter(communityInstalled()).map(\.id))) : nil
         let screen = ScreenContext.build(section, snapshot, issues: issues, advice: advice, storage: storage,
-                                         discover: discover, analytics: analytics, skillMap: section == .skills ? skillMapContext : nil, question: question)
+                                         discover: discover, question: question)
         return screen
     }
 

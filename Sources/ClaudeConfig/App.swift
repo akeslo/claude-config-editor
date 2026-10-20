@@ -20,9 +20,7 @@ struct ClaudeConfigApp: App {
                     // `-appearance light|dark` on the command line forces a mode (used for screenshots of both).
                     if let a = UserDefaults.standard.string(forKey: "appearance") { NSApp.appearance = NSAppearance(named: a == "light" ? .aqua : .darkAqua) }
                     await model.refresh()
-                    if UserDefaults.standard.object(forKey: "analyzeOnLaunch") as? Bool ?? true { await model.analyzeSkillsIfNeeded() }
                 }
-                .task { await model.checkForAppUpdate() }
                 .task { await model.loadAdvice() }
         }
         .defaultSize(width: 1440, height: 900)
@@ -50,15 +48,6 @@ struct RootView: View {
             List(selection: $model.screen) {
                 ForEach(Screen.sidebar(for: model.detected), id: \.title) { g in
                     Section(g.title) { ForEach(g.screens, id: \.self) { sidebarRow($0) } }
-                }
-            }
-            .safeAreaInset(edge: .bottom) {
-                if let u = model.appUpdate {
-                    Link(destination: u.url) {
-                        Label("Update available: \(u.count) new change\(u.count == 1 ? "" : "s")", systemImage: "arrow.down.circle.fill").font(.caption)
-                    }
-                    .help("See what changed on GitHub. To install, pull and run ./build.sh in the source folder.")
-                    .padding(8)
                 }
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)

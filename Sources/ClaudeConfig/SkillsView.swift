@@ -8,14 +8,13 @@ struct SkillsView: View {
     @State private var filter = ""
 
     enum Page: String, CaseIterable {
-        case grid = "By category", states = "Always available", cheatSheet = "On demand", overlaps = "Overlaps", map = "Skill map"
+        case grid = "By category", states = "Always available", cheatSheet = "On demand", overlaps = "Overlaps"
         var explanation: String {
             switch self {
             case .grid: "Every skill you have, grouped by what it is for."
             case .states: "Always available skills are listed in every session so Claude can pick them itself; each costs its description in tokens."
             case .cheatSheet: "On demand skills are not listed and cost nothing; they run only when you type /name."
             case .overlaps: "Skills with the same name or near-identical descriptions compete for the same requests; keep one."
-            case .map: "Slice every skill by use, cost, recency, agent or mode; click anything for details."
             }
         }
     }
@@ -35,7 +34,6 @@ struct SkillsView: View {
             case .grid: SkillGridView(skills: skills)
             case .overlaps: SkillOverlapsView(skills: skills)
             case .states: StatesPage(skills: skills)
-            case .map: SkillMapView()
             case .cheatSheet: CheatSheet(skills: skills.filter { $0.state == .onDemand }, filter: $filter)
             }
         }
@@ -46,7 +44,6 @@ struct SkillsView: View {
 private struct SkillRow: Identifiable {
     let skill: Component
     let suggestion: SkillSuggestion?
-    let stars: Int?
     let source: String
     var id: String { skill.id }
     var name: String { skill.name }
@@ -55,7 +52,6 @@ private struct SkillRow: Identifiable {
     var uses: Int { skill.usageCount }
     var lastUsed: Date { skill.lastUsed ?? .distantPast }
     var installed: Date { skill.installedAt ?? .distantPast }
-    var starCount: Int { stars ?? -1 }
     var suggestionText: String { suggestion?.label ?? "" }
 }
 
@@ -77,7 +73,7 @@ private struct StatesPage: View {
             .filter { stateFilter == nil || $0.state == stateFilter }
             .filter { sourceFilter == "All" || (sourceFilter == "Plugins") == !$0.ownsFile }
             .filter { filter.isEmpty || $0.name.localizedCaseInsensitiveContains(filter) || $0.description.localizedCaseInsensitiveContains(filter) }
-            .map { SkillRow(skill: $0, suggestion: triage[$0.id], stars: githubSlug($0.repoURL).flatMap { model.stars[$0] }, source: source($0)) }
+            .map { SkillRow(skill: $0, suggestion: triage[$0.id], source: source($0)) }
             .sorted(using: order)
         let visible = rows.map(\.id)
         @Bindable var model = model
@@ -106,15 +102,6 @@ private struct StatesPage: View {
                     Text(r.skill.installedAt?.formatted(date: .abbreviated, time: .omitted) ?? "—").foregroundStyle(.secondary)
                 }
                 .width(88)
-                TableColumn("Stars", value: \SkillRow.starCount) { (r: SkillRow) in
-                    if let repo = r.skill.repoURL, let slug = githubSlug(repo) {
-                        Link(destination: repo) {
-                            Label(r.stars.map { $0.formatted(.number.notation(.compactName)) } ?? "GitHub", systemImage: "star")
-                        }
-                        .help("\(slug) on GitHub")
-                    }
-                }
-                .width(60)
                 TableColumn("Scope", value: \SkillRow.source) { (r: SkillRow) in
                     ScopeMenu(current: ScopeMove.target(of: r.skill), fixedLabel: r.skill.scope == .plugin ? "Plugin" : r.skill.scope == .external ? "Other agent" : r.skill.scope.rawValue, allowLocal: false) { t in
                         model.moveScope("/" + r.name, to: t) { try ScopeMove.move(component: r.skill, to: t) }
@@ -191,7 +178,6 @@ private struct StatesPage: View {
                 .background(.background)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) { Button("Plugins are turned on or off in Plugins") { model.section = .plugins }.buttonStyle(.link).padding(Space.s).frame(maxWidth: .infinity, alignment: .leading).background(.background) }
-        .task { await model.loadStars() }
     }
 
     private func source(_ c: Component) -> String { c.belongsTo }

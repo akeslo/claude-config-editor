@@ -118,10 +118,8 @@ public func screenText(_ section: AppSection, _ s: Snapshot, issues: [Issue], ad
     switch section {
     case .health:
         lines = issues.map { "\($0.severity) | \(r($0.title)) | \(r($0.subject)) | \(r($0.detail))" }
-    case .guide:
-        lines = advice.rules.filter { $0.retired != true }.map { "\($0.area.rawValue) | \($0.kind.rawValue) | \(c($0.text))" }
-    case .skills, .agents, .analytics, .context, .discover, .storage, .backups:
-        // ScreenContext itemises analytics/context/discover/storage; this fallback still lists items, never just totals.
+    case .skills, .agents, .discover, .storage, .backups:
+        // ScreenContext itemises discover/storage; this fallback still lists items, never just totals.
         lines = s.components.filter { section != .skills && section != .agents || (section == .skills) == ($0.kind == .skill) }
             .map { "\($0.kind.rawValue) | \(c($0.name)) | \(c($0.description)) | \($0.listingTokens) tokens | \(c($0.file.path))" }
     case .mcp:

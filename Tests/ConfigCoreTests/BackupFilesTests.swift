@@ -55,26 +55,24 @@ struct BackupFilesTests {
         #expect(BackupFiles.original(of: try put(".claude/backups/.claude.json.backup.1792340868531"), home: home) == cj)
     }
 
-    @Test func manifestAndUniqueSearch() throws {
+    @Test func uniqueSearchIgnoresManifests() throws {
         let real = try put(".claude/agents/odd.yaml")
         _ = try put(".claude/backups/x/MANIFEST.txt", "odd.yaml.bak  <-  ~/.claude/agents/odd.yaml")
-        #expect(BackupFiles.original(of: try put(".claude/backups/x/odd.yaml.bak"), home: dir) == real)
+        // A manifest is not read: without a unique same-name file the original stays unknown.
+        #expect(BackupFiles.original(of: try put(".claude/backups/x/odd.yaml.bak"), home: dir) == nil)
+        #expect(BackupFiles.original(of: dir.appending(path: ".claude/backups/x/odd.yaml.bak"), home: dir, index: ["odd.yaml": [real]]) == real)
         let u = try put(".claude/agents/solo.md")
         #expect(BackupFiles.original(of: try put(".claude/backups/y/solo.md.bak"), home: dir, index: ["solo.md": [u]]) == u)
     }
 
-    @Test func untrustedManifestAndEscapes() throws {
+    @Test func untrustedFoldersAndEscapes() throws {
         let zshrc = try put(".zshrc"), proj = dir.appending(path: "repo")
         // A cloned repo's manifest is never read.
         _ = try put("repo/backups/MANIFEST", ".zshrc.bak -> ~/.zshrc")
         #expect(BackupFiles.original(of: try put("repo/backups/.zshrc.bak"), home: dir, projects: [proj], index: [".zshrc": [zshrc]]) == nil)
-        // A trusted manifest still cannot point outside ~/.claude, nor at a different file name.
-        _ = try put(".claude/backups/z/MANIFEST", "a.json.bak ~/.zshrc ~/.claude/b.json")
-        _ = try put(".claude/b.json")
-        #expect(BackupFiles.original(of: try put(".claude/backups/z/a.json.bak"), home: dir) == nil)
         // A symlink inside ~/.claude that escapes it.
+        _ = try put(".claude/keep")
         try FileManager.default.createSymbolicLink(at: dir.appending(path: ".claude/esc.json"), withDestinationURL: zshrc)
-        _ = try put(".claude/backups/w/MANIFEST", "esc.json.bak ~/.claude/esc.json")
         #expect(BackupFiles.original(of: try put(".claude/backups/w/esc.json.bak"), home: dir, index: ["esc.json": [dir.appending(path: ".claude/esc.json")]]) == nil)
     }
 

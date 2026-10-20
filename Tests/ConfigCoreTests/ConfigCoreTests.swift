@@ -147,35 +147,6 @@ func dumpIssues() async {
     }
 }
 
-struct AnalyticsTests {
-    @Test func countsEachRequestOnceAndCompactions() throws {
-        let f = FileManager.default.temporaryDirectory.appending(path: "\(UUID().uuidString).jsonl")
-        let lines = [
-            #"{"type":"user","cwd":"/p","timestamp":"2026-10-01T10:00:00.000Z","message":{"content":"hi"}}"#,
-            #"{"type":"assistant","requestId":"r1","timestamp":"2026-10-01T10:00:05.000Z","message":{"model":"claude-opus-5-5","content":[{"type":"thinking"}],"usage":{"input_tokens":10,"cache_read_input_tokens":1000,"cache_creation_input_tokens":200,"output_tokens":5}}}"#,
-            #"{"type":"assistant","requestId":"r1","message":{"model":"claude-opus-5-5","content":[{"type":"tool_use","name":"Bash"}],"usage":{"input_tokens":10,"cache_read_input_tokens":1000,"cache_creation_input_tokens":200,"output_tokens":5}}}"#,
-            #"{"type":"system","subtype":"compact_boundary","compactMetadata":{"preTokens":5000,"postTokens":1000}}"#,
-            #"{"type":"ai-title","aiTitle":"Demo"}"#,
-            "not json",
-        ]
-        try Data(lines.joined(separator: "\n").utf8).write(to: f)
-        let s = Analytics.parse(f)
-        #expect(s.requests == 1)
-        #expect(s.peakContext == 1210)
-        #expect(s.tools["Bash"] == 1)
-        #expect(s.compactions == 1 && s.tokensDroppedByCompaction == 4000)
-        #expect(s.title == "Demo" && s.project == "/p" && s.userPrompts == 1)
-        #expect(s.duration == 5)
-    }
-}
-
-@Test(.enabled(if: ProcessInfo.processInfo.environment["DUMP_ISSUES"] != nil))
-func analyticsOnRealData() async {
-    let start = Date()
-    let r = await Analytics.load()
-    print("ANALYTICS sessions \(r.sessions.count) tokens \(r.totalTokens) cache \(r.cacheHitRate) compactions \(r.compactions) in \(Date().timeIntervalSince(start))s; tools \(r.topTools(3))")
-}
-
 @Test func agentFileMatching() {
     #expect(AgentFiles.isMatch("/Users/x/app/CLAUDE.local.md"))
     #expect(AgentFiles.isMatch("/Users/x/app/AGENTS.md"))
@@ -222,19 +193,6 @@ struct RepoURLTests {
         try Data(#"{"repository":{"url":"git+https://github.com/a/b.git"},"homepage":"https://x.dev"}"#.utf8)
             .write(to: root.appending(path: ".claude-plugin/plugin.json"))
         #expect(Scanner.repoURL(pluginRoot: root, marketplace: "mp", known: known)?.absoluteString == "https://github.com/a/b.git")
-    }
-}
-
-struct UsageTests {
-    @Test func decodesCCUsageDaily() throws {
-        let url = URL(filePath: #filePath).deletingLastPathComponent().appending(path: "Fixtures/ccusage-daily.json")
-        let r = try UsageReport.decode(Data(contentsOf: url))
-        #expect(r.rows.count == 4)
-        #expect(r.agents == ["claude"])
-        #expect(Set(r.rows.map(\.day)) == ["2026-10-16"])
-        let opus = try #require(r.rows.first { $0.model == "claude-opus-5-5" })
-        #expect(opus.input == 6079 && opus.output == 1745130 && opus.cacheCreate == 9580674 && opus.cacheRead == 472496017)
-        #expect(abs(r.rows.reduce(0) { $0 + $1.cost } - 379.6658544499991) < 0.001)
     }
 }
 

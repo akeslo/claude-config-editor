@@ -59,8 +59,6 @@ final class AppModel {
     /// Scanned config per provider; only Claude Code has a scanner so far.
     var snapshots: [ProviderID: Snapshot] = [:]
     var snapshot: Snapshot { snapshots[.claude] ?? Snapshot() }
-    /// Skill map state for Ask Claude, set while the map is on screen.
-    var skillMapContext: String?
     /// Skills picked for Copy prompt, shared by By category and the map inspector.
     /// One skill selection shared by the grid, table, map and Copy prompt.
     var pickedSkills = BulkSelection<String>()
@@ -93,10 +91,6 @@ final class AppModel {
     var communityChoices: [FoundSkill] = []
     var communityChoicesLink: URL?
     var showInspector = false
-    var analytics: AnalyticsReport?
-    var analyticsProgress = 0.0
-    /// ccusage cost report, cached for the launch; nil while loading.
-    var usage: Result<UsageReport, UsageError>?
 
     /// Cached: recomputed when a scan or measurement finishes, not on every redraw (audit #17).
     private(set) var issues: [Issue] = []
@@ -160,14 +154,6 @@ final class AppModel {
         if available.isEmpty { available = await Scanner.available() }
     }
 
-    func loadAnalytics(force: Bool = false) async {
-        guard force || analytics == nil else { return }
-        analytics = await Analytics.load { done, total in
-            Task { @MainActor in self.analyticsProgress = Double(done) / Double(max(total, 1)) }
-        }
-    }
-
-    /// ⌘R and the Rescan button: config files, plus ccusage if it was already loaded.
     /// One-line summaries from Claude, keyed by command plus script date, so a changed script is explained again.
     var hookExplanations: [String: String] = UserDefaults.standard.dictionary(forKey: "hookExplanations") as? [String: String] ?? [:]
     var explaining: Set<String> = []
@@ -222,7 +208,7 @@ final class AppModel {
     var analyzing = false
     var analysisError: String?
 
-    /// Runs at launch when allowed: asks Claude once a day, or sooner when the skill set changed.
+    /// The Review Now button: asks Claude once a day, or sooner when the skill set changed.
     func analyzeSkillsIfNeeded(force: Bool = false) async {
         let skills = snapshot.components.filter { $0.kind == .skill }
         let fingerprint = skills.map { "\($0.name)|\($0.state.rawValue)" }.sorted().joined(separator: ",")
@@ -264,47 +250,6 @@ final class AppModel {
         result.date = Date()
         analysis = result
         UserDefaults.standard.set(try? JSONEncoder().encode(result), forKey: "skillAnalysis")
-    }
-
-    /// GitHub stars by "owner/repo", cached for a day since the unauthenticated API allows 60 calls an hour.
-    var stars: [String: Int] = UserDefaults.standard.dictionary(forKey: "stars") as? [String: Int] ?? [:]
-
-    func loadStars() async {
-        let d = UserDefaults.standard
-        if let last = d.object(forKey: "starsCheckedAt") as? Date, Date().timeIntervalSince(last) > 86_400 {
-            stars = [:]
-            d.removeObject(forKey: "starsCheckedAt")
-        }
-        let slugs = Set(snapshot.components.compactMap { githubSlug($0.repoURL) }).subtracting(stars.keys)
-        guard !slugs.isEmpty else { return }
-        for slug in slugs.sorted() {
-            guard let api = URL(string: "https://api.github.com/repos/\(slug)"),
-                  let (data, resp) = try? await URLSession.shared.data(from: api) else { continue }
-            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { if (resp as? HTTPURLResponse)?.statusCode == 403 { break } else { continue } }  // 403: rate limited
-            if let n = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["stargazers_count"] as? Int { stars[slug] = n }
-        }
-        if d.object(forKey: "starsCheckedAt") == nil { d.set(Date(), forKey: "starsCheckedAt") }
-        d.set(stars, forKey: "stars")
-    }
-
-    /// Commits on GitHub newer than this build, and where to see them. Checked at most once a day.
-    var appUpdate: (count: Int, url: URL)?
-
-    func checkForAppUpdate() async {
-        let d = UserDefaults.standard, info = Bundle.main.infoDictionary
-        guard let sha = info?["ClaudeConfigCommit"] as? String, let branch = info?["ClaudeConfigBranch"] as? String else { return }  // dev build
-        // Reuse today's answer for this build instead of asking GitHub again.
-        if let last = d.object(forKey: "updateCheckedAt") as? Date, Date().timeIntervalSince(last) < 86_400, d.string(forKey: "updateCheckedSHA") == sha {
-            let n = d.integer(forKey: "updateAhead")
-            if n > 0, let u = d.url(forKey: "updateURL") { appUpdate = (n, u) }
-            return
-        }
-        guard let api = URL(string: "https://api.github.com/repos/akeslo/claude-config-editor/compare/\(sha)...\(branch)"),
-              let (data, resp) = try? await URLSession.shared.data(from: api), (resp as? HTTPURLResponse)?.statusCode == 200,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let ahead = json["ahead_by"] as? Int, let page = (json["html_url"] as? String).flatMap(URL.init(string:)) else { return }
-        d.set(Date(), forKey: "updateCheckedAt"); d.set(sha, forKey: "updateCheckedSHA"); d.set(ahead, forKey: "updateAhead"); d.set(page, forKey: "updateURL")
-        appUpdate = ahead > 0 ? (ahead, page) : nil
     }
 
     /// Best-practice rules behind Review's "why" lines: bundled seed first, then the newest fetched copy (at most daily).
@@ -360,16 +305,7 @@ final class AppModel {
         communityDownloads = []
     }
 
-    func rescan() async {
-        if usage != nil { Task { await loadUsage(force: true) } }
-        await refresh()
-    }
-
-    func loadUsage(force: Bool = false) async {
-        guard force || usage == nil else { return }
-        if force { usage = nil }
-        usage = await CCUsage.load()
-    }
+    func rescan() async { await refresh() }
 
     /// One click: reversible fixes apply now with an Undo toast; only irreversible ones (uninstall, update, purge, installs) open the confirm sheet.
     func propose(_ title: String, _ fix: Fix) {

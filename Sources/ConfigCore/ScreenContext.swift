@@ -57,7 +57,7 @@ public enum ScreenContext {
     }
 
     public static func build(_ section: AppSection, _ s: Snapshot, issues: [Issue], advice: Advice, storage: [StorageArea] = [],
-                             discover: Discover? = nil, analytics: AnalyticsReport? = nil, skillMap: String? = nil, question: String = "",
+                             discover: Discover? = nil, skillMap: String? = nil, question: String = "",
                              now: Date = Date(), budget: Int = defaultBudget) -> String {
         var trimmed = 0
         func strip(_ v: String) -> String { String(String.UnicodeScalarView(v.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) })) }
@@ -161,32 +161,16 @@ public enum ScreenContext {
             return l
         }
 
-        func analyticsData() -> [String] {
-            guard let a = analytics else { return ["## Analytics", "(session analytics not computed yet)"] }
-            var l = ["## Analytics: \(a.sessions.count) sessions, \(a.totalTokens) tokens, \(a.compactions) compactions, cache hit \(Int(a.cacheHitRate * 100))%",
-                     "", "## Top tools: name | calls"] + a.topTools(30).map { "\(c($0.name)) | \($0.count)" }
-            l += ["", "## Per day (last 60 days): day | sessions | tokens"] + a.perDay().map { "\(day($0.day)) | \($0.sessions) | \($0.tokens)" }
-            let recent = a.sessions.sorted { ($0.start ?? .distantPast) > ($1.start ?? .distantPast) }
-            l += [""] + list("Sessions, newest first: start | project | title | tokens | requests", recent) {
-                "\(day($0.start)) | \(c($0.project)) | \(short($0.title ?? "-")) | \($0.totalTokens) | \($0.requests)"
-            }
-            return l
-        }
-
         var data: [String]
         switch section {
         case .discover:
             data = discoverData()
-        case .analytics:
-            data = analyticsData() + [""] + inventory()
         case .skills:
             data = skillList()
         case .agents, .plugins, .mcp, .hooks:
             data = inventory()
         case .instructions:
             data = memory()
-        case .context:
-            data = memory() + [""] + inventory()
         case .storage:
             data = ["## Storage areas", "name | path | safety | auto-cleaned | bytes | items | oldest"]
                 + storage.map { "\(c($0.name)) | \(c(shortPath($0.url))) | \($0.safety.rawValue) | \($0.autoCleaned) | \($0.bytes) | \($0.itemCount) | \(day($0.oldest))" }

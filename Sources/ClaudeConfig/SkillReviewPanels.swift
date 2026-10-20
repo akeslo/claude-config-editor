@@ -149,40 +149,11 @@ struct CleanupReviewPanel: View {
     }
 }
 
-/// Discover: Claude's picks of plugins to add, installed through the same rows as the Ask answers.
-struct DiscoverReviewPanel: View {
-    @Environment(AppModel.self) private var model
-    @AppStorage("aiReviewExpanded") private var expanded = true
-    @State private var sel = BulkSelection<String>()
-
-    var body: some View {
-        let a = model.analysis
-        let items = Recommendations.match((a?.discover ?? []).map { .init(kind: "plugin", name: $0.plugin, marketplace: nil, reason: $0.reason) },
-                                          available: model.available, community: model.community)
-        DisclosureGroup(isExpanded: $expanded) {
-            VStack(alignment: .leading, spacing: 0) {
-                if let e = model.analysisError { Label(e, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary) }
-                if a == nil && !model.analyzing && model.analysisError == nil {
-                    Text("No review yet. Ask Claude for plugins that fit how you work.").foregroundStyle(.secondary)
-                }
-                if !items.isEmpty { BulkBar(sel: $sel, visible: items.map(\.id), actions: model.installActions(items.filter { sel.contains($0.id) })).padding(.horizontal, -Space.l) }
-                ForEach(items) { RecommendationRow(item: $0, sel: $sel, visible: items.map(\.id)) }
-                ForEach((a?.discover ?? []).filter { p in !items.contains { $0.id.localizedCaseInsensitiveContains(p.plugin) } }, id: \.self) { p in
-                    Text("\(p.plugin): \(p.reason) (not in the loaded catalog)").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            .padding(.top, Space.xs).frame(maxWidth: .infinity, alignment: .leading)
-        } label: {
-            HStack(spacing: Space.s) {
-                Label("Claude's review", systemImage: "sparkles").font(.headline)
-                if model.analyzing { ProgressView().controlSize(.small) }
-                else if let a { Text("unverified AI suggestions · \(a.date.formatted(.relative(presentation: .named)))").font(.caption).foregroundStyle(.secondary) }
-                Spacer()
-                Button(a == nil ? "Review Now" : "Refresh") { Task { await model.analyzeSkillsIfNeeded(force: true) } }
-                    .controlSize(.small).disabled(model.analyzing)
-                    .help("Sends skill names, short descriptions and usage counts to Claude (haiku)")
-            }
-        }
-        .padding(.horizontal, Space.l).padding(.bottom, Space.s)
+extension AppModel {
+    /// Changes when anything the clean-up review reads changes, so facts are rebuilt only then.
+    var skillFingerprint: Int {
+        var h = Hasher()
+        for c in snapshot.components where c.kind == .skill { h.combine(c.id); h.combine(c.usageCount); h.combine(c.override); h.combine(c.alwaysLoaded); h.combine(c.agents.count) }
+        return h.finalize()
     }
 }

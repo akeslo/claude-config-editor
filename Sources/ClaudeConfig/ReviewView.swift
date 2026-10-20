@@ -234,10 +234,9 @@ struct FirstRunCard: View {
                 if always.count > 5 { Button("See all \(always.count)") { open(.states) }.buttonStyle(.link) }
             }
             HStack {
-                Button("Set up your first skill") { UserDefaults.standard.set("community", forKey: "discoverTab"); model.section = .discover }
+                Button("Set up your first skill") { model.section = .discover }
                     .buttonStyle(.borderedProminent)
                 Button("My on-demand skills") { open(.cheatSheet) }
-                Button("Skill map") { open(.map) }
             }
         }
         .padding(Space.l)

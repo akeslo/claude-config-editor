@@ -2,10 +2,10 @@ import Foundation
 
 public enum AppSection: String, CaseIterable, Identifiable, Sendable {
     // Case order is sidebar order within each group.
-    case health = "Review", guide = "Guide", context = "Context Budget"
+    case health = "Review"
     case instructions = "Memory", skills = "Skills", agents = "Agents & Commands", plugins = "Plugins", mcp = "MCP Servers", hooks = "Hooks"
     case settings = "Settings", permissions = "Permissions"
-    case projects = "Projects & History", storage = "Storage", backups = "Backups", analytics = "Analytics"
+    case projects = "Projects & History", storage = "Storage", backups = "Backups"
     case discover = "Discover"
     public var id: String { rawValue }
 
@@ -13,10 +13,10 @@ public enum AppSection: String, CaseIterable, Identifiable, Sendable {
     public static let groups = ["Overview", "Context", "Config", "Data", "Discover"]
     public var group: String {
         switch self {
-        case .health, .guide, .context: "Overview"
+        case .health: "Overview"
         case .instructions, .skills, .agents, .plugins, .mcp, .hooks: "Context"
         case .settings, .permissions: "Config"
-        case .projects, .storage, .backups, .analytics: "Data"
+        case .projects, .storage, .backups: "Data"
         case .discover: "Discover"
         }
     }
@@ -25,9 +25,6 @@ public enum AppSection: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .health: "checklist"
         case .skills: "wand.and.rays"
-        case .guide: "book"
-        case .context: "gauge.with.dots.needle.50percent"
-        case .analytics: "chart.bar.xaxis"
         case .storage: "internaldrive"
         case .backups: "clock.arrow.circlepath"
         case .projects: "folder"
@@ -44,10 +41,9 @@ public enum AppSection: String, CaseIterable, Identifiable, Sendable {
 
     public var term: Term {
         switch self {
-        case .health, .context, .guide: .contextWindow
+        case .health: .contextWindow
         case .storage: .scratch
         case .backups: .settings
-        case .analytics: .transcripts
         case .projects: .project
         case .permissions: .permissions
         case .mcp: .mcpServer
