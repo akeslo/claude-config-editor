@@ -66,20 +66,6 @@ public enum Failures {
         return out
     }
 
-    /// Items to consider removing: personal/project skills, agents, commands and memory files that are stale.
-    public static func stale(_ s: Snapshot, now: Date = Date()) -> [(name: String, url: URL, reason: String)] {
-        var out: [(String, URL, String)] = []
-        for c in s.components where c.ownsFile {
-            let st = Staleness.of(modified: fileDates(c.file).modified, lastUsed: c.kind == .skill ? (c.lastUsed ?? c.installedAt) : nil, now: now)
-            if st.level == .stale { out.append(("\(c.kind.rawValue) /\(c.name)", c.kind == .skill ? c.file.deletingLastPathComponent() : c.file, st.reason)) }
-        }
-        for f in s.instructions {
-            let st = Staleness.of(modified: fileDates(f.url).modified, now: now)
-            if st.level == .stale { out.append(("\(f.kind.rawValue) · \(shortPath(f.url))", f.url, st.reason)) }
-        }
-        return out.sorted { $0.0 < $1.0 }
-    }
-
     /// nil when the file parses as JSON; otherwise a one-line reason.
     public static func parseError(_ url: URL) -> String? {
         guard let data = try? Data(contentsOf: url) else { return "Can't read the file." }

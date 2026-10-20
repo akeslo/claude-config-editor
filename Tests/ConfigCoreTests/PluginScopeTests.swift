@@ -18,24 +18,10 @@ import Testing
     #expect(args("hermitd@hermitd")?.1 == "/p/eoao-hermit")
     #expect(args("imessage@claude-plugins-official")?.0 == ["plugin", "uninstall", "imessage@claude-plugins-official", "--scope", "local"])
     #expect(args("u@m")?.0 == ["plugin", "uninstall", "u@m"])
-    guard case .cli(let a, _, _)? = cleanupFix(.uninstallPlugin("imessage@claude-plugins-official"), components: [], plugins: ps) else { Issue.record("no fix"); return }
-    #expect(a.suffix(2) == ["--scope", "local"])
 }
 
-@Test func skillGroupsByPrefixWithUnprefixedLast() {
-    let mk = { (n: String) in sk(n, "/s/\(n)/SKILL.md", .user) }
-    let g = skillGroups([mk("tidy"), mk("ponytail:review"), mk("caveman:patch"), mk("caveman:commit")])
-    #expect(g.map { $0.name } == ["caveman", "ponytail", "No prefix"])
-    #expect(g[0].skills.count == 2)
-}
-
-@Test func overlapsOnlyAcrossClaudeCodeSources() {
-    let d = "Draft blog posts social media email newsletters landing pages"
-    let a = sk("marketing:content-creation", "/p/a/SKILL.md", .plugin, owner: "marketing@x", d)
-    let b = sk("marketing:draft-content", "/p/b/SKILL.md", .plugin, owner: "marketing@x", d)
+@Test func geminiExtensionSkillsSayWhereTheyLive() {
     let gem = sk("tidy", "/h/.gemini/extensions/superpowers/skills/tidy/SKILL.md", .external)
-    let mine = sk("tidy", "/h/.claude/skills/tidy/SKILL.md", .user)
-    #expect(skillOverlaps([a, b, gem, mine]).isEmpty)
     #expect(gem.belongsTo == "Gemini · superpowers extension")
 }
 

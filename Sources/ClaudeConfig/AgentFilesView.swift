@@ -8,103 +8,102 @@ struct AgentFilesView: View {
     @State private var loading = true
     @State private var search = ""
     @State private var editing: URL?
-    @State private var expanded: Set<String> = ["user"]
-    @State private var showEmpty = false
     @State private var bulk = BulkSelection<String>()
     @State private var order = [KeyPathComparator(\MemRow.modified, order: .reverse)]
     @State private var project = "All"
-    @State private var type: MemoryType?
     @State private var level = "All"
 
     var body: some View {
         let all = Memory.groups(instructions: model.snapshot.instructions, agentFiles: agentFiles, projects: model.snapshot.projects.map(\.path))
-        let emptyCount = all.filter(\.isEmpty).count
-        let groups = showEmpty || !search.isEmpty ? all : all.filter { !$0.isEmpty }
+        let groups = !search.isEmpty ? all : all.filter { !$0.isEmpty }
         let rows = groups.flatMap { g in g.entries.map { MemRow(entry: $0, project: g.title, name: relativeName($0)) } }
             .filter { project == "All" || $0.project == project }
-            .filter { type == nil || $0.entry.type == type }
             .filter { level == "All" || $0.level == level }
             .filter { search.isEmpty || [$0.name, $0.entry.url.path, $0.entry.type.rawValue].contains { $0.localizedCaseInsensitiveContains(search) }
                 || $0.entry.recommendations.contains { $0.localizedCaseInsensitiveContains(search) } }
             .sorted(using: order)
-        let selected = bulk.count == 1 ? rows.first { bulk.contains($0.id) }?.entry : nil
-        let visible = rows.map(\.id)
-        // Empty files in view, plus auto-memory folders with no notes left (they have no row of their own).
-        let emptyDirs = model.snapshot.projects.map { Paths.projectDataDir(for: $0.path).appending(path: "memory") }.filter(Memory.isEmpty)
-        let emptyIDs = rows.filter { $0.entry.exists && Memory.isEmpty($0.entry.url) }.map(\.id) + emptyDirs.map(\.path)
-        let picked = rows.map(\.entry).filter { bulk.contains($0.id) && $0.exists }.map(\.url) + emptyDirs.filter { bulk.contains($0.path) }
-        HSplitView {
-            VStack(spacing: 0) {
-                HStack(spacing: PSpace.s3) {
-                    TextField("Filter memory", text: $search).textFieldStyle(.roundedBorder).frame(minWidth: 120, maxWidth: 220)
-                    Picker("Project", selection: $project) {
-                        Text("All projects").tag("All")
-                        ForEach(groups.map(\.title), id: \.self) { Text($0).tag($0) }
-                    }.labelsHidden().filterPicker(minWidth: 110)
-                    Picker("Type", selection: $type) {
-                        Text("All types").tag(MemoryType?.none)
-                        ForEach(MemoryType.allCases, id: \.self) { Text($0.rawValue).tag(MemoryType?.some($0)) }
-                    }.labelsHidden().filterPicker(minWidth: 110)
-                    Picker("Level", selection: $level) {
-                        ForEach(["All", "User", "Project", "Local", "Auto-memory", "Other agent"], id: \.self) { Text($0 == "All" ? "All levels" : $0).tag($0) }
-                    }.labelsHidden().filterPicker(minWidth: 110)
-                    Spacer()
-                    if emptyCount > 0 {
-                        Toggle("Empty (\(emptyCount))", isOn: $showEmpty).toggleStyle(.checkbox).font(.caption)
-                            .help("Folders whose files add ≈0 tokens to context and need no cleanup")
-                    }
-                }.padding(PSpace.s3)
-                BulkBar(sel: $bulk, visible: visible, actions: [
-                    BulkAction(title: "Move to Trash", icon: "trash", check: bulkCheck(picked) { trashRefusal($0) }) {
-                        model.propose("Move \(picked.count) to the Trash", Memory.removal(picked))
-                    },
-                    BulkAction(title: "Copy Paths", icon: "doc.on.clipboard", check: bulkCheck(picked) { _ in nil }) { copy(picked.map(\.path).joined(separator: "\n")) },
-                ], trailing: {
-                    Button("Select Empty (\(emptyIDs.count))", systemImage: "circle.dashed") { bulk.ids.formUnion(emptyIDs) }
-                        .disabled(emptyIDs.isEmpty)
-                        .help("Select every empty memory file or folder: 0 bytes, only whitespace, frontmatter with no body, or a folder with no notes")
-                })
-                Table(rows, selection: $bulk.ids, sortOrder: $order) {
-                    TableColumn("", value: \MemRow.name) { (r: MemRow) in SelectBox(sel: $bulk, id: r.id, visible: visible, name: r.name) }.width(22)
-                    TableColumn("Name", value: \MemRow.name) { (r: MemRow) in
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 4) {
-                                if !r.entry.recommendations.isEmpty { Image(systemName: "lightbulb.fill").foregroundStyle(PColor.attention.fg).help(r.entry.recommendations.joined(separator: "\n")) }
-                                Text(r.name).font(.body.weight(.medium)).foregroundStyle(r.entry.exists ? .primary : .secondary)
-                                if let s = r.entry.stale { Image(systemName: "clock.badge.exclamationmark").foregroundStyle(PColor.attention.fg).help(s) }
-                                else if r.entry.exists { StaleBadge(Staleness.of(modified: r.entry.modified)) }
-                                else { Text("missing").font(.caption2).foregroundStyle(.tertiary) }
-                            }
-                            Text(r.entry.type.rawValue + " · " + r.level).font(.caption).foregroundStyle(.secondary)
-                        }
-                        .contextMenu { actions(r.entry) }
-                    }.width(min: 200, ideal: 300)
-                    TableColumn("Scope", value: \MemRow.level) { (r: MemRow) in
-                        let file = model.snapshot.instructions.first { $0.url == r.entry.url }
-                        ScopeMenu(current: file.flatMap { ScopeMove.target(of: $0) }, fixedLabel: r.level, allowLocal: file?.kind != .rule) { t in
-                            if let file { model.moveScope(r.entry.url.lastPathComponent, to: t) { try ScopeMove.move(instruction: file, to: t) } }
-                        }
-                    }.width(min: 100, ideal: 110)
-                    TableColumn("Project", value: \MemRow.project) { (r: MemRow) in Text(r.project).foregroundStyle(.secondary).lineLimit(1) }.width(min: 80, ideal: 120)
-                    TableColumn("Size", value: \MemRow.size) { (r: MemRow) in
-                        Text(r.entry.exists ? formatBytes(Int64(r.size)) : "—").monospacedDigit().foregroundStyle(.secondary)
-                            .help(r.entry.loaded ? "\(formatTokens(r.entry.tokens)) tokens every session" : "Not loaded into every session")
-                    }.width(min: 50, ideal: 70)
-                    TableColumn("Created", value: \MemRow.created) { (r: MemRow) in
-                        Text(r.entry.created?.formatted(date: .abbreviated, time: .omitted) ?? "—").foregroundStyle(.secondary)
-                    }.width(min: 80, ideal: 100)
-                    TableColumn("Last updated", value: \MemRow.modified) { (r: MemRow) in
-                        Text(r.entry.modified.map { $0.formatted(.relative(presentation: .named)) } ?? "—").foregroundStyle(.secondary)
-                    }.width(min: 80, ideal: 110)
+        Table(rows, selection: $bulk.ids, sortOrder: $order) {
+            TableColumn("Name", value: \MemRow.name) { (r: MemRow) in
+                HStack(spacing: 4) {
+                    Text(r.name).fontWeight(.medium).foregroundStyle(r.entry.exists ? .primary : .secondary).lineLimit(1).truncationMode(.head)
+                    if !r.entry.recommendations.isEmpty { Image(systemName: "lightbulb").foregroundStyle(Ink.warning).help(r.entry.recommendations.joined(separator: "\n")) }
+                    if let s = r.entry.stale { Image(systemName: "clock.badge.exclamationmark").foregroundStyle(Ink.warning).help(s) }
+                    else if !r.entry.exists { Text("missing").font(.caption).foregroundStyle(.secondary) }
                 }
-            }
-            .overlay { if loading && rows.isEmpty { ProgressView("Searching with Spotlight…") } }
-            .frame(minWidth: 560, maxHeight: .infinity)
-            detail(selected).frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
+                .scopeRule(scopeInk(r))
+                .help(shortPath(r.entry.url))
+            }.width(min: 240, ideal: 520)
+            TableColumn("Type", value: \MemRow.type) { (r: MemRow) in Text(r.entry.type.rawValue).foregroundStyle(.secondary).lineLimit(1) }.width(min: 90, ideal: 140)
+            TableColumn("Scope", value: \MemRow.level) { (r: MemRow) in
+                ScopeLabel(current: target(r), fixedLabel: r.level)
+            }.width(min: 70, ideal: 100)
+            TableColumn("Project", value: \MemRow.project) { (r: MemRow) in Text(r.project).foregroundStyle(.secondary).lineLimit(1) }.width(min: 80, ideal: 140)
+            TableColumn("Size", value: \MemRow.size) { (r: MemRow) in
+                Text(r.entry.exists ? formatBytes(Int64(r.size)) : "—").monospacedDigit().foregroundStyle(.secondary)
+                    .help(r.entry.loaded ? "\(formatTokens(r.entry.tokens)) tokens every session" : "Not loaded into every session")
+            }.width(min: 50, ideal: 70)
+            TableColumn("Updated", value: \MemRow.modified) { (r: MemRow) in
+                Text(r.entry.modified.map { $0.formatted(.relative(presentation: .named)) } ?? "—").foregroundStyle(.secondary).lineLimit(1)
+            }.width(min: 80, ideal: 110)
         }
-        .toolbar { Button("Search again", systemImage: "doc.text.magnifyingglass") { Task { await load() } } }
+        .contextMenu(forSelectionType: String.self) { ids in
+            let picked = rows.filter { ids.contains($0.id) }
+            if picked.count == 1, let r = picked.first {
+                actions(r.entry)
+                if let file = model.snapshot.instructions.first(where: { $0.url == r.entry.url }), let from = ScopeMove.target(of: file) {
+                    MoveToMenu(current: from, allowLocal: file.kind != .rule) { t in model.moveScope(r.entry.url.lastPathComponent, to: t) { try ScopeMove.move(instruction: file, to: t) } }
+                }
+                ForEach(r.entry.actions) { a in Button(a.button) { model.propose(a.title, a.fix) } }
+                Divider()
+            }
+            let urls = picked.map(\.entry).filter(\.exists).map(\.url)
+            if !urls.isEmpty {
+                Button("Copy Path\(urls.count == 1 ? "" : "s")") { copy(urls.map(\.path).joined(separator: "\n")) }
+                if picked.count > 1 { Button("Move \(urls.count) to Trash", role: .destructive) { model.propose("Move \(urls.count) to the Trash", Memory.removal(urls)) } }
+            }
+        } primaryAction: { ids in
+            if let r = rows.first(where: { ids.contains($0.id) }), r.entry.exists { editing = r.entry.url }
+        }
+        .overlay { if loading && rows.isEmpty { ProgressView("Searching with Spotlight…") } }
+        .searchable(text: $search, prompt: "Filter memory")
+        .toolbar {
+            ToolbarItem {
+                Picker("Project", selection: $project) {
+                    Text("All projects").tag("All")
+                    ForEach(groups.map(\.title), id: \.self) { Text($0).tag($0) }
+                }.pickerStyle(.menu).fixedSize()
+            }
+            ToolbarItem {
+                Picker("Level", selection: $level) {
+                    ForEach(["All", "User", "Project", "Local", "Auto-memory", "Other agent"], id: \.self) { Text($0 == "All" ? "All levels" : $0).tag($0) }
+                }.pickerStyle(.menu).fixedSize()
+            }
+            ToolbarItem { Button("Search Again", systemImage: "doc.text.magnifyingglass") { Task { await load() } }.help("Find memory files again with Spotlight") }
+        }
+        .onChange(of: bulk.ids) {
+            guard bulk.count == 1, let e = rows.first(where: { bulk.contains($0.id) })?.entry else { return }
+            model.info = InfoItem(e.url.lastPathComponent, term: .claudeMD,
+                                  facts: [("Type", e.type.rawValue), ("Path", shortPath(e.url)),
+                                          ("Lines", e.exists ? "\(e.lines) (recommended under \(e.type.lineLimit))" : "missing"),
+                                          ("Loaded", e.loaded ? "\(formatTokens(e.tokens)) tokens every session" : "on demand")],
+                                  file: e.exists ? e.url : nil, text: e.exists ? (readText(e.url).map { String($0.prefix(20_000)) } ?? "Can't read this file.") : e.type.purpose,
+                                  notes: e.recommendations)
+        }
+        .onDeleteCommand {
+            let urls = rows.filter { bulk.contains($0.id) && $0.entry.exists }.map(\.entry.url)
+            if !urls.isEmpty { model.propose("Move \(urls.count) to the Trash", Memory.removal(urls)) }
+        }
         .task(id: model.snapshot.scannedAt) { await load() }
         .sheet(item: Binding(get: { editing.map(EditTarget.init) }, set: { editing = $0?.url })) { FileEditorSheet(url: $0.url) }
+    }
+
+    private func target(_ r: MemRow) -> Target? {
+        model.snapshot.instructions.first { $0.url == r.entry.url }.flatMap { ScopeMove.target(of: $0) }
+    }
+
+    private func scopeInk(_ r: MemRow) -> Color {
+        if let t = target(r) { return t.ink }
+        return switch r.level { case "User": Ink.user; case "Project": Ink.project; case "Local": Ink.local; default: Ink.plugin }
     }
 
     @ViewBuilder private func actions(_ e: MemoryEntry) -> some View {
@@ -129,42 +128,6 @@ struct AgentFilesView: View {
         }
     }
 
-    @ViewBuilder private func detail(_ e: MemoryEntry?) -> some View {
-        if let e {
-            ScrollView {
-                VStack(alignment: .leading, spacing: PSpace.s3) {
-                    Text(e.url.lastPathComponent).font(.title2.weight(.semibold))
-                    Text(shortPath(e.url)).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                    HStack { actions(e) }
-                    GroupBox(e.type.rawValue) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(e.type.purpose)
-                            ForEach(e.type.whatToPut, id: \.self) { Label($0, systemImage: "checkmark").font(.callout) }
-                            Text("Recommended: under \(e.type.lineLimit) lines" + (e.exists ? " · yours: \(e.lines)" : ""))
-                                .font(.caption).foregroundStyle(e.lines > e.type.lineLimit ? PColor.attention.fg : .secondary)
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    if !e.recommendations.isEmpty {
-                        GroupBox("Recommendations") {
-                            VStack(alignment: .leading, spacing: 6) {
-                                ForEach(e.recommendations, id: \.self) { Label($0, systemImage: "lightbulb").foregroundStyle(PColor.attention.fg) }
-                                ForEach(e.actions) { a in Button(a.button) { model.propose(a.title, a.fix) } }
-                            }.frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                    if e.exists {
-                        GroupBox("Contents") {
-                            Text(readText(e.url) ?? "Can't read this file.").font(.system(.callout, design: .monospaced))
-                                .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    }
-                }.padding(PSpace.s4)
-            }
-        } else {
-            ContentUnavailableView("Select a file", systemImage: "doc.text", description: Text("See what it's for, recommendations, and edit, reset or delete it."))
-        }
-    }
-
     /// Path relative to its project/user root, so `.claude/rules/x.md` reads clearly.
     private func relativeName(_ e: MemoryEntry) -> String {
         let p = shortPath(e.url)
@@ -186,9 +149,9 @@ private struct MemRow: Identifiable {
     let project: String
     let name: String
     var id: String { entry.id }
+    var type: String { entry.type.rawValue }
     var size: Int { (try? entry.url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0 }
     var modified: Date { entry.modified ?? .distantPast }
-    var created: Date { entry.created ?? .distantPast }
     var level: String {
         switch entry.type {
         case .userClaudeMD: "User"

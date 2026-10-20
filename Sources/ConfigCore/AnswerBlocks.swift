@@ -50,28 +50,4 @@ public enum AnswerBlocks {
         }
         return out
     }
-
-    /// "give me a prompt", "write a prompt for…", "draft prompt": the word prompt plus a verb asking for one.
-    public static func asksForPrompt(_ question: String) -> Bool {
-        let words = Set(question.lowercased().split { !$0.isLetter }.map(String.init))
-        let verbs: Set = ["give", "write", "make", "draft", "create", "generate", "build", "craft", "compose", "need", "want", "suggest", "produce", "prepare"]
-        return (words.contains("prompt") || words.contains("prompts")) && !words.isDisjoint(with: verbs)
-    }
-
-    /// The block to put on the clipboard, or nil. Exactly one block, or exactly one whose language tag or the line
-    /// just above it calls it the prompt; several unmarked blocks are left to the per-block Copy buttons.
-    public static func autoCopyText(question: String, answer: String) -> String? {
-        guard asksForPrompt(question) else { return nil }
-        let segs = segments(answer)
-        var blocks: [(marked: Bool, body: String)] = []
-        for (i, s) in segs.enumerated() {
-            guard case .code(let lang, let body) = s, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
-            var lead = ""
-            if i > 0, case .text(let t) = segs[i - 1] { lead = t.split(separator: "\n").last.map(String.init) ?? "" }
-            blocks.append((lang.lowercased() == "prompt" || lead.lowercased().contains("prompt"), body))
-        }
-        if blocks.count == 1 { return blocks[0].body }
-        let marked = blocks.filter(\.marked)
-        return marked.count == 1 ? marked[0].body : nil
-    }
 }

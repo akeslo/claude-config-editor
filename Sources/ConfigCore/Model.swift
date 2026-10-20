@@ -27,7 +27,6 @@ public struct Project: Identifiable, Sendable {
     public let trusted: Bool
     public let dataDir: URL
     public var transcriptCount = 0
-    public var dataBytes: Int64 = 0
     public var lastSession: Date?
     public var folderExists: Bool { exists(URL(filePath: path)) }
 }
@@ -152,19 +151,6 @@ public struct InstructionFile: Identifiable, Sendable {
     public var problems: [String] = []
 }
 
-public struct StorageArea: Identifiable, Sendable {
-    public enum Safety: String, Sendable { case safe = "Safe to clear", care = "Clear with care", keep = "Don't touch", unknown = "Unknown" }
-    public var id: String { url.path }
-    public let name: String
-    public let url: URL
-    public let safety: Safety
-    public let term: Term
-    public let autoCleaned: Bool
-    public var bytes: Int64 = 0
-    public var oldest: Date?
-    public var itemCount = 0
-}
-
 public struct Snapshot: Sendable {
     public var claudeJSONModified: Date?
     public var claudeJSONBytes: Int64 = 0
@@ -176,7 +162,6 @@ public struct Snapshot: Sendable {
     public var hooks: [Hook] = []
     public var permissions: [PermissionRule] = []
     public var instructions: [InstructionFile] = []
-    public var strayFiles: [URL] = []
     /// Extra installs of a plugin id already in `plugins` (another scope or version).
     public var duplicatePlugins: [Plugin] = []   // *.bak and similar leftovers in ~/.claude
     public var claudeVersion: String?

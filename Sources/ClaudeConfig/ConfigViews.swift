@@ -13,26 +13,32 @@ struct MCPView: View {
             .filter { scope == nil || $0.scope == scope }
             .filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.description.localizedCaseInsensitiveContains(search) || $0.command.localizedCaseInsensitiveContains(search) }
             .sorted(using: sort)
-        let visible = servers.map(\.id)
-        let picked = servers.filter { sel.contains($0.id) } + model.snapshot.mcpServers.filter { sel.contains($0.id) && !visible.contains($0.id) }
         Table(servers, selection: $sel.ids, sortOrder: $sort) {
-            TableColumn("", value: \MCPServer.name) { (m: MCPServer) in SelectBox(sel: $sel, id: m.id, visible: visible, name: m.name) }.width(22)
             TableColumn("Name", value: \.name) { m in
-                VStack(alignment: .leading) {
-                    Text(m.name).fontWeight(.medium)
-                    if !m.description.isEmpty { Text(m.description).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-                }
+                Text(m.name).fontWeight(.medium).lineLimit(1)
+                .scopeRule(ScopeMove.target(of: m).ink(fixed: m.scope == .plugin ? "Plugin" : "Managed"))
                 .explains(.mcpServer, "\(m.description.isEmpty ? "" : m.description + "\n\n")Runs: \(m.command) (\(m.transport))\nFrom: \(m.scope.rawValue)")
             }
             TableColumn("Scope", value: \.scope.rawValue) { m in
-                ScopeMenu(current: ScopeMove.target(of: m), fixedLabel: m.scope.rawValue) { t in model.moveScope(m.name, to: t) { try ScopeMove.move(mcp: m, to: t) } }
-            }.width(min: 110, ideal: 120)
+                ScopeLabel(current: ScopeMove.target(of: m), fixedLabel: m.scope.rawValue)
+            }.width(min: 70, ideal: 100)
             TableColumn("Where", value: \.place) { m in Text(m.place).help(m.project ?? "") }.width(140)
             TableColumn("Type", value: \.transport) { Text($0.transport) }.width(60)
-            TableColumn("Command / URL", value: \.command) { Text($0.command).font(.system(.caption, design: .monospaced)).lineLimit(1).truncationMode(.middle) }
+            TableColumn("Command / URL", value: \.command) { Text($0.command).font(.system(.body, design: .monospaced)).lineLimit(1).truncationMode(.middle) }
         }
         .contextMenu(forSelectionType: MCPServer.ID.self) { ids in
-            if let m = servers.first(where: { ids.contains($0.id) }) { removeButton(m) }
+            let picked = servers.filter { ids.contains($0.id) }
+            if picked.count == 1, let m = picked.first {
+                if let from = ScopeMove.target(of: m) { MoveToMenu(current: from) { t in model.moveScope(m.name, to: t) { try ScopeMove.move(mcp: m, to: t) } } }
+                Button("Copy Command") { copy(m.command) }
+                Divider()
+                removeButton(m)
+            } else if !picked.isEmpty {
+                Button("Remove \(picked.count) Servers…") { removeAll(picked) }
+                    .disabled(picked.allSatisfy { cliScope($0) == nil })
+            }
+        } primaryAction: { ids in
+            if let m = servers.first(where: { ids.contains($0.id) }) { openFile(m.source) }
         }
         .searchable(text: $search, prompt: "Filter servers")
         .toolbar {
@@ -40,14 +46,9 @@ struct MCPView: View {
                 Text("All scopes").tag(Scope?.none)
                 ForEach(Scope.allCases, id: \.self) { Text($0.rawValue).tag(Optional($0)) }
             }
+            .pickerStyle(.menu).fixedSize()
         }
-        .bulkSelectable($sel, visible: visible, actions: [
-            BulkAction(title: "Remove", icon: "trash", check: bulkCheck(picked) { cliScope($0) == nil ? "are defined by a plugin or managed settings (remove them there)" : nil }) {
-                model.proposeBulk("Remove \(picked.count) MCP server\(picked.count == 1 ? "" : "s")", bulkPlan(picked, label: { "\($0.name) (\($0.scope.rawValue))" }) { m in
-                    cliScope(m).map { .cli(args: ["mcp", "remove", m.name, "-s", $0], dryRun: nil, cwd: m.project) }
-                })
-            },
-        ])
+        .onDeleteCommand { removeAll(servers.filter { sel.contains($0.id) }) }
         .onChange(of: sel.ids) {
             guard sel.count == 1, let m = servers.first(where: { sel.contains($0.id) }) else { return }
             model.info = InfoItem(m.name, term: .mcpServer, facts: [
@@ -67,10 +68,18 @@ struct MCPView: View {
         }
     }
 
+    private func removeAll(_ picked: [MCPServer]) {
+        guard !picked.isEmpty else { return }
+        model.proposeBulk("Remove \(picked.count) MCP server\(picked.count == 1 ? "" : "s")", bulkPlan(picked, label: { "\($0.name) (\($0.scope.rawValue))" }, skip: { cliScope($0) == nil ? "defined by a plugin or managed settings" : nil }) { m in
+            cliScope(m).map { .cli(args: ["mcp", "remove", m.name, "-s", $0], dryRun: nil, cwd: m.project) }
+        })
+    }
+
     @ViewBuilder private func removeButton(_ m: MCPServer) -> some View {
         let cliScope = cliScope(m)
-        Button("Remove \(m.name)") {
-            model.propose("Remove MCP server \(m.name)", .cli(args: ["mcp", "remove", m.name, "-s", cliScope!], dryRun: nil, cwd: m.project))
+        Button("Remove \(m.name)", role: .destructive) {
+            guard let cliScope else { return }
+            model.propose("Remove MCP server \(m.name)", .cli(args: ["mcp", "remove", m.name, "-s", cliScope], dryRun: nil, cwd: m.project))
         }
         .disabled(cliScope == nil)
         .help(cliScope == nil ? "Defined by \(m.scope.rawValue); remove it there." : "Runs claude mcp remove in its scope. You can undo.")
@@ -109,48 +118,47 @@ struct ComponentsView: View {
             .filter { $0.kind != .skill && (kind == nil || $0.kind == kind) }
             .filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) || $0.description.localizedCaseInsensitiveContains(search) }
             .map(Row.init).sorted(using: sort)
-        let visible = rows.map(\.id)
-        let picked = model.snapshot.components.filter { sel.contains($0.id) }
         Table(rows, selection: $sel.ids, sortOrder: $sort) {
-            TableColumn("", value: \Row.name) { (r: Row) in SelectBox(sel: $sel, id: r.id, visible: visible, name: r.name) }.width(22)
             TableColumn("Name", value: \.name) { r in
-                VStack(alignment: .leading) {
-                    Text(r.name).fontWeight(.medium)
-                    Text(r.c.description).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
+                Text(r.name).fontWeight(.medium).lineLimit(1)
+                .scopeRule(ScopeMove.target(of: r.c).ink(fixed: r.c.scope == .plugin ? "Plugin" : "Managed"))
                 .explains(r.c.kind.term, "\(r.c.description)\n\nFrom: \(origin(r.c))")
             }
+            TableColumn("Description") { Text($0.c.description).foregroundStyle(.secondary).lineLimit(1) }.width(min: 120, ideal: 360)
             TableColumn("Type") { Text($0.c.kind.rawValue) }.width(80)
             TableColumn("Scope") { r in
-                ScopeMenu(current: ScopeMove.target(of: r.c), fixedLabel: r.c.scope == .plugin ? "Plugin" : r.c.scope.rawValue, allowLocal: false) { t in
-                    model.moveScope(r.c.name, to: t) { try ScopeMove.move(component: r.c, to: t) }
-                }
-            }.width(min: 100, ideal: 110)
+                ScopeLabel(current: ScopeMove.target(of: r.c), fixedLabel: r.c.scope == .plugin ? "Plugin" : r.c.scope.rawValue)
+            }.width(min: 70, ideal: 100)
             TableColumn("Listed", value: \.tokens) { r in
                 Text(r.c.override == "user-invocable-only" ? "hidden" : r.tokens == 0 ? "on demand" : formatTokens(r.tokens)).monospacedDigit()
                     .help(Term.skillListing.tooltip)
             }.width(80)
             TableColumn("Uses", value: \.uses) { Text("\($0.uses)").monospacedDigit() }.width(50)
             TableColumn("Last used", value: \.last) { Text(relative($0.c.lastUsed)) }.width(110)
-            TableColumn("Lines", value: \.lines) { r in Text("\(r.lines)").monospacedDigit().foregroundStyle(r.lines > 500 ? PColor.attention.fg : .primary) }.width(50)
+            TableColumn("Lines", value: \.lines) { r in Text("\(r.lines)").monospacedDigit().foregroundStyle(r.lines > 500 ? Ink.warning : .primary) }.width(50)
         }
         .contextMenu(forSelectionType: Component.ID.self) { ids in
-            TrashButton(urls: model.snapshot.components.filter { ids.contains($0.id) }.map(trashURL))
+            let picked = model.snapshot.components.filter { ids.contains($0.id) }
+            if picked.count == 1, let c = picked.first {
+                Button("Open") { openFile(c.file) }
+                if let from = ScopeMove.target(of: c) {
+                    MoveToMenu(current: from, allowLocal: false) { t in model.moveScope(c.name, to: t) { try ScopeMove.move(component: c, to: t) } }
+                }
+                Divider()
+            }
+            trashButton(picked)
+        } primaryAction: { ids in
+            if let c = model.snapshot.components.first(where: { ids.contains($0.id) }) { openFile(c.file) }
         }
+        .onDeleteCommand { trash(model.snapshot.components.filter { sel.contains($0.id) }) }
         .searchable(text: $search, prompt: "Filter by name or description")
         .toolbar {
             Picker("Kind", selection: $kind) {
                 Text("All").tag(ComponentKind?.none)
                 ForEach(ComponentKind.allCases.filter { $0 != .skill }, id: \.self) { Text($0.rawValue + "s").tag(Optional($0)) }
             }
-            .pickerStyle(.segmented)
-            if let c = selected { TrashButton(url: trashURL(c)) }
+            .pickerStyle(.menu).fixedSize()
         }
-        .bulkSelectable($sel, visible: visible, actions: [
-            BulkAction(title: "Move to Trash", icon: "trash", check: bulkCheck(picked) { $0.ownsFile ? nil : "come from plugins or other agents" }) {
-                model.proposeBulk("Move \(picked.count) item\(picked.count == 1 ? "" : "s") to the Trash", bulkPlan(picked, label: { "\($0.kind.rawValue): \($0.name)" }) { .trash([trashURL($0)]) })
-            },
-        ])
         .onChange(of: sel.ids) {
             guard let c = selected else { return }
             model.info = InfoItem(c.name, term: c.kind.term, facts: [
@@ -164,7 +172,17 @@ struct ComponentsView: View {
     }
 
     private var selected: Component? { sel.count == 1 ? model.snapshot.components.first { sel.contains($0.id) } : nil }
-    /// A skill is its whole folder; agents and commands are single files.
+
+    @ViewBuilder private func trashButton(_ picked: [Component]) -> some View {
+        let check = bulkCheck(picked) { $0.ownsFile ? nil : "come from plugins or other agents" }
+        Button(picked.count == 1 ? "Move to Trash" : "Move \(picked.count) to Trash", role: .destructive) { trash(picked) }
+            .disabled(!check.enabled).help(check.why ?? "You can undo.")
+    }
+
+    private func trash(_ picked: [Component]) {
+        guard !picked.isEmpty else { return }
+        model.proposeBulk("Move \(picked.count) item\(picked.count == 1 ? "" : "s") to the Trash", bulkPlan(picked, label: { "\($0.kind.rawValue): \($0.name)" }) { $0.ownsFile ? .trash([trashURL($0)]) : nil })
+    }
 }
 
 
@@ -178,30 +196,25 @@ struct PluginsView: View {
         let plugins = model.snapshot.plugins
             .filter { search.isEmpty || $0.id.localizedCaseInsensitiveContains(search) || $0.description.localizedCaseInsensitiveContains(search) }
             .sorted(using: sort)
-        let visible = plugins.map(\.id)
-        let picked = model.snapshot.plugins.filter { sel.contains($0.id) }
-        let anyPicked = bulkCheck(picked) { _ in nil }
         Table(plugins, selection: $sel.ids, sortOrder: $sort) {
-            TableColumn("", value: \Plugin.id) { (p: Plugin) in SelectBox(sel: $sel, id: p.id, visible: visible, name: p.id) }.width(22)
             TableColumn("Plugin", value: \.id) { p in
                 HStack {
-                    Image(systemName: p.enabled ? "checkmark.circle.fill" : "circle").foregroundStyle(p.enabled ? PColor.success.fg : .secondary)
+                    Image(systemName: p.enabled ? "checkmark.circle.fill" : "circle").foregroundStyle(p.enabled ? Ink.success : .secondary)
                         .help(p.enabled ? "Enabled" : "Disabled: costs no context")
-                    VStack(alignment: .leading) {
-                        Text(p.id).fontWeight(.medium)
-                        if !p.description.isEmpty { Text(p.description).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-                    }
+                    Text(p.id).fontWeight(.medium).lineLimit(1)
                         .explains(.plugin, (p.description.isEmpty ? "" : p.description + "\n\n") + "From marketplace: \(p.marketplace)" + (p.repoURL.map { "\nSource: \($0.absoluteString)" } ?? ""))
-                    if !p.notes.isEmpty { Image(systemName: "exclamationmark.bubble").foregroundStyle(PColor.attention.fg).help(p.notes.joined(separator: "\n")) }
+                    if !p.notes.isEmpty { Image(systemName: "exclamationmark.bubble").foregroundStyle(Ink.warning).help(p.notes.joined(separator: "\n")) }
                 }
+                .scopeRule(ScopeMove.target(ofPlugin: p).ink(fixed: "Managed"))
             }
+            TableColumn("Description") { Text($0.description).foregroundStyle(.secondary).lineLimit(1) }.width(min: 120, ideal: 320)
             TableColumn("Scope", value: \.scope) { p in
-                ScopeMenu(current: ScopeMove.target(ofPlugin: p), fixedLabel: p.scope.capitalized) { t in model.movePlugin(p, to: t) }
-            }.width(min: 100, ideal: 110)
+                ScopeLabel(current: ScopeMove.target(ofPlugin: p), fixedLabel: p.scope.capitalized)
+            }.width(min: 70, ideal: 100)
             TableColumn("Version", value: \.version) { p in
                 if let v = p.latestVersion {
-                    Label("\(p.version.prefix(12)) → \(v)", systemImage: "arrow.up.circle.fill").foregroundStyle(.blue).lineLimit(1)
-                        .help("Update available: select it, then choose Update")
+                    Label("\(p.version.prefix(12)) → \(v)", systemImage: "arrow.up.circle.fill").foregroundStyle(Ink.accent).lineLimit(1)
+                        .help("Update available: right-click › Update")
                 } else { Text(p.version).lineLimit(1) }
             }.width(150)
             TableColumn("Always-on") { p in
@@ -213,32 +226,24 @@ struct PluginsView: View {
         }
         .overlay {
             if model.snapshot.plugins.isEmpty && !model.loading {
-                ContentUnavailableView("No plugins installed", systemImage: "puzzlepiece.extension", description: Text("Find plugins worth adding in Discover."))
+                ContentUnavailableView("No plugins installed", systemImage: "puzzlepiece.extension", description: Text("Install one with claude plugin install <name>@<marketplace>."))
             }
         }
         .searchable(text: $search, prompt: "Filter plugins")
         .contextMenu(forSelectionType: Plugin.ID.self) { ids in
-            let outdated = plugins.filter { ids.contains($0.id) && $0.latestVersion != nil }
-            if outdated.count == 1, let p = outdated.first {
-                Button("Update to \(p.latestVersion!)…") { model.propose("Update \(p.id)", p.cli("update")) }
-            }
-            TrashButton(urls: plugins.filter { ids.contains($0.id) }.map(\.installPath))
-        }
-        .bulkSelectable($sel, visible: visible, actions: [
-            BulkAction(title: "Turn On", icon: "checkmark.circle", check: anyPicked, run: cli(picked, "enable") { $0.enabled ? "already enabled" : nil }),
-            BulkAction(title: "Turn Off", icon: "circle", check: anyPicked, run: cli(picked, "disable") { $0.enabled ? nil : "already disabled" }),
-            BulkAction(title: "Update…", icon: "arrow.up.circle", check: anyPicked, run: cli(picked, "update")),
-            BulkAction(title: "Uninstall…", icon: "trash", check: anyPicked, run: cli(picked, "uninstall")),
-        ])
-        .toolbar {
-            if sel.count == 1, let p = plugins.first(where: { sel.contains($0.id) }) { TrashButton(url: p.installPath) }
-            if sel.count == 1, let p = plugins.first(where: { sel.contains($0.id) }) {
-                Button(p.enabled ? "Turn Off" : "Turn On") {
-                    model.propose("\(p.enabled ? "Disable" : "Enable") \(p.id)", p.cli(p.enabled ? "disable" : "enable"))
+            let picked = plugins.filter { ids.contains($0.id) }
+            if !picked.isEmpty {
+                Button("Turn On", action: cli(picked, "enable") { $0.enabled ? "already enabled" : nil }).disabled(picked.allSatisfy(\.enabled))
+                Button("Turn Off", action: cli(picked, "disable") { $0.enabled ? nil : "already disabled" }).disabled(!picked.contains(where: \.enabled))
+                Button("Update…", action: cli(picked, "update"))
+                if picked.count == 1, let p = picked.first, let from = ScopeMove.target(ofPlugin: p) {
+                    MoveToMenu(current: from) { t in model.movePlugin(p, to: t) }
                 }
-                Button("Update…") { model.propose("Update \(p.id)", p.cli("update")) }
-                Button("Uninstall…") { model.propose("Uninstall \(p.id)", p.cli("uninstall")) }
+                Divider()
+                Button("Uninstall…", role: .destructive, action: cli(picked, "uninstall"))
             }
+        } primaryAction: { ids in
+            if let p = plugins.first(where: { ids.contains($0.id) }) { reveal(p.installPath) }
         }
         .onChange(of: sel.ids) {
             guard let p = plugins.first(where: { sel.contains($0.id) }) else { return }
@@ -265,21 +270,34 @@ struct HooksView: View {
     var body: some View {
         let hooks = model.snapshot.hooks
             .filter { search.isEmpty || $0.command.localizedCaseInsensitiveContains(search) || $0.event.localizedCaseInsensitiveContains(search) || $0.source.localizedCaseInsensitiveContains(search) || ($0.matcher ?? "").localizedCaseInsensitiveContains(search) }
-        // Group by who added the hook: you (settings files) or a plugin.
-        let groups = Dictionary(grouping: hooks, by: \.source).sorted { ($0.key.hasPrefix("Plugin") ? 1 : 0, $0.key) < ($1.key.hasPrefix("Plugin") ? 1 : 0, $1.key) }
-        // One row per (source, command); its id is its first hook's.
-        let rowsByID = Dictionary(uniqueKeysWithValues: groups.flatMap { _, items in Dictionary(grouping: items, by: \.command).values.map { ($0[0].id, $0) } })
-        let visible = groups.flatMap { _, items in Dictionary(grouping: items, by: \.command).values.sorted { $0[0].command < $1[0].command }.map(\.[0].id) }
-        let pickedRows = sel.ids.compactMap { rowsByID[$0] }
-        List(selection: $sel.ids) {
-            ForEach(groups, id: \.key) { source, items in
-                Section(source.hasPrefix("Plugin · ") ? "From plugin \(source.dropFirst(9))" : "Added by you · \(source)") {
-                    // One row per program: the same command on several events is one tool reporting several moments.
-                    ForEach(Dictionary(grouping: items, by: \.command).values.sorted { $0[0].command < $1[0].command }, id: \.[0].id) { same in
-                        row(same, visible)
-                    }
+        // One row per (source, command): the same program on several events is one tool reporting several moments. Its id is its first hook's.
+        let rows = Dictionary(grouping: hooks) { $0.source + "\u{0}" + $0.command }.values
+            .map { HookRow(hooks: $0) }
+            .sorted { ($0.first.source.hasPrefix("Plugin") ? 1 : 0, $0.first.source, $0.name) < ($1.first.source.hasPrefix("Plugin") ? 1 : 0, $1.first.source, $1.name) }
+        Table(rows, selection: $sel.ids) {
+            TableColumn("Hook") { (r: HookRow) in
+                HStack(spacing: 4) {
+                    Text(r.name).fontWeight(.medium).lineLimit(1).truncationMode(.middle)
+                    if let s = r.first.scriptPath, !exists(s) { Image(systemName: "xmark.octagon").foregroundStyle(Ink.danger).help("Broken: script missing") }
                 }
-            }
+                .scopeRule(ScopeMove.target(ofSettings: r.first.sourceURL).ink(fixed: r.first.source.hasPrefix("Plugin") ? "Plugin" : "Managed"))
+                .help(r.first.command)
+            }.width(min: 140, ideal: 200)
+            TableColumn("Runs") { (r: HookRow) in Text(r.hooks.map { when($0) }.joined(separator: " · ")).lineLimit(1).help(r.hooks.map { eventHelp($0.event) }.joined(separator: "\n")) }
+                .width(min: 160, ideal: 300)
+            TableColumn("Effect") { (r: HookRow) in Text(effect(r.hooks)).foregroundStyle(.secondary).lineLimit(1) }.width(min: 90, ideal: 170)
+            TableColumn("Where") { (r: HookRow) in Text(whereRuns(r.first).text).foregroundStyle(.secondary).lineLimit(1).help(r.first.source) }.width(min: 90, ideal: 150)
+            TableColumn("What it does") { (r: HookRow) in
+                let key = model.explanationKey(r.first)
+                Group {
+                    if model.explaining.contains(key) { Text("Asking Claude…") }
+                    else if let p = purpose(r.first) { Text(p) }
+                    // Shown only when the hook has no description of its own: a script can try to steer the model.
+                    else if let guess = model.hookExplanations[key] { Text("AI guess: " + guess).italic() }
+                    else { Text("No description. Right-click › Explain with Claude") }
+                }
+                .foregroundStyle(.secondary).lineLimit(1)
+            }.width(min: 160, ideal: 420)
         }
         .contextMenu(forSelectionType: Hook.ID.self) { ids in
             // A row's tag is its first hook; act on every event that row stands for.
@@ -298,16 +316,14 @@ struct HooksView: View {
                     model.propose("Remove \(removable.count) hook entr\(removable.count == 1 ? "y" : "ies")", .removeHooks(removable.map { HookRef(file: $0.sourceURL, event: $0.event, matcher: $0.matcher, command: $0.command) }))
                 }
             }
+            if let h = picked.first, let from = ScopeMove.target(ofSettings: h.sourceURL), rowCommands.count == 1 {
+                MoveToMenu(current: from) { t in model.moveScope("\(h.event) hook", to: t) { try ScopeMove.move(hook: h, to: t) } }
+            }
             TrashButton(urls: Array(Set(picked.compactMap(\.scriptPath).filter(exists))), label: "Move Script to Trash")
+        } primaryAction: { ids in
+            if let h = hooks.first(where: { ids.contains($0.id) }) { openFile(h.scriptPath.flatMap { exists($0) ? $0 : nil } ?? h.sourceURL) }
         }
         .searchable(text: $search, prompt: "Filter hooks by command, event or source")
-        .bulkSelectable($sel, visible: visible, actions: [
-            BulkAction(title: "Remove", icon: "trash", check: bulkCheck(pickedRows) { $0[0].source.hasPrefix("Plugin") ? "come from plugins (turn the plugin off in Plugins)" : nil }) {
-                model.proposeBulk("Remove \(pickedRows.count) hook\(pickedRows.count == 1 ? "" : "s")", bulkPlan(pickedRows, label: { ($0[0].scriptPath?.lastPathComponent ?? $0[0].command) + " · " + $0[0].source }) { same in
-                    .removeHooks(same.map { HookRef(file: $0.sourceURL, event: $0.event, matcher: $0.matcher, command: $0.command) })
-                })
-            },
-        ])
         .onChange(of: sel.ids) {
             guard let h = hooks.first(where: { sel.contains($0.id) }) else { return }
             model.info = InfoItem("\(h.event) hook", term: .hook, facts: [
@@ -322,55 +338,14 @@ struct HooksView: View {
         model.snapshot.plugins.first { h.source == "Plugin · \($0.id)" }
     }
 
-    private func row(_ same: [Hook], _ visibleRowIDs: [UUID]) -> some View {
-        let h = same[0]
-        let waits = same.filter { !$0.async }  // background hooks can't block or add context
-        return HStack(alignment: .top) {
-        SelectBox(sel: $sel, id: h.id, visible: visibleRowIDs, name: h.scriptPath?.lastPathComponent ?? h.command)
-        VStack(alignment: .leading, spacing: 3) {
-            Text(h.scriptPath?.lastPathComponent ?? h.command).fontWeight(.medium).lineLimit(1).truncationMode(.middle)
-            Text("Runs: " + same.map { when($0).lowercased() }.joined(separator: " · ")).font(.caption).lineLimit(2)
-            if model.explaining.contains(model.explanationKey(h)) {
-                HStack(spacing: 4) { ProgressView().controlSize(.mini); Text("Asking Claude…") }.font(.caption).foregroundStyle(.secondary)
-            } else if let p = purpose(h) {
-                Text(p).font(.caption).foregroundStyle(.secondary).lineLimit(3)
-            }
-            // Shown beside the hook's own description, never in place of it: a script can try to steer the model.
-            if let guess = model.hookExplanations[model.explanationKey(h)] {
-                Label("AI guess, not verified: \(guess)", systemImage: "sparkles").font(.caption).foregroundStyle(.secondary).lineLimit(3)
-            } else if purpose(h) == nil, !model.explaining.contains(model.explanationKey(h)) {
-                HStack(spacing: 6) {
-                    Text("No description.").font(.caption).foregroundStyle(.secondary)
-                    Button("Explain with Claude") { Task { await model.explain(h) } }.controlSize(.mini)
-                        .help("Sends this hook's command and script to Claude (Haiku) for a one-sentence summary. Saved, so it runs once.")
-                }
-            }
-            HStack(spacing: 6) {
-                if let from = ScopeMove.target(ofSettings: h.sourceURL) {
-                    ScopeMenu(current: from) { t in model.moveScope("\(h.event) hook", to: t) { try ScopeMove.move(hook: h, to: t) } }.controlSize(.small)
-                }
-                let reach = whereRuns(h)
-                badge(reach.text, reach.everywhere ? "globe" : "folder", reach.everywhere ? .blue : .secondary)
-                if same.allSatisfy(\.async) { badge("In the background", "moon", .secondary) }
-                if waits.contains(where: { ["SessionStart", "UserPromptSubmit"].contains($0.event) }) {
-                    badge("May add text to context", "text.bubble", PColor.attention.fg)
-                        .help("This event lets a hook add its output to Claude's context. Whether this one does depends on what it prints.")
-                }
-                if waits.contains(where: { $0.event == "PreToolUse" }) {
-                    badge("May block tools", "hand.raised", .purple)
-                        .help("This event lets a hook stop a tool call. Whether this one does depends on what it returns.")
-                }
-                if let s = h.scriptPath, !exists(s) { badge("Broken: script missing", "xmark.octagon", PColor.danger.fg) }
-            }
-        }
-        }
-        .padding(.vertical, 2)
-        .tag(h.id)
-    }
-
-    private func badge(_ text: String, _ icon: String, _ color: Color) -> some View {
-        Label(text, systemImage: icon).font(.caption2).foregroundStyle(color)
-            .padding(.horizontal, 6).padding(.vertical, 1).background(color.opacity(0.12), in: Capsule())
+    /// What the hook can do to a session, in words (background hooks can't block or add context).
+    private func effect(_ same: [Hook]) -> String {
+        let waits = same.filter { !$0.async }
+        var out: [String] = []
+        if waits.contains(where: { ["SessionStart", "UserPromptSubmit"].contains($0.event) }) { out.append("may add context") }
+        if waits.contains(where: { $0.event == "PreToolUse" }) { out.append("may block tools") }
+        if same.allSatisfy(\.async) { out.append("background") }
+        return out.joined(separator: ", ").ifEmpty("—")
     }
 
     /// Which sessions this hook fires in.
@@ -427,6 +402,13 @@ struct HooksView: View {
     }
 }
 
+private struct HookRow: Identifiable {
+    let hooks: [Hook]
+    var first: Hook { hooks[0] }
+    var id: UUID { first.id }
+    var name: String { first.scriptPath?.lastPathComponent ?? first.command }
+}
+
 extension MCPServer {
     var place: String { project.map { ($0 as NSString).lastPathComponent } ?? "everywhere" }
 }
@@ -450,5 +432,16 @@ private func origin(_ c: Component) -> String {
     case .managed: "your administrator (managed settings)"
     case .desktop: "Claude Desktop"
     case .external: c.owner.map { "another agent (\($0))" } ?? "another agent"
+    }
+}
+extension String {
+    func ifEmpty(_ fallback: String) -> String { isEmpty ? fallback : self }
+}
+
+struct OptionalDateComparator: SortComparator {
+    var order: SortOrder = .forward
+    func compare(_ a: Date?, _ b: Date?) -> ComparisonResult {
+        let r = (a ?? .distantPast).compare(b ?? .distantPast)
+        return order == .forward ? r : (r == .orderedAscending ? .orderedDescending : r == .orderedDescending ? .orderedAscending : .orderedSame)
     }
 }

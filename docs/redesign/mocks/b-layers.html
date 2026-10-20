@@ -1,0 +1,62 @@
+<!doctype html><meta charset="utf-8"><title>B · Layers</title>
+<style>
+:root{--win:#EFEDE9;--side:#E6E3DE;--pane:#FBFAF8;--ink:#23211E;--ink2:#6A655E;--ink3:#A39E96;--rule:#E5E1DB;--moss:#55703F;--mossbg:#EDF1E6}
+*{box-sizing:border-box;margin:0}
+body{font:13px/1.35 -apple-system,"SF Pro Text",system-ui;color:var(--ink);background:#888}
+.win{width:1440px;height:880px;background:var(--win);display:grid;grid-template-columns:200px 1fr;grid-template-rows:52px 1fr 26px;border-radius:10px;overflow:hidden}
+.side{grid-row:1/4;background:var(--side);padding:12px 10px;border-right:1px solid #D9D5CF}
+.lights{display:flex;gap:8px;margin:6px 4px 22px}.lights i{width:12px;height:12px;border-radius:50%;background:#CEC9C2}
+.grp{font-size:11px;font-weight:600;color:var(--ink3);margin:14px 8px 4px}
+.it{padding:4px 8px;border-radius:5px;color:var(--ink)}.it.on{background:#D8D3CC}
+.prov{display:flex;gap:4px;margin:0 4px 6px}.prov span{font-size:11px;padding:2px 7px;border-radius:4px;color:var(--ink2)}.prov .on{background:#D8D3CC;color:var(--ink)}
+.tb{display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px solid #D9D5CF}
+.tb h1{font-size:13px;font-weight:600}.tb .sp{flex:1}.tb .hint{font-size:12px;color:var(--ink2)}
+.search{width:220px;padding:4px 8px;border-radius:6px;background:#E3E0DA;color:var(--ink3);font-size:12px}
+.main{background:var(--pane);overflow:hidden}
+table{width:100%;border-collapse:collapse;table-layout:fixed}
+th{font-size:11px;font-weight:600;color:var(--ink2);text-align:left;padding:7px 10px;border-bottom:1px solid var(--rule)}
+th small{display:block;font-weight:400;color:var(--ink3);font:10.5px ui-monospace,"SF Mono",Menlo,monospace}
+td{padding:0 10px;height:24px;border-bottom:1px solid #F0EDE8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font:12px ui-monospace,"SF Mono",Menlo,monospace;color:var(--ink)}
+td.k{font:500 13px -apple-system,system-ui}
+td.e{background:var(--mossbg);color:#2E3F22;font-weight:600;box-shadow:inset 2px 0 var(--moss)}
+td.x{color:var(--ink3);text-decoration:line-through}
+td.z{color:#D3CEC6}
+tr.sel td.k{color:var(--moss)}tr.sel td{border-bottom-color:var(--moss)}
+.foot{grid-column:2;display:flex;gap:18px;align-items:center;padding:0 16px;font-size:11px;color:var(--ink3);border-top:1px solid #D9D5CF}
+.foot kbd{font:11px ui-monospace,"SF Mono",Menlo,monospace;color:var(--ink2)}
+.foot .eff{margin-left:auto;color:var(--ink2)}.foot .eff b{display:inline-block;width:10px;height:10px;background:var(--mossbg);box-shadow:inset 2px 0 var(--moss);vertical-align:-1px;margin-right:5px}
+</style>
+<div class="win">
+<aside class="side"><div class="lights"><i></i><i></i><i></i></div>
+<div class="prov"><span class="on">Claude</span><span>Codex</span><span>Gemini</span><span>opencode</span></div>
+<div class="grp">Claude Code</div>
+<div class="it on">Settings</div><div class="it">Memory</div><div class="it">Skills</div><div class="it">Agents &amp; Commands</div><div class="it">MCP</div><div class="it">Hooks</div><div class="it">Permissions</div>
+<div class="grp">Library</div><div class="it">Backups</div>
+</aside>
+<header class="tb"><h1>Settings</h1><span class="hint">Project: hermit</span><span class="sp"></span><span class="search">Filter keys  ⌘F</span></header>
+<main class="main"><table>
+<tr><th style="width:19%">Key</th><th>Managed<small>/Library/…/managed-settings.json</small></th><th>Project local<small>hermit/.claude/settings.local.json</small></th><th>Project<small>hermit/.claude/settings.json</small></th><th>User local<small>~/.claude/settings.local.json</small></th><th>User<small>~/.claude/settings.json</small></th></tr>
+<tr><td class="k">agentPushNotifEnabled</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="e">true</td></tr>
+<tr><td class="k">autoMode</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="e">{ allow: 1 }</td></tr>
+<tr><td class="k">cleanupPeriodDays</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="e">7</td></tr>
+<tr><td class="k">effortLevel</td><td class="z">—</td><td class="z">—</td><td class="e">"medium"</td><td class="z">—</td><td class="x">"low"</td></tr>
+<tr><td class="k">enabledPlugins</td><td class="z">—</td><td class="e">{ hermitd }</td><td class="x">{ 3 }</td><td class="z">—</td><td class="x">{ 14 }</td></tr>
+<tr><td class="k">env</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="e">{ CLAUDE_AUTOCOMPACT_… }</td></tr>
+<tr><td class="k">extraKnownMarketplaces</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="e">{ 12 }</td></tr>
+<tr><td class="k">hooks</td><td class="z">—</td><td class="e">{ SubagentStart, Stop }</td><td class="e">{ PreToolUse }</td><td class="z">—</td><td class="e">{ 6 events }</td></tr>
+<tr class="sel"><td class="k">model</td><td class="z">—</td><td class="z">—</td><td class="e">"sonnet"</td><td class="z">—</td><td class="x">"opus"</td></tr>
+<tr><td class="k">modelSettings</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="e">{ 3 models }</td></tr>
+<tr><td class="k">permissions</td><td class="z">—</td><td class="e">{ allow: 12 }</td><td class="e">{ allow: 8 }</td><td class="e">{ allow: 4 }</td><td class="e">{ allow: 31, deny: 4 }</td></tr>
+<tr><td class="k">reasoningEffort</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="e">"low"</td></tr>
+<tr><td class="k">remoteControlAtStartup</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="e">false</td></tr>
+<tr><td class="k">skillOverrides</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="e">{ 9 }</td></tr>
+<tr><td class="k">skipDangerousModePermissionPrompt</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="e">true</td></tr>
+<tr><td class="k">statusLine</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="e">{ command }</td></tr>
+<tr><td class="k">switchModelsOnFlag</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="e">true</td></tr>
+<tr><td class="k">theme</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="e">"dark"</td></tr>
+<tr><td class="k">tui</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="e">"fullscreen"</td></tr>
+<tr><td class="k">voice</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="e">{ enabled, mode }</td></tr>
+<tr><td class="k">voiceEnabled</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="z">—</td><td class="e">true</td></tr>
+</table></main>
+<footer class="foot"><span><kbd>↑↓←→</kbd> cell</span><span><kbd>↩</kbd> edit cell</span><span><kbd>⌫</kbd> unset in this layer</span><span><kbd>⌘K</kbd> ask</span><span><kbd>⌘Z</kbd> undo</span><span class="eff"><b></b>wins · struck = overridden</span></footer>
+</div>

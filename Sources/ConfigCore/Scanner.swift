@@ -52,7 +52,6 @@ public enum Scanner {
         snap.hooks = hooks(settings: snap.settings, plugins: enabledPlugins)
         snap.permissions = permissions(settings: snap.settings, projects: snap.projects)
         snap.instructions = instructions(projects: snap.projects)
-        snap.strayFiles = children(Paths.claudeDir).filter { isStray($0.lastPathComponent) }
         let v = await version
         snap.claudeVersion = v.ok ? v.output.trimmingCharacters(in: .whitespacesAndNewlines) : nil
         return snap
@@ -444,47 +443,6 @@ public enum Scanner {
         name.contains(".bak") || name.contains(".pre-") || name.hasSuffix(".old") || name.hasSuffix(".orig") || name.hasSuffix("~")
     }
 
-    // MARK: Storage
-
-    public static func storageAreas() -> [StorageArea] {
-        let c = Paths.claudeDir
-        let known: [(String, URL, StorageArea.Safety, Term, Bool)] = [
-            ("Scratch & task output", Paths.scratchRoot, .safe, .scratch, false),
-            ("Transcripts & project data", c.appending(path: "projects"), .care, .transcripts, true),
-            ("Plugins", c.appending(path: "plugins"), .keep, .pluginData, false),
-            ("Background jobs", c.appending(path: "jobs"), .care, .jobs, false),
-            ("File history", c.appending(path: "file-history"), .safe, .fileHistory, true),
-            ("Claude's backups", c.appending(path: "backups"), .keep, .claudeBackups, false),
-            ("This app's backups", Paths.appBackups, .care, .appBackups, false),
-            ("Paste cache", c.appending(path: "paste-cache"), .safe, .caches, false),
-            ("Image cache", c.appending(path: "image-cache"), .safe, .caches, true),
-            ("Cache", c.appending(path: "cache"), .safe, .caches, false),
-            ("Shell snapshots", c.appending(path: "shell-snapshots"), .safe, .caches, false),
-            ("Debug logs", c.appending(path: "debug"), .safe, .caches, false),
-            ("Session env", c.appending(path: "session-env"), .safe, .caches, false),
-            ("Todos (legacy)", c.appending(path: "todos"), .safe, .caches, true),
-            ("Statsig (legacy)", c.appending(path: "statsig"), .safe, .caches, true),
-            ("Logs (legacy)", c.appending(path: "logs"), .safe, .caches, true),
-        ]
-        let knownPaths = Set(known.map(\.1.path))
-        // Folders Claude Code documents as its own but that hold config, not bulk data.
-        let configDirs: Set<String> = ["skills", "agents", "commands", "output-styles", "rules", "hooks", "themes", "plans", "sessions", "state"]
-        var areas = known.filter { exists($0.1) }.map { StorageArea(name: $0.0, url: $0.1, safety: $0.2, term: $0.3, autoCleaned: $0.4) }
-        for dir in children(c) where (try? dir.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true {
-            guard !knownPaths.contains(dir.path), !configDirs.contains(dir.lastPathComponent) else { continue }
-            areas.append(StorageArea(name: dir.lastPathComponent, url: dir, safety: .unknown, term: .unknownFolder, autoCleaned: false))
-        }
-        return areas
-    }
-
-    public static func measure(_ area: StorageArea) -> StorageArea {
-        var a = area
-        let items = children(area.url)
-        a.itemCount = items.count
-        a.oldest = items.compactMap(modificationDate).min()
-        a.bytes = directorySize(area.url)
-        return a
-    }
 }
 
 /// Minimal YAML frontmatter reader: top-level `key: value`, folded `>`/`|` blocks, and quoted strings.

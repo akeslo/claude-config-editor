@@ -12,26 +12,12 @@ public enum ScreenContext {
         ("Always available", SkillState.always.explanation),
         ("On demand", SkillState.onDemand.explanation + " (disable-model-invocation: true, or skillOverrides user-invocable-only)"),
         ("Off", SkillState.off.explanation + " (skillOverrides off)"),
-        ("Your skills", "Skills page tab listing EVERY personal, project and plugin skill with its state picker (Always available / On demand / Off) and suggestions. It includes the on-demand ones."),
-        ("My on-demand skills", "Skills page tab: a cheat sheet of only the skills whose state is On demand, so you remember to type /name. It is a subset of Your skills, so the two always overlap by design."),
-        ("Skill map", "Skills page tab: every skill as a word cloud, treemap, cost-vs-use scatter, table or source→category→mode flow, with size/colour/group/filter controls and insight callouts; usage is a count plus last-used time from ~/.claude.json skillUsage. Automatic = always available, call-only = on demand."),
         ("source", "user = ~/.claude, project = <repo>/.claude, plugin = shipped by an installed plugin (follows the plugin being on/off)."),
         ("stale", "Not modified in >90 days, not used in >60 days, or its path is missing; aging = halfway there."),
         ("tokens", "Estimated at ~4 characters per token; an always-available skill costs its name+description every session."),
         ("Agents & Commands", "Subagents (~/.claude/agents), slash commands (~/.claude/commands) and output styles."),
         ("Memory", "CLAUDE.md, CLAUDE.local.md, rules and auto-memory MEMORY.md files Claude loads into context."),
-        ("Problems & Cleanup", "Review tab listing things that failed to load (broken skills, missing plugin files, non-executable hook scripts, missing MCP commands, invalid JSON) and stale items to clean up."),
     ]
-
-    /// What the Discover screen shows that isn't in the Snapshot: marketplace plugins, community skills, tab and search box.
-    public struct Discover: Sendable {
-        public var tab: String, search: String
-        public var available: [AvailablePlugin], community: [CommunitySkill]
-        public var communityInstalled: Set<String>  // CommunitySkill ids
-        public init(tab: String, search: String, available: [AvailablePlugin], community: [CommunitySkill], communityInstalled: Set<String>) {
-            self.tab = tab; self.search = search; self.available = available; self.community = community; self.communityInstalled = communityInstalled
-        }
-    }
 
     /// Per-list caps for itemised screens: one line per item, short descriptions.
     public static let listCap = 150, shortDescription = 120, skillDescription = 90
@@ -56,8 +42,8 @@ public enum ScreenContext {
             .sorted { ($0.1, -$0.0) > ($1.1, -$1.0) }.map(\.2)
     }
 
-    public static func build(_ section: AppSection, _ s: Snapshot, issues: [Issue], advice: Advice, storage: [StorageArea] = [],
-                             discover: Discover? = nil, skillMap: String? = nil, question: String = "",
+    public static func build(_ section: AppSection, _ s: Snapshot, issues: [Issue], 
+                             skillMap: String? = nil, question: String = "",
                              now: Date = Date(), budget: Int = defaultBudget) -> String {
         var trimmed = 0
         func strip(_ v: String) -> String { String(String.UnicodeScalarView(v.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) })) }
@@ -133,62 +119,20 @@ public enum ScreenContext {
             return l
         }
 
-        func discoverData() -> [String] {
-            let d = discover ?? Discover(tab: "community", search: "", available: [], community: [], communityInstalled: [])
-            let t = terms(d.search + " " + question)
-            var l = ["## Discover screen state",
-                     "active tab: \(d.tab == "community" ? "Community skills" : "Plugins (marketplace)")",
-                     "search filter: \(d.search.isEmpty ? "(none)" : "\"" + c(d.search) + "\"")",
-                     t.isEmpty ? "Lists below are in the screen's order." : "Lists below are ranked by relevance to: \(t.joined(separator: ", "))", ""]
-            let avail = rank(d.available.sorted { $0.installCount > $1.installCount }, t, name: \.name, rest: { $0.description + " " + $0.marketplace })
-            l += list("Marketplace plugins: name | marketplace | installs | installed | description", avail) {
-                "\(c($0.name)) | \(c($0.marketplace)) | \($0.installCount) | \($0.installed ? "installed" : "not installed") | \(short($0.description))"
-            }
-            if d.available.isEmpty { l.append("(marketplace list not loaded yet)") }
-            let comm = rank(d.community, t, name: \.name, rest: { $0.description + " " + $0.category })
-            l += [""] + list("Community skills: name | category | list | stars | installed | description", comm) {
-                "\(c($0.name)) | \(c($0.category)) | \(c($0.list)) | \($0.stars.map(String.init) ?? "-") | \(d.communityInstalled.contains($0.id) ? "installed" : "not installed") | \(short($0.description))"
-            }
-            if d.community.isEmpty { l.append("(community lists not loaded yet)") }
-            let mine = rank(s.components.sorted { $0.name < $1.name }, t, name: \.name, rest: \.description)
-            l += [""] + list("Your installed skills, agents, commands: kind | name | source | agents | description", mine) {
-                "\($0.kind.rawValue) | \(c($0.name)) | \($0.scope.rawValue) | \($0.agents.map(\.rawValue).joined(separator: ", ")) | \(short($0.description))"
-            }
-            let plugins = rank(s.plugins, t, name: \.id, rest: \.description)
-            l += [""] + list("Your installed plugins: id | enabled | description", plugins) {
-                "\(c($0.id)) | \($0.enabled ? "enabled" : "disabled") | \(short($0.description))"
-            }
-            return l
-        }
-
         var data: [String]
         switch section {
-        case .discover:
-            data = discoverData()
         case .skills:
             data = skillList()
         case .agents, .plugins, .mcp, .hooks:
             data = inventory()
         case .instructions:
             data = memory()
-        case .storage:
-            data = ["## Storage areas", "name | path | safety | auto-cleaned | bytes | items | oldest"]
-                + storage.map { "\(c($0.name)) | \(c(shortPath($0.url))) | \($0.safety.rawValue) | \($0.autoCleaned) | \($0.bytes) | \($0.itemCount) | \(day($0.oldest))" }
-        case .projects:
-            data = ["## Projects", "path | exists | trusted | transcripts | bytes | last session | staleness"]
-                + s.projects.map { p in
-                    "\(c(p.path)) | \(p.folderExists) | \(p.trusted) | \(p.transcriptCount) | \(p.dataBytes) | \(day(p.lastSession)) | \(Staleness.of(lastUsed: p.lastSession, pathExists: p.folderExists, now: now).level)"
-                }
-        case .health:
-            data = ["## Findings", "severity | category | title | where | detail"]
-                + issues.map { "\($0.severity) | \($0.category.title) | \(c($0.title)) | \(c($0.subject)) | \(desc($0.detail))" }
-                + ["", "## Stale items"] + Failures.stale(s, now: now).map { "\(c($0.name)) | \($0.reason)" }
         default:
-            data = [screenText(section, s, issues: issues, advice: advice)]
+            data = [screenText(section, s, issues: issues)]
         }
         if let skillMap { data = [redact(skillMap), ""] + data }
         let problems = issues.filter { $0.severity == .problem }
-        if section != .health, !problems.isEmpty {
+        if !problems.isEmpty {
             data += ["", "## Problems detected anywhere (\(problems.count))"] + problems.map { "\(c($0.title)) | \(c($0.subject))" }
         }
 

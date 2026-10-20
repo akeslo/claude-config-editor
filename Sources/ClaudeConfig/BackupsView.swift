@@ -3,46 +3,57 @@ import SwiftUI
 
 /// Backups: every *.bak / *-bak-* / *~ copy left next to a Claude config file, with a diff against its original and restore/reveal/trash.
 struct BackupsView: View {
-    @ScaledMetric private var sizeW: CGFloat = 70
-    @ScaledMetric private var dateW: CGFloat = 140
     @Environment(AppModel.self) private var model
     @State private var files: [BackupFile] = []
     @State private var loading = true
-    @State private var selection: String?
     @State private var search = ""
-    @State private var bulk = BulkSelection<String>()
+    @State private var sel = Set<String>()
+    @State private var sort = [KeyPathComparator(\BackupFile.modifiedSort, order: .reverse)]
     @State private var restoring: BackupFile?
 
     var body: some View {
-        let shown = search.isEmpty ? files : files.filter { $0.url.path.localizedCaseInsensitiveContains(search) }
-        let visible = shown.map(\.id)
-        let picked = files.filter { bulk.contains($0.id) }
-        HSplitView {
-            List(selection: $selection) {
-                ForEach(shown) { b in
-                    HStack(spacing: 6) {
-                        SelectBox(sel: $bulk, id: b.id, visible: visible, name: b.url.lastPathComponent)
-                        row(b)
-                    }.tag(b.id)
-                }
+        let shown = (search.isEmpty ? files : files.filter { $0.url.path.localizedCaseInsensitiveContains(search) }).sorted(using: sort)
+        Table(shown, selection: $sel, sortOrder: $sort) {
+            TableColumn("Backup", value: \.name) { (b: BackupFile) in Text(b.url.lastPathComponent).fontWeight(.medium).lineLimit(1).truncationMode(.middle) }
+                .width(min: 180, ideal: 320)
+            TableColumn("Original") { (b: BackupFile) in
+                Text(b.original.map(shortPath) ?? "unknown").foregroundStyle(b.original == nil ? Ink.warning : .secondary).lineLimit(1).truncationMode(.middle)
+            }.width(min: 160, ideal: 360)
+            TableColumn("Size", value: \.size) { (b: BackupFile) in Text(formatBytes(b.size)).monospacedDigit().foregroundStyle(.secondary) }.width(70)
+            TableColumn("Modified", value: \.modifiedSort) { (b: BackupFile) in
+                Text(b.modified?.formatted(date: .abbreviated, time: .shortened) ?? "—").foregroundStyle(.secondary).lineLimit(1)
+            }.width(min: 120, ideal: 150)
+        }
+        .contextMenu(forSelectionType: String.self) { ids in
+            let picked = shown.filter { ids.contains($0.id) }
+            if picked.count == 1, let b = picked.first {
+                Button("Restore…") { restoring = b }.disabled(b.original == nil)
+                Button("Reveal in Finder") { reveal(b.url) }
             }
-            .bulkSelectable($bulk, visible: visible, actions: [
-                BulkAction(title: "Move to Trash…", icon: "trash", check: bulkCheck(picked) { _ in nil }) {
-                    model.proposeBulk("Move \(picked.count) backup\(picked.count == 1 ? "" : "s") to the Trash",
-                                      bulkPlan(picked, label: { shortPath($0.url) }, skip: { trashRefusal($0.url) }) { .trash([$0.url]) })
-                },
-                BulkAction(title: "Copy paths", icon: "doc.on.clipboard", check: bulkCheck(picked) { _ in nil }) { copy(picked.map(\.url.path).joined(separator: "\n")) },
-            ])
-            .overlay {
-                if loading && files.isEmpty { ProgressView("Looking for backups…") }
-                else if shown.isEmpty { ContentUnavailableView("No backups", systemImage: "clock.arrow.circlepath", description: Text("No *.bak, *-bak-*, *.orig or *~ files next to Claude config.")) }
+            if !picked.isEmpty {
+                Button("Copy Path\(picked.count == 1 ? "" : "s")") { copy(picked.map(\.url.path).joined(separator: "\n")) }
+                Divider()
+                Button(picked.count == 1 ? "Move to Trash…" : "Move \(picked.count) to Trash…", role: .destructive) { trash(picked) }
             }
-            .frame(minWidth: 460, maxHeight: .infinity)
-            detail(shown.first { $0.id == selection }).frame(minWidth: 340, maxWidth: .infinity, maxHeight: .infinity)
+        } primaryAction: { ids in
+            if let b = shown.first(where: { ids.contains($0.id) }), b.original != nil { restoring = b }
+        }
+        .onDeleteCommand { trash(shown.filter { sel.contains($0.id) }) }
+        .overlay {
+            if loading && files.isEmpty { ProgressView("Looking for backups…") }
+            else if shown.isEmpty { ContentUnavailableView("No backups", systemImage: "clock.arrow.circlepath", description: Text("No *.bak, *-bak-*, *.orig or *~ files next to Claude config.")) }
         }
         .searchable(text: $search, prompt: "Filter by path")
-        .toolbar { Button("Scan again", systemImage: "arrow.clockwise") { Task { await load() } } }
+        .toolbar { Button("Scan Again", systemImage: "arrow.clockwise") { Task { await load() } }.help("Look for backup files again") }
         .task(id: model.snapshot.scannedAt) { await load() }
+        .onChange(of: sel) {
+            guard sel.count == 1, let b = shown.first(where: { sel.contains($0.id) }) else { return }
+            let d = BackupFiles.diff(b)
+            model.info = InfoItem(b.url.lastPathComponent, term: .settings,
+                                  facts: [("Original", b.original.map(shortPath) ?? "unknown"), ("Size", formatBytes(b.size)),
+                                          ("Modified", b.modified?.formatted(date: .abbreviated, time: .shortened) ?? "—")],
+                                  file: b.url, text: d.isEmpty ? "Identical to the current original." : "Diff: current original → this backup\n\n" + d)
+        }
         .confirmationDialog("Restore \(restoring?.original?.lastPathComponent ?? "")?", isPresented: Binding(get: { restoring != nil }, set: { if !$0 { restoring = nil } }), presenting: restoring) { b in
             Button("Restore", role: .destructive) { restore(b) }
         } message: { b in
@@ -50,51 +61,10 @@ struct BackupsView: View {
         }
     }
 
-    private func row(_ b: BackupFile) -> some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(b.url.lastPathComponent)
-                Text(shortPath(b.url.deletingLastPathComponent())).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-            }
-            Spacer()
-            Text(formatBytes(b.size)).monospacedDigit().font(.caption).frame(width: sizeW, alignment: .trailing)
-            Text(b.modified?.formatted(date: .abbreviated, time: .shortened) ?? "").font(.caption).foregroundStyle(.secondary).frame(width: dateW, alignment: .trailing)
-        }
-        .contextMenu { actions(b) }
-    }
-
-    @ViewBuilder private func actions(_ b: BackupFile) -> some View {
-        Button("Restore…") { restoring = b }.disabled(b.original == nil).help(b.original == nil ? "Original location unknown" : "Copy this backup over its original")
-        Button("Reveal in Finder") { reveal(b.url) }
-        Button("Move to Trash…", role: .destructive) {
-            model.proposeBulk("Move \(b.url.lastPathComponent) to the Trash", bulkPlan([b], label: { shortPath($0.url) }, skip: { trashRefusal($0.url) }) { .trash([$0.url]) })
-        }
-    }
-
-    @ViewBuilder private func detail(_ b: BackupFile?) -> some View {
-        if let b {
-            ScrollView {
-                VStack(alignment: .leading, spacing: PSpace.s3) {
-                    Text(b.url.lastPathComponent).font(.title2.weight(.semibold))
-                    Text(shortPath(b.url)).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                    Text(b.original.map { "Shadows " + shortPath($0) } ?? "Original location unknown").font(.callout).foregroundStyle(b.original == nil ? PColor.attention.fg : .primary)
-                    Text("\(formatBytes(b.size)) · \(b.modified?.formatted(date: .abbreviated, time: .shortened) ?? "unknown date")").font(.caption).foregroundStyle(.secondary)
-                    HStack { actions(b) }
-                    GroupBox("Diff: current original → this backup") {
-                        let d = BackupFiles.diff(b)
-                        VStack(alignment: .leading, spacing: 0) {
-                            if d.isEmpty { Text("Identical to the current original.").foregroundStyle(.secondary) }
-                            ForEach(Array(d.split(separator: "\n", omittingEmptySubsequences: false).enumerated()), id: \.offset) { _, line in
-                                Text(line.isEmpty ? " " : String(line)).foregroundStyle(line.hasPrefix("+") ? PColor.success.fg : line.hasPrefix("-") ? PColor.danger.fg : line.hasPrefix("@@") ? .secondary : .primary)
-                            }
-                        }
-                        .font(.system(.caption, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }.padding(PSpace.s4)
-            }
-        } else {
-            ContentUnavailableView("Select a backup", systemImage: "clock.arrow.circlepath", description: Text("See its diff against the current file, then restore, reveal or trash it."))
-        }
+    private func trash(_ picked: [BackupFile]) {
+        guard !picked.isEmpty else { return }
+        model.proposeBulk("Move \(picked.count) backup\(picked.count == 1 ? "" : "s") to the Trash",
+                          bulkPlan(picked, label: { shortPath($0.url) }, skip: { trashRefusal($0.url) }) { .trash([$0.url]) })
     }
 
     private func restore(_ b: BackupFile) {
@@ -119,4 +89,9 @@ struct BackupsView: View {
         files = await Task.detached(priority: .utility) { BackupFiles.scan(deep: r.deep, shallow: r.shallow, projects: projects) }.value
         loading = false
     }
+}
+
+private extension BackupFile {
+    var name: String { url.lastPathComponent }
+    var modifiedSort: Date { modified ?? .distantPast }
 }

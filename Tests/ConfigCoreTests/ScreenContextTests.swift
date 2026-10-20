@@ -17,55 +17,27 @@ struct ScreenContextTests {
         return s
     }
 
-    @Test func discoverSendsItemsNotJustTotals() {
-        let avail = [AvailablePlugin(id: "zz@m", name: "zz-unrelated", description: "Kubernetes things", marketplace: "m", installCount: 9000, installed: false),
-                     AvailablePlugin(id: "ad@m", name: "ad-writer", description: "Writes marketing ad copy " + String(repeating: "y", count: 300),
-                                     marketplace: "acme-market", installCount: 42, installed: true)]
-        let comm = [CommunitySkill(name: "brand-voice", description: "Marketing tone guide", category: "Marketing", stars: 7,
-                                   slug: "a/b", path: nil, list: .composio)]
-        let d = ScreenContext.Discover(tab: "community", search: "", available: avail, community: comm, communityInstalled: [comm[0].id])
-        let t = ScreenContext.build(.discover, snapshot(), issues: [], advice: Advice(rules: []), discover: d,
-                                    question: "i'm looking for skills across ad copy like marketing")
-        #expect(t.contains("ad-writer | acme-market | 42 | installed | Writes marketing ad copy"))
-        #expect(t.contains("brand-voice | Marketing | composio | 7 | installed | Marketing tone guide"))
-        #expect(t.contains("deploy-helper") && t.contains("Deploys things"))
-        #expect(t.contains("active tab: Community skills"))
-        #expect(t.contains("search filter: (none)"))
-        #expect(!t.contains("not itemised"))
-        // Relevance beats install count; descriptions are cut to ~120 chars.
-        #expect(t.range(of: "ad-writer")!.lowerBound < t.range(of: "zz-unrelated")!.lowerBound)
-        #expect(!t.contains(String(repeating: "y", count: 130)))
-    }
-
-    @Test func discoverCapsLongLists() {
-        let many = (0..<200).map { AvailablePlugin(id: "p\($0)", name: "p\($0)", description: "", marketplace: "m", installCount: $0, installed: false) }
-        let d = ScreenContext.Discover(tab: "plugins", search: "p1", available: many, community: [], communityInstalled: [])
-        let t = ScreenContext.build(.discover, Snapshot(), issues: [], advice: Advice(rules: []), discover: d)
-        #expect(t.contains("+50 more not shown"))
-        #expect(t.contains("search filter: \"p1\""))
-    }
-
     @Test func inventoryIncludesItemsAndLabels() {
-        let t = ScreenContext.build(.agents, snapshot(), issues: [], advice: Advice(rules: []))
+        let t = ScreenContext.build(.agents, snapshot(), issues: [])
         #expect(t.contains("deploy-helper"))
         #expect(t.contains("lazy-one | User | - | On demand"))
         #expect(t.contains("github"))
         #expect(t.contains("GITHUB_TOKEN"))
-        #expect(t.contains("Your skills:"))
+        #expect(t.contains("Agents & Commands:"))
         #expect(t.contains("On demand:"))
     }
 
     @Test func secretsMasked() {
-        let t = ScreenContext.build(.mcp, snapshot(), issues: [], advice: Advice(rules: []))
+        let t = ScreenContext.build(.mcp, snapshot(), issues: [])
         #expect(!t.contains("SUPERSECRET"))
         #expect(!t.contains("ENVSECRET"))
     }
 
     @Test func truncationIsAnnounced() {
-        let t = ScreenContext.build(.agents, snapshot(), issues: [], advice: Advice(rules: []))
+        let t = ScreenContext.build(.agents, snapshot(), issues: [])
         #expect(t.contains("…[trimmed]"))
         #expect(t.contains("1 descriptions/commands longer than"))
-        let small = ScreenContext.build(.skills, snapshot(), issues: [], advice: Advice(rules: []), budget: 200)
+        let small = ScreenContext.build(.skills, snapshot(), issues: [], budget: 200)
         #expect(small.contains("over the 200-character budget"))
     }
 }

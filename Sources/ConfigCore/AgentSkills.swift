@@ -15,8 +15,6 @@ public enum SkillAgent: String, CaseIterable, Sendable, Codable {
         }
     }
     /// Where Install to… can copy a skill.
-    public static let installTargets: [SkillAgent] = [.claude, .agents, .codex]
-
     /// Every non-Claude skill folder under `home`, tagged with its agent.
     public static func otherSkillDirs(home: URL = Paths.home) -> [(SkillAgent, URL)] {
         var out: [(SkillAgent, URL)] = []

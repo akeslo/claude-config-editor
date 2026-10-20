@@ -11,35 +11,18 @@ struct FixSheet: View {
     @State private var result: String?
     @State private var failed = false
     @State private var running = false
-    @State private var target = SkillAgent.claude
-    @AppStorage("installUserOnly") private var userOnlyDefault = true
-    @State private var userOnly: Bool?
-
-    /// Skill installs go to the agent picked in "Install to"; everything else runs as proposed.
-    private var fix: Fix {
-        guard case .installSkills(let cs) = pending.fix else { return pending.fix }
-        return .installSkills(cs.map { var c = $0; c.into = target; c.userInvokedOnly = userOnly ?? userOnlyDefault; return c })
-    }
+    private var fix: Fix { pending.fix }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(pending.title).font(.title3.weight(.semibold))
-            if case .installSkills = pending.fix, result == nil {
-                Picker("Install to", selection: $target) {
-                    ForEach(SkillAgent.installTargets, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                .fixedSize()
-                .help("Skills are SKILL.md folders, so any of these agents can use them. Existing folders are never overwritten.")
-                Toggle("Only when I call it", isOn: Binding(get: { userOnly ?? userOnlyDefault }, set: { userOnly = $0 }))
-                    .help("Adds disable-model-invocation: true, so the skill runs only as /name and Claude never loads it by itself. Turn off to let Claude pick it automatically.")
-            }
             if case .cli(let args, _, _) = pending.fix, args.starts(with: ["plugin", "install"]), result == nil {
                 Text("Plugin skills can't be set to 'only when I call it', so Claude may run them on its own. (Claude Code has no setting for this, and edits to plugin files are undone on update.)")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Text(fix.summary).font(.system(.body, design: .monospaced)).textSelection(.enabled)
             Text(result == nil ? "Preview" : failed ? "Failed" : "Done").font(.headline)
-                .foregroundStyle(failed ? PColor.danger.fg : .primary)
+                .foregroundStyle(failed ? Ink.danger : .primary)
             ScrollView {
                 Text(result ?? (preview.isEmpty ? "Loading preview…" : preview))
                     .font(.system(.callout, design: .monospaced))
@@ -51,7 +34,7 @@ struct FixSheet: View {
             .frame(minHeight: 160, maxHeight: 360)
             if case .cli(let args, _, _) = pending.fix, args.first == "purge", result == nil {
                 Text("Purge permanently deletes this project's transcripts, auto memory, history lines and its trust and allowed-tool approvals. It is not backed up and cannot be undone. Claude will ask to trust the folder again.")
-                    .font(.callout).foregroundStyle(PColor.danger.fg)
+                    .font(.callout).foregroundStyle(Ink.danger)
             }
             if pending.fix.editsSettings, result == nil {
                 Text("The file is backed up to ~/.claude/config-editor-backups/<tool> first, and the change is refused if Claude wrote the file after it was read.")
@@ -71,7 +54,7 @@ struct FixSheet: View {
         }
         .padding(20)
         .frame(width: 620)
-        .task(id: "\(target)\(userOnly ?? userOnlyDefault)") { preview = await makePreview(fix) }
+        .task { preview = await makePreview(fix) }
     }
 
     private func makePreview(_ fix: Fix) async -> String {
@@ -109,17 +92,6 @@ struct FixSheet: View {
             for key in path { node = (node as? JSON)?[key] }
             let before = node.map { "\($0)" } ?? "(not set)"
             return "File:   \(shortPath(file))\nKey:    \(path.joined(separator: " → "))\nBefore: \(before)\nAfter:  \(value ?? "(removed)")"
-        case .installSkills(let cs):
-            return cs.map { c in
-                let skipped = (try? FileManager.default.attributesOfItem(atPath: c.targetDir.path)) != nil
-                let found = findSkills(in: c.from, fallbackName: c.name).first { $0.dir.standardizedFileURL == c.from.standardizedFileURL }
-                let refused = refusedSkillFiles(in: c.from)
-                let files = (found?.files ?? []).map { f in
-                    "    \(f)" + (refused.contains(f) ? "  ✗ will be refused" : found?.scripts.contains(f) == true ? "  ⚠ runs code" : "")
-                }
-                return (["\(c.name) → \(shortPath(c.targetDir))" + (skipped ? "  SKIPPED (already exists)" : c.userInvokedOnly ? "  (only when called: disable-model-invocation: true)" : "  (Claude may load it automatically)")]
-                        + (c.link.map { ["  From \($0.absoluteString)"] } ?? []) + ["  Files:"] + files).joined(separator: "\n")
-            }.joined(separator: "\n\n") + "\n\nOnly install skills you trust: scripts in a skill can run on your machine."
         }
     }
 
@@ -133,10 +105,6 @@ struct FixSheet: View {
             result = error.localizedDescription
         }
         await model.refresh()
-        if !failed, case .cli(let args, _, _) = pending.fix, args.starts(with: ["plugin", "marketplace", "add"]) {
-            model.available = []
-            await model.loadAvailable()
-        }
     }
 
     /// Runs one fix and describes what happened; a failed step stops the rest.
@@ -184,16 +152,6 @@ struct FixSheet: View {
         case .settingsKey(let file, let path, let value):
             let backup = try updateSettingsKey(file, path: path, value: value)
             result = "Saved." + (backup.map { "\nBackup: \(shortPath($0))" } ?? "")
-        case .installSkills(let cs):
-            var installed: [String] = [], skipped: [String] = [], errors: [String] = []
-            for c in cs {
-                do { try installSkill(c) ? installed.append(c.name) : skipped.append(c.name) }
-                catch { errors.append("\(c.name): \(error.localizedDescription)") }
-            }
-            if !errors.isEmpty { failed = true }
-            result = ["Installed \(installed.count): \(installed.joined(separator: ", "))",
-                      "Skipped \(skipped.count) (already exist): \(skipped.joined(separator: ", "))",
-                      "Failed \(errors.count):" + errors.map { "\n  " + $0 }.joined()].joined(separator: "\n")
         }
         return result
     }

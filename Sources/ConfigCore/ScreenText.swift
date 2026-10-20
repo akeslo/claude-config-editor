@@ -108,7 +108,7 @@ private enum Redactor {
 }
 
 /// One line per row the section shows, for "Ask Claude". Secret values (settings env, MCP env/headers) are never included, only names.
-public func screenText(_ section: AppSection, _ s: Snapshot, issues: [Issue], advice: Advice) -> String {
+public func screenText(_ section: AppSection, _ s: Snapshot, issues: [Issue]) -> String {
     // Config-derived text is untrusted: drop control characters so it can't forge the prompt fence.
     func strip(_ v: String) -> String { String(String.UnicodeScalarView(v.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) })) }
     func cap(_ v: String) -> String { String(v.prefix(400)) }
@@ -116,10 +116,7 @@ public func screenText(_ section: AppSection, _ s: Snapshot, issues: [Issue], ad
     func r(_ v: String) -> String { cap(redact(strip(v))) }
     let lines: [String]
     switch section {
-    case .health:
-        lines = issues.map { "\($0.severity) | \(r($0.title)) | \(r($0.subject)) | \(r($0.detail))" }
-    case .skills, .agents, .discover, .storage, .backups:
-        // ScreenContext itemises discover/storage; this fallback still lists items, never just totals.
+    case .skills, .agents, .backups:
         lines = s.components.filter { section != .skills && section != .agents || (section == .skills) == ($0.kind == .skill) }
             .map { "\($0.kind.rawValue) | \(c($0.name)) | \(c($0.description)) | \($0.listingTokens) tokens | \(c($0.file.path))" }
     case .mcp:
@@ -142,8 +139,6 @@ public func screenText(_ section: AppSection, _ s: Snapshot, issues: [Issue], ad
                 return "\(src.scope.rawValue) | \(c(k))\(names) | \(c(src.url.path))"
             }
         }
-    case .projects:
-        lines = s.projects.map { "\(c($0.path)) | \($0.transcriptCount) transcripts | \($0.dataBytes) bytes" }
     }
     return lines.isEmpty ? "(nothing on this screen)" : lines.joined(separator: "\n")
 }

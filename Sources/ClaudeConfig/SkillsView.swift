@@ -1,40 +1,21 @@
 import ConfigCore
 import SwiftUI
 
-/// Skills as three plain states, with suggestions from real usage and a cheat sheet so on-demand skills aren't forgotten.
+/// Skills, and the plugins that bring most of them: one table each.
 struct SkillsView: View {
-    @Environment(AppModel.self) private var model
-    @AppStorage("skillsPage2") private var page = Page.grid
-    @State private var filter = ""
+    @AppStorage("skillsTab") private var tab = Tab.skills
 
-    enum Page: String, CaseIterable {
-        case grid = "By category", states = "Always available", cheatSheet = "On demand", overlaps = "Overlaps"
-        var explanation: String {
-            switch self {
-            case .grid: "Every skill you have, grouped by what it is for."
-            case .states: "Always available skills are listed in every session so Claude can pick them itself; each costs its description in tokens."
-            case .cheatSheet: "On demand skills are not listed and cost nothing; they run only when you type /name."
-            case .overlaps: "Skills with the same name or near-identical descriptions compete for the same requests; keep one."
-            }
-        }
-    }
-
-    private var skills: [Component] { uniqueSkills(model.snapshot.components) }
+    enum Tab: String, CaseIterable { case skills = "Skills", plugins = "Plugins" }
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Page", selection: $page) {
-                ForEach(Page.allCases, id: \.self) { Text($0.rawValue) }
-            }
-            .pickerStyle(.segmented).labelsHidden().fixedSize()
-            .padding(.top, PSpace.s3)
-            Text(page.explanation).font(.callout).foregroundStyle(.secondary).padding(.vertical, PSpace.s2)
+            Picker("Show", selection: $tab) { ForEach(Tab.allCases, id: \.self) { Text($0.rawValue) } }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+                .padding(.vertical, Gap.s2)
             Divider()
-            switch page {
-            case .grid: SkillGridView(skills: skills)
-            case .overlaps: SkillOverlapsView(skills: skills)
-            case .states: StatesPage(skills: skills)
-            case .cheatSheet: CheatSheet(skills: skills.filter { $0.state == .onDemand }, filter: $filter)
+            switch tab {
+            case .skills: SkillsTable()
+            case .plugins: PluginsView()
             }
         }
     }
@@ -43,144 +24,83 @@ struct SkillsView: View {
 /// One table row: a skill plus the values its columns sort on.
 private struct SkillRow: Identifiable {
     let skill: Component
-    let suggestion: SkillSuggestion?
-    let source: String
     var id: String { skill.id }
     var name: String { skill.name }
     var stateRank: Int { SkillState.allCases.firstIndex(of: skill.state) ?? 0 }
     var tokens: Int { skill.listingTokens }
-    var uses: Int { skill.usageCount }
     var lastUsed: Date { skill.lastUsed ?? .distantPast }
-    var installed: Date { skill.installedAt ?? .distantPast }
-    var suggestionText: String { suggestion?.label ?? "" }
+    var source: String { skill.belongsTo }
 }
 
-private struct StatesPage: View {
+private struct SkillsTable: View {
     @Environment(AppModel.self) private var model
-    let skills: [Component]
     @State private var order = [KeyPathComparator(\SkillRow.tokens, order: .reverse)]
     @State private var filter = ""
     @State private var stateFilter: SkillState?
-    @State private var sourceFilter = "All"
+    @State private var selection = Set<String>()
 
     var body: some View {
-        let triage = skillSuggestions(model.snapshot.components, projects: model.snapshot.projects.map(\.path))
-        let suggested = skills.filter { triage[$0.id]?.state != nil }
-        let advice = skills.filter { triage[$0.id] != nil && triage[$0.id]?.state == nil }.count
-        let saving = suggested.filter { triage[$0.id]?.state != .always }.reduce(0) { $0 + $1.listingTokens }
+        let skills = uniqueSkills(model.snapshot.components)
         let total = skills.reduce(0) { $0 + $1.listingTokens }
         let rows = skills
             .filter { stateFilter == nil || $0.state == stateFilter }
-            .filter { sourceFilter == "All" || (sourceFilter == "Plugins") == !$0.ownsFile }
             .filter { filter.isEmpty || $0.name.localizedCaseInsensitiveContains(filter) || $0.description.localizedCaseInsensitiveContains(filter) }
-            .map { SkillRow(skill: $0, suggestion: triage[$0.id], source: source($0)) }
+            .map(SkillRow.init)
             .sorted(using: order)
-        let visible = rows.map(\.id)
-        @Bindable var model = model
-            Table(rows, selection: $model.pickedSkills.ids, sortOrder: $order) {
-              Group {
-                TableColumn("", value: \SkillRow.name) { (r: SkillRow) in SelectBox(sel: $model.pickedSkills, id: r.id, visible: visible, name: "/" + r.name) }.width(22)
-                TableColumn("Skill", value: \SkillRow.name) { (r: SkillRow) in
-                    SkillNameCell(skill: r.skill, purpose: purpose(r.skill), selected: model.pickedSkills.ids.contains(r.id))
-                }
-                .width(min: 240, ideal: 420)
-                TableColumn("State", value: \SkillRow.stateRank) { (r: SkillRow) in StatePicker(model: model, skill: r.skill) }
-                    .width(244)
-                TableColumn("Tokens", value: \SkillRow.tokens) { (r: SkillRow) in
-                    Text(r.skill.state == .always ? formatTokens(r.tokens) : "0")
-                        .monospacedDigit().foregroundStyle(r.skill.state == .always ? .primary : .secondary)
-                        .help(r.skill.state == .always ? "Per session" : "Always would cost \(formatTokens(r.skill.tokens(in: .always)))")
-                }
-                .width(66)
-                TableColumn("Uses", value: \SkillRow.uses) { (r: SkillRow) in Text(r.uses == 0 ? "—" : "\(r.uses)").monospacedDigit() }
-                    .width(40)
-              }
-              Group {
-                TableColumn("Last Used", value: \SkillRow.lastUsed) { (r: SkillRow) in Text(relative(r.skill.lastUsed)).foregroundStyle(.secondary).lineLimit(1) }
-                    .width(104)
-                TableColumn("Installed", value: \SkillRow.installed) { (r: SkillRow) in
-                    Text(r.skill.installedAt?.formatted(date: .abbreviated, time: .omitted) ?? "—").foregroundStyle(.secondary)
-                }
-                .width(88)
-                TableColumn("Scope", value: \SkillRow.source) { (r: SkillRow) in
-                    ScopeMenu(current: ScopeMove.target(of: r.skill), fixedLabel: r.skill.scope == .plugin ? "Plugin" : r.skill.scope == .external ? "Other agent" : r.skill.scope.rawValue, allowLocal: false) { t in
-                        model.moveScope("/" + r.name, to: t) { try ScopeMove.move(component: r.skill, to: t) }
-                    }
+        Table(rows, selection: $selection, sortOrder: $order) {
+            TableColumn("Skill", value: \SkillRow.name) { (r: SkillRow) in
+                SkillNameCell(skill: r.skill, purpose: purpose(r.skill), selected: selection.contains(r.id))
+                    .scopeRule(ScopeMove.target(of: r.skill).ink(fixed: r.skill.scope == .plugin ? "Plugin" : "Managed"))
+            }
+            .width(min: 240, ideal: 420)
+            TableColumn("State", value: \SkillRow.stateRank) { (r: SkillRow) in StatePicker(model: model, skill: r.skill) }
+                .width(min: 110, ideal: 130)
+            TableColumn("Tokens", value: \SkillRow.tokens) { (r: SkillRow) in
+                Text(r.skill.state == .always ? formatTokens(r.tokens) : "0")
+                    .monospacedDigit().foregroundStyle(r.skill.state == .always ? .primary : .secondary)
+                    .help(r.skill.state == .always ? "Per session" : "Always would cost \(formatTokens(r.skill.tokens(in: .always)))")
+            }
+            .width(66)
+            TableColumn("Last Used", value: \SkillRow.lastUsed) { (r: SkillRow) in
+                Text(relative(r.skill.lastUsed)).foregroundStyle(.secondary).lineLimit(1)
+                    .help(r.skill.usageCount == 0 ? "Never used" : "Used \(r.skill.usageCount) times")
+            }
+            .width(110)
+            TableColumn("Scope", value: \SkillRow.source) { (r: SkillRow) in
+                ScopeLabel(current: ScopeMove.target(of: r.skill), fixedLabel: r.skill.scope == .plugin ? "Plugin" : r.skill.scope == .external ? "Other agent" : r.skill.scope.rawValue)
                     .help(r.source)
-                }
-                    .width(90)
-                TableColumn("Suggestion", value: \SkillRow.suggestionText) { (r: SkillRow) in
-                    if let s = r.suggestion {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Label(s.label, systemImage: s.state != nil ? "lightbulb" : s.action == .removeDuplicate ? "doc.on.doc" : "folder").foregroundStyle(Color.accentColor)
-                            Text(s.reason).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        .help(s.reason)
-                    }
-                }
-                .width(min: 110, ideal: 170, max: 260)
-                TableColumn("") { (r: SkillRow) in
-                    if r.skill.ownsFile {
-                        Button("Move to Trash", systemImage: "trash") { model.proposeTrash([trashURL(r.skill)]) }
-                            .labelStyle(.iconOnly).buttonStyle(.borderless)
-                            .help("Move /\(r.name) to the Trash. You can undo.")
-                    }
-                }
-                .width(28)
-              }
             }
-            .bulkKeys($model.pickedSkills, visible: visible)
-            .overlay { if rows.isEmpty && !skills.isEmpty { ContentUnavailableView.search(text: filter) } }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: PSpace.s3) {
-                HStack(alignment: .firstTextBaseline, spacing: PSpace.s3) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        (Text("Skills cost ") + Text(formatTokens(total)).foregroundStyle(PColor.attention.fg) + Text(" every session")).font(.title2.weight(.semibold))
-                        Text("Always available skills are listed so Claude can pick them. On demand skills cost nothing until you type /name.")
-                            .font(.callout).foregroundStyle(.secondary).lineLimit(1)
+            .width(min: 90, ideal: 140)
+        }
+        .contextMenu(forSelectionType: String.self) { ids in
+            ForEach(model.skillActions(ids)) { a in Button(a.title, action: a.run).disabled(!a.check.enabled) }
+            if ids.count == 1, let s = skills.first(where: { ids.contains($0.id) }), let from = ScopeMove.target(of: s) {
+                MoveToMenu(current: from, allowLocal: false) { t in model.moveScope("/" + s.name, to: t) { try ScopeMove.move(component: s, to: t) } }
+            }
+        } primaryAction: { ids in
+            if let s = skills.first(where: { ids.contains($0.id) }) { openFile(s.file) }
+        }
+        .overlay { if rows.isEmpty && !skills.isEmpty { ContentUnavailableView.search(text: filter) } }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            VStack(spacing: 0) {
+                HStack(spacing: Gap.s3) {
+                    TextField("Filter skills", text: $filter).textFieldStyle(.roundedBorder).frame(maxWidth: 280)
+                    Picker("State", selection: $stateFilter) {
+                        Text("All states").tag(SkillState?.none)
+                        ForEach(SkillState.allCases, id: \.self) { Text($0.rawValue).tag(SkillState?.some($0)) }
                     }
+                    .labelsHidden().pickerStyle(.menu).fixedSize()
                     Spacer()
-                    if !suggested.isEmpty {
-                        Button("Accept \(suggested.count) Suggestion\(suggested.count == 1 ? "" : "s")") {
-                            model.propose("Apply \(suggested.count) skill suggestion\(suggested.count == 1 ? "" : "s")",
-                                          .many(suggested.compactMap { s in triage[s.id]?.state.flatMap(s.fix(to:)) }))
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .help("Saves \(formatTokens(saving)) tokens per session" + (advice > 0 ? ". \(advice) more need a manual step: see the Suggestion column" : ""))
-                    }
+                    Text("\(formatTokens(total)) every session · \(rows.count) of \(skills.count)")
+                        .font(.callout).foregroundStyle(.secondary).monospacedDigit()
+                        .help("Always available skills are listed in every session so Claude can pick them; each costs its description. On demand skills cost nothing until you type /name.")
                 }
-                CleanupReviewRow()
+                .padding(.horizontal, Gap.s4).padding(.vertical, Gap.s2)
+                Divider()
             }
-            .padding(PSpace.s4)
-            Divider()
-            HStack(spacing: PSpace.s3) {
-                TextField("Filter skills", text: $filter).textFieldStyle(.roundedBorder).frame(maxWidth: 280)
-                Picker("State", selection: $stateFilter) {
-                    Text("All states").tag(SkillState?.none)
-                    ForEach(SkillState.allCases, id: \.self) { Text($0.rawValue).tag(SkillState?.some($0)) }
-                }
-                .labelsHidden().pickerStyle(.menu).fixedSize()
-                Picker("From", selection: $sourceFilter) {
-                    Text("All sources").tag("All")
-                    Text("Personal & project").tag("Mine")
-                    Text("Plugins").tag("Plugins")
-                }
-                .labelsHidden().pickerStyle(.menu).fixedSize()
-                .help("Plugin skills follow their plugin; manage those plugins in Plugins")
-                Spacer()
-                Text("\(rows.count) of \(skills.count)").font(.callout).foregroundStyle(.secondary).monospacedDigit()
-            }
-            .padding(.horizontal, PSpace.s4).padding(.vertical, PSpace.s2)
-            Divider()
-            BulkBar(sel: $model.pickedSkills, visible: visible, actions: model.skillActions(model.pickedSkills.ids))
-                }
-                .background(.background)
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) { Button("Plugins are turned on or off in Plugins") { model.section = .plugins }.buttonStyle(.link).padding(PSpace.s2).frame(maxWidth: .infinity, alignment: .leading).background(.background) }
+            .background(.background)
+        }
     }
-
-    private func source(_ c: Component) -> String { c.belongsTo }
 }
 
 /// Always / On demand / Off for personal and project skills; plugin skills follow their plugin.
@@ -195,84 +115,18 @@ struct StatePicker: View {
             })) {
                 ForEach(SkillState.allCases, id: \.self) { s in Text(s == .always ? "Always" : s.rawValue).tag(s).help(s.explanation) }
             }
-            .pickerStyle(.segmented).labelsHidden().fixedSize()
+            .pickerStyle(.menu).labelsHidden().fixedSize()
         } else {
-            Text("Always (plugin)").foregroundStyle(.secondary).help("Plugin skills follow their plugin: turn the plugin off below")
+            Text("Always").foregroundStyle(.secondary).help("Plugin skills follow their plugin: turn the plugin off on the Plugins tab")
         }
     }
 }
 
-
-/// Every on-demand skill with its /command and one-line purpose: searchable and copyable.
-private struct CheatSheet: View {
-    @Environment(AppModel.self) private var model
-    let skills: [Component]
-    @Binding var filter: String
-    @State private var collapsed = Set<String>()
-
-    var body: some View {
-        let shown = skills
-            .filter { filter.isEmpty || $0.name.localizedCaseInsensitiveContains(filter) || $0.description.localizedCaseInsensitiveContains(filter) }
-            .sorted { $0.name < $1.name }
-        @Bindable var model = model
-        let visible = shown.map(\.id)
-        VStack(spacing: 0) {
-            HStack(spacing: PSpace.s3) {
-                TextField("Filter on-demand skills", text: $filter).textFieldStyle(.roundedBorder).frame(maxWidth: 320)
-                Spacer()
-                Button("Copy List", systemImage: "doc.on.doc") { copy(shown.map { "/\($0.name) — \(purpose($0))" }.joined(separator: "\n")) }
-                    .disabled(shown.isEmpty)
-                    .help("Copies every shown /command with its purpose, one per line")
-            }
-            .padding(PSpace.s4)
-            BulkBar(sel: $model.pickedSkills, visible: visible, actions: model.skillActions(model.pickedSkills.ids))
-            Divider()
-            if skills.isEmpty {
-                ContentUnavailableView("No on-demand skills yet", systemImage: "wand.and.rays",
-                                       description: Text("Skills you switch to On demand appear here, so you can find them when you need them."))
-            } else if shown.isEmpty {
-                ContentUnavailableView.search(text: filter)
-            } else {
-                List {
-                    ForEach(skillGroups(shown), id: \.name) { g in
-                        DisclosureGroup(isExpanded: Binding(get: { !collapsed.contains(g.name) }, set: { if $0 { collapsed.remove(g.name) } else { collapsed.insert(g.name) } })) {
-                            ForEach(g.skills) { s in row(s, visible) }
-                        } label: {
-                            HStack(spacing: PSpace.s2) {
-                                SelectAllBox(sel: $model.pickedSkills, visible: g.skills.map(\.id))
-                                Text(g.name).font(.headline)
-                                Text("\(g.skills.count)").foregroundStyle(.secondary).monospacedDigit()
-                            }
-                        }
-                    }
-                }
-                .listStyle(.inset)
-                .bulkKeys($model.pickedSkills, visible: visible)
-            }
-        }
-    }
-
-    private func row(_ s: Component, _ visible: [String]) -> some View {
-        @Bindable var model = model
-        return HStack(alignment: .firstTextBaseline, spacing: PSpace.s4) {
-                        SelectBox(sel: $model.pickedSkills, id: s.id, visible: visible, name: "/" + s.name)
-                        Text("/" + s.name).font(.body.monospaced()).textSelection(.enabled)
-                            .frame(minWidth: 200, alignment: .leading)
-                        Text(purpose(s)).foregroundStyle(.secondary).lineLimit(1)
-                        Spacer()
-                        Text(s.belongsTo).font(.caption).foregroundStyle(.tertiary).lineLimit(1)
-                        Button("Copy", systemImage: "doc.on.doc") { copy("/" + s.name) }
-                            .labelStyle(.iconOnly).buttonStyle(.borderless)
-                            .help("Copy /\(s.name)")
-                    }
-                    .padding(.vertical, PSpace.s1)
-    }
-}
 
 extension AppModel {
     func proposeBulk(_ title: String, _ steps: [BulkStep]) { propose(title, .bulk(steps)) }
 
-    /// Bulk actions for selected skills, shared by every Skills page and the map.
+    /// Actions for the selected skills (the table's context menu).
     func skillActions(_ ids: Set<String>) -> [BulkAction] {
         let picked = snapshot.components.filter { $0.kind == .skill && ids.contains($0.id) }
         let n = "\(picked.count) skill\(picked.count == 1 ? "" : "s")"
@@ -286,10 +140,6 @@ extension AppModel {
             state(.off, "Disable…", "nosign"),
             BulkAction(title: "Move to Trash", icon: "trash", check: owned) { self.proposeBulk("Move \(n) to the Trash", skillUninstallPlan(picked)) },
             BulkAction(title: "Copy prompt", icon: "doc.on.clipboard", check: bulkCheck(picked) { _ in nil }) { copy(skillPrompt(picked)) },
-            BulkAction(title: "Export list…", icon: "square.and.arrow.up", check: bulkCheck(picked) { _ in nil }) {
-                exportCSV("skills.csv", header: ["name", "state", "tokens", "uses", "last used", "source", "file"],
-                          rows: picked.map { ["/" + $0.name, $0.state.rawValue, "\($0.listingTokens)", "\($0.usageCount)", $0.lastUsed?.formatted() ?? "", $0.belongsTo, $0.file.path] })
-            },
         ]
     }
 }

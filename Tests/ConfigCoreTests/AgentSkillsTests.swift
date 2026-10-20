@@ -38,23 +38,6 @@ struct AgentSkillsTests {
         #expect(by["gem"]?.agents == [.gemini])
     }
 
-    @Test func installTargetsAndNoOverwrite() throws {
-        let home = try tmp()
-        #expect(SkillAgent.codex.skillsDir(home: home)?.path == home.appending(path: ".codex/skills").path)
-        #expect(SkillAgent.agents.skillsDir(home: home)?.path == home.appending(path: ".agents/skills").path)
-        #expect(SkillAgent.installTargets == [.claude, .agents, .codex])
-        let src = home.appending(path: "src/s")
-        try skill(src)
-        let codex = SkillAgent.codex.skillsDir(home: home)!
-        #expect(try installSkill(SkillCopy(from: src, name: "s"), into: codex))
-        #expect(exists(codex.appending(path: "s/SKILL.md")))
-        try "mine".write(to: codex.appending(path: "s/SKILL.md"), atomically: true, encoding: .utf8)
-        #expect(try installSkill(SkillCopy(from: src, name: "s"), into: codex) == false)
-        #expect(readText(codex.appending(path: "s/SKILL.md")) == "mine")
-        var c = SkillCopy(from: src, name: "s"); c.into = .codex
-        #expect(c.targetDir.path.hasSuffix(".codex/skills/s"))
-    }
-
     @Test func promptNamesSkillsPathsAndTask() throws {
         let home = try tmp()
         try skill(home.appending(path: "a"), "First line")

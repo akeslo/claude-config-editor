@@ -46,148 +46,142 @@ func settingTerm(_ key: String) -> Term {
 
 // MARK: - Settings
 
-/// One settings file at a time: every key with an inline editor, Add key, and Reset/Delete per key.
+private struct KeyRow: Identifiable { let key: String; var id: String { key } }
+
+/// One settings file at a time, as a table: key, value (edited in place), scope, and the file that overrides it.
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var fileID: String = Paths.userSettings.path
     @State private var search = ""
     @State private var adding = false
-    @State private var doctor: String?
+    @State private var selected: String?
+    @State private var editingJSON: String?
 
     var body: some View {
         let sources = model.editableSources
         let source = sources.first { $0.id == fileID } ?? sources[0]
         let readOnly = source.scope == .managed
-        let keys = source.root.keys.sorted().filter { search.isEmpty || $0.localizedCaseInsensitiveContains(search) }
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: PSpace.s3) {
-                Picker("Editing", selection: $fileID) {
-                    ForEach(sources) { s in Text("\(sourceLabel(s))  —  \(shortPath(s.url))").tag(s.id) }
-                }
-                .frame(maxWidth: 520)
-                .help(Term.precedence.tooltip)
-                Spacer()
-                Button { adding = true } label: { Label("Add key", systemImage: "plus") }
-                    .disabled(readOnly)
-                    .keyboardShortcut("n")
+        let rows = source.root.keys.sorted().filter { search.isEmpty || $0.localizedCaseInsensitiveContains(search) }.map(KeyRow.init)
+        let rule = ScopeMove.target(ofSettings: source.url)?.ink ?? (readOnly ? Ink.managed : Ink.user)
+        Table(rows, selection: $selected) {
+            TableColumn("Key") { (r: KeyRow) in
+                Text(r.key).fontWeight(.medium).lineLimit(1).scopeRule(rule).help(settingTerm(r.key).tooltip)
             }
-            .padding(PSpace.s3)
-            Text(readOnly ? "Managed settings are set by your organization and are read-only."
-                 : "Changes save immediately (a backup is taken; Undo appears below). Precedence: managed › project local › project › user local › user.")
-                .font(.caption).foregroundStyle(.secondary).padding(.horizontal, PSpace.s3).padding(.bottom, PSpace.s2)
-            Divider()
-            if keys.isEmpty {
-                ContentUnavailableView(search.isEmpty ? "No keys in this file" : "No matching keys", systemImage: "slider.horizontal.3",
-                                       description: Text(search.isEmpty ? "Use Add key to set one. Claude's defaults apply until then." : ""))
-            } else {
-                Form {
-                    ForEach(keys, id: \.self) { key in
-                        SettingRow(source: source, sources: sources, key: key, readOnly: readOnly)
-                            .id("\(source.id)|\(key)|\(source.modified?.timeIntervalSince1970 ?? 0)")
-                    }
+            .width(min: 160, ideal: 260)
+            TableColumn("Value") { (r: KeyRow) in
+                ValueCell(source: source, key: r.key, readOnly: readOnly) { editingJSON = r.key }
+                    .id("\(source.id)|\(r.key)|\(source.modified?.timeIntervalSince1970 ?? 0)")
+            }
+            .width(min: 200, ideal: 640)
+            TableColumn("Scope") { (_: KeyRow) in Text(sourceLabel(source)).foregroundStyle(.secondary).lineLimit(1) }
+                .width(min: 70, ideal: 110)
+            TableColumn("Overridden by") { (r: KeyRow) in
+                if let over = overriddenBy(r.key, source, sources) { Text(sourceLabel(over)).foregroundStyle(Ink.warning).lineLimit(1) }
+            }
+            .width(min: 90, ideal: 140)
+        }
+        .contextMenu(forSelectionType: String.self) { keys in
+            if let key = keys.first, !readOnly {
+                Button("Edit Value…") { editingJSON = key }
+                Button("Copy Value") { copy(source.root[key].map(SettingsEdit.render) ?? "") }
+                if let from = ScopeMove.target(ofSettings: source.url) {
+                    MoveToMenu(current: from) { t in model.moveScope(key, to: t) { try ScopeMove.move(settingKey: key, from: source.url, to: t) } }
                 }
-                .formStyle(.grouped)
+                Divider()
+                Button("Reset to Default") { write(source, key, nil, "Reset \(key)") }
+                Button("Delete Key", role: .destructive) { write(source, key, nil, "Deleted \(key)") }
+            }
+        } primaryAction: { keys in
+            if let key = keys.first, !readOnly { editingJSON = key }
+        }
+        .overlay {
+            if rows.isEmpty {
+                ContentUnavailableView(search.isEmpty ? "No keys in this file" : "No matching keys", systemImage: "slider.horizontal.3",
+                                       description: Text(search.isEmpty ? "Add one with ⌘N. Claude's defaults apply until then." : ""))
             }
         }
+        .navigationSubtitle(shortPath(source.url))
         .searchable(text: $search, prompt: "Filter keys")
         .toolbar {
-            Button("Open File") { openFile(source.url) }.disabled(!exists(source.url))
-            Button("Run claude doctor") { Task { doctor = await ClaudeCLI.run(["doctor"]).output } }
-                .help("Claude's own read-only diagnostics, including invalid settings files.")
-        }
-        .sheet(isPresented: $adding) { AddKeySheet(source: source) }
-        .sheet(isPresented: Binding(get: { doctor != nil }, set: { if !$0 { doctor = nil } })) {
-            VStack(alignment: .leading) {
-                Text("claude doctor").font(.headline)
-                ScrollView { Text(doctor ?? "").font(.system(.callout, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
-                HStack { Spacer(); Button("Close") { doctor = nil }.keyboardShortcut(.defaultAction) }
+            ToolbarItem {
+                Picker("File", selection: $fileID) {
+                    ForEach(sources) { s in Text(sourceLabel(s)).tag(s.id) }
+                }
+                .pickerStyle(.menu).fixedSize()
+                .help("Which settings file to edit. Precedence: managed › project local › project › user local › user.")
             }
-            .padding().frame(width: 640, height: 420)
+            ToolbarItem {
+                Button { adding = true } label: { Label("Add Key", systemImage: "plus") }
+                    .disabled(readOnly).keyboardShortcut("n").help("Add a key to this file (⌘N)")
+            }
+            ToolbarItem {
+                Button { openFile(source.url) } label: { Label("Open File", systemImage: "doc.text") }
+                    .disabled(!exists(source.url)).help("Open \(shortPath(source.url)) in your text editor")
+            }
         }
+        .onChange(of: selected) { model.info = selected.map { info($0, source, sources) } }
+        .onChange(of: fileID) { selected = nil }
+        .sheet(isPresented: $adding) { AddKeySheet(source: source) }
+        .sheet(item: Binding(get: { editingJSON.map(KeyRow.init) }, set: { editingJSON = $0?.key })) { r in
+            JSONValueSheet(title: r.key, initial: source.root[r.key].map(SettingsEdit.render) ?? "") { write(source, r.key, $0, "Edited \(r.key)") }
+        }
+    }
+
+    /// Inspector: the key's value in every file that sets it, winner first, plus its raw JSON.
+    private func info(_ key: String, _ source: SettingsSource, _ sources: [SettingsSource]) -> InfoItem {
+        let layers = sources.filter { $0.url != Paths.keybindings && $0.root[key] != nil }
+        let raw = "\"\(key)\": " + (source.root[key].map(SettingsEdit.render) ?? "null")
+        return InfoItem(key, term: settingTerm(key), facts: layers.map { (sourceLabel($0), SettingsEdit.render($0.root[key]!)) },
+                        file: source.url, text: raw)
+    }
+
+    private func write(_ source: SettingsSource, _ key: String, _ v: Any?, _ title: String) {
+        model.applyEdit(title) { try SettingsEdit.setKey(source.url, path: [key], value: v, expectedModified: .some(source.modified)) }
     }
 }
 
-private struct SettingRow: View {
-    @Environment(AppModel.self) private var model
-    let source: SettingsSource, sources: [SettingsSource], key: String, readOnly: Bool
+/// The file whose value for `key` wins over `source`, if any.
+private func overriddenBy(_ key: String, _ source: SettingsSource, _ sources: [SettingsSource]) -> SettingsSource? {
+    guard source.url != Paths.keybindings,
+          let win = SettingsEdit.fallback(for: key, excluding: SettingsSource(scope: .user, url: URL(filePath: "/dev/null"), project: source.project, root: [:], modified: nil), in: sources.filter { $0.url != Paths.keybindings }),
+          win.url != source.url else { return nil }
+    return win
+}
+
+/// Value cell: a switch for booleans, an inline field for scalars (Return saves), one-line JSON for objects (double-click edits).
+private struct ValueCell: View {
+    private var model: AppModel? { AppModel.current }   // Table cells can lose the environment
+    let source: SettingsSource, key: String, readOnly: Bool
+    let editJSON: () -> Void
     @State private var text = ""
-    @State private var editingJSON = false
 
     private var value: Any? { source.root[key] }
-
-    var body: some View {
-        LabeledContent {
-            HStack(spacing: PSpace.s2) {
-                editor.disabled(readOnly)
-                if !readOnly, let from = ScopeMove.target(ofSettings: source.url) {
-                    ScopeMenu(current: from) { t in model.moveScope(key, to: t) { try ScopeMove.move(settingKey: key, from: source.url, to: t) } }
-                }
-                Menu {
-                    Button("Reset to Default") { write(nil, "Reset \(key)") }
-                        .help("Removes \(key) from this file. " + fallbackText)
-                    Button("Delete Key", role: .destructive) { write(nil, "Deleted \(key)") }
-                    Divider()
-                    Button("Copy value") { copy(value.map(SettingsEdit.render) ?? "") }
-                } label: { Image(systemName: "ellipsis.circle") }
-                .menuStyle(.borderlessButton).fixedSize().disabled(readOnly)
-                .help("Reset or delete this key")
-            }
-        } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(key).fontWeight(.medium).help(settingTerm(key).tooltip)
-                if let over = overriddenBy { Text("Overridden by \(sourceLabel(over))").font(.caption).foregroundStyle(PColor.attention.fg) }
-            }
-        }
-        .onAppear { text = scalarText }
-        .sheet(isPresented: $editingJSON) { JSONValueSheet(title: key, initial: value.map(SettingsEdit.render) ?? "") { write($0, "Edited \(key)") } }
-    }
-
-    @ViewBuilder private var editor: some View {
-        if let n = value as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() {
-            Toggle("", isOn: Binding(get: { n.boolValue }, set: { write($0, "Set \(key) to \($0)") })).labelsHidden().toggleStyle(.switch)
-        } else if value is JSON || value is [Any] {
-            HStack {
-                Text(summary).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1)
-                Button("Edit…") { editingJSON = true }
-            }
-        } else {
-            TextField("", text: $text)
-                .textFieldStyle(.roundedBorder).frame(maxWidth: 280)
-                .font(.system(.body, design: .monospaced))
-                .onSubmit { commitScalar() }
-                .help("Press Return to save")
-        }
-    }
-
-    private var summary: String {
-        if let d = value as? JSON { return "{ \(d.keys.sorted().prefix(3).joined(separator: ", "))\(d.count > 3 ? ", …" : "") }  \(d.count) keys" }
-        return "[ \((value as? [Any])?.count ?? 0) items ]"
-    }
-
     private var scalarText: String { (value as? String) ?? value.map { "\($0)" } ?? "" }
 
-    private func commitScalar() {
-        guard text != scalarText else { return }
-        let new: Any = value is NSNumber ? SettingsEdit.parse(text) : text
-        write(new, "Set \(key)")
-    }
-
-    private var overriddenBy: SettingsSource? {
-        guard let win = SettingsEdit.fallback(for: key, excluding: SettingsSource(scope: .user, url: URL(filePath: "/dev/null"), project: source.project, root: [:], modified: nil), in: sources.filter { $0.url != Paths.keybindings }),
-              win.url != source.url, source.url != Paths.keybindings else { return nil }
-        return win
-    }
-
-    private var fallbackText: String {
-        guard source.url != Paths.keybindings, let f = SettingsEdit.fallback(for: key, excluding: source, in: sources.filter { $0.url != Paths.keybindings }) else {
-            return "Claude's built-in default then applies."
+    var body: some View {
+        Group {
+            if let n = value as? NSNumber, CFGetTypeID(n) == CFBooleanGetTypeID() {
+                Toggle("", isOn: Binding(get: { n.boolValue }, set: { write($0, "Set \(key) to \($0)") }))
+                    .labelsHidden().toggleStyle(.checkbox).accessibilityLabel(key)
+            } else if value is JSON || value is [Any] {
+                Text(value.map(SettingsEdit.render)?.replacingOccurrences(of: #"\s*\n\s*"#, with: " ", options: .regularExpression) ?? "")
+                    .lineLimit(1).truncationMode(.tail).help("Double-click to edit")
+            } else {
+                TextField(key, text: $text).labelsHidden().textFieldStyle(.plain)
+                    .onSubmit {
+                        guard text != scalarText else { return }
+                        write(value is NSNumber ? SettingsEdit.parse(text) : text, "Set \(key)")
+                    }
+                    .help("Press Return to save")
+            }
         }
-        let v = f.root[key].map(SettingsEdit.render) ?? ""
-        return "Then \(sourceLabel(f)) wins: \(v.count > 80 ? String(v.prefix(80)) + "…" : v)."
+        .font(.system(.body, design: .monospaced))
+        .disabled(readOnly)
+        .onAppear { text = scalarText }
     }
 
-    private func write(_ v: Any?, _ title: String) {
-        model.applyEdit(title) { try SettingsEdit.setKey(source.url, path: [key], value: v, expectedModified: .some(source.modified)) }
+    private func write(_ v: Any, _ title: String) {
+        model?.applyEdit(title) { try SettingsEdit.setKey(source.url, path: [key], value: v, expectedModified: .some(source.modified)) }
     }
 }
 
@@ -199,10 +193,10 @@ private struct JSONValueSheet: View {
     @State private var error: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: PSpace.s2) {
+        VStack(alignment: .leading, spacing: Gap.s2) {
             Text(title).font(.headline)
             TextEditor(text: $text).font(.system(.body, design: .monospaced)).frame(minWidth: 560, minHeight: 360)
-            if let error { Text(error).foregroundStyle(PColor.danger.fg).font(.callout) }
+            if let error { Text(error).foregroundStyle(Ink.danger).font(.callout) }
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
@@ -212,7 +206,7 @@ private struct JSONValueSheet: View {
                 }.keyboardShortcut("s")
             }
         }
-        .padding(PSpace.s4)
+        .padding(Gap.s4)
         .onAppear { text = initial }
     }
 }
@@ -230,7 +224,7 @@ private struct AddKeySheet: View {
             TextField("Key", text: $key, prompt: Text("e.g. model, cleanupPeriodDays"))
             TextField("Value", text: $value, prompt: Text("true, 30, opus, or JSON like {\"A\": \"1\"}"), axis: .vertical).lineLimit(1...6)
                 .font(.system(.body, design: .monospaced))
-            if source.root[key] != nil { Text("\(key) already exists; this replaces it.").foregroundStyle(PColor.attention.fg).font(.caption) }
+            if source.root[key] != nil { Text("\(key) already exists; this replaces it.").foregroundStyle(Ink.warning).font(.caption) }
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
@@ -261,52 +255,49 @@ struct PermissionsView: View {
         let rules = model.snapshot.permissions.filter { showProjectApprovals || $0.kind != "allowedTools" }
             .filter { search.isEmpty || $0.rule.localizedCaseInsensitiveContains(search) || $0.source.localizedCaseInsensitiveContains(search) || $0.kind.localizedCaseInsensitiveContains(search) }
             .sorted(using: sort)
-        let selection = sel.ids
-        let picked = rules.filter { selection.contains($0.id) && editable($0) }
-        let pickedAll = model.snapshot.permissions.filter { selection.contains($0.id) }
         Table(rules, selection: $sel.ids, sortOrder: $sort) {
-            TableColumn("", value: \PermissionRule.rule) { (r: PermissionRule) in SelectBox(sel: $sel, id: r.id, visible: rules.map(\.id), name: r.rule) }.width(22)
             TableColumn("Type", value: \PermissionRule.kind) { (r: PermissionRule) in
-                Text(r.kind).foregroundStyle(r.kind == "deny" ? PColor.danger.fg : r.kind == "ask" ? PColor.attention.fg : .primary)
+                Text(r.kind).scopeRule(editable(r) ? ScopeMove.target(ofSettings: r.sourceURL).ink(fixed: "Managed") : Ink.managed).foregroundStyle(r.kind == "deny" ? Ink.danger : r.kind == "ask" ? Ink.warning : .primary)
                     .help(r.kind == "allowedTools" ? Term.allowedTools.tooltip : "\(r.kind): " + Term.permissions.tooltip)
             }.width(90)
             TableColumn("Rule", value: \PermissionRule.rule) { (r: PermissionRule) in Text(r.rule).font(.system(.body, design: .monospaced)).lineLimit(1).truncationMode(.middle) }
             TableColumn("Scope", value: \PermissionRule.source) { (r: PermissionRule) in
-                HStack(spacing: PSpace.s2) {
-                    ScopeMenu(current: editable(r) ? ScopeMove.target(ofSettings: r.sourceURL) : nil, fixedLabel: r.kind == "allowedTools" ? "Approval" : "Managed") { t in
-                        model.moveScope(r.rule, to: t) { try ScopeMove.move(rule: r, to: t) }
-                    }
+                HStack(spacing: Gap.s2) {
+                    ScopeLabel(current: editable(r) ? ScopeMove.target(ofSettings: r.sourceURL) : nil, fixedLabel: r.kind == "allowedTools" ? "Approval" : "Managed")
                     if let f = ScopeMove.target(ofSettings: r.sourceURL)?.folder { Text((f as NSString).lastPathComponent).foregroundStyle(.secondary).lineLimit(1) }
                 }
                 .help(shortPath(r.sourceURL))
             }.width(min: 150, ideal: 200)
         }
-        .bulkSelectable($sel, visible: rules.map(\.id), actions: [
-            BulkAction(title: "Delete", icon: "trash", check: bulkCheck(pickedAll) { editable($0) ? nil : "are per-project approvals or managed rules" }) { delete(pickedAll) },
-            BulkAction(title: "Copy rules", icon: "doc.on.clipboard", check: bulkCheck(pickedAll) { _ in nil }) { copy(pickedAll.map { "\($0.kind)\t\($0.rule)" }.joined(separator: "\n")) },
-        ])
         .searchable(text: $search, prompt: "Filter rules")
         .contextMenu(forSelectionType: PermissionRule.ID.self) { ids in
             let rs = rules.filter { ids.contains($0.id) && editable($0) }
             if rs.count == 1, let r = rs.first {
                 Button("Edit…") { editing = RuleDraft(original: r, kind: r.kind, rule: r.rule, file: r.sourceURL) }
-                Menu("Move to") {
+                Menu("Change Type") {
                     ForEach(["allow", "ask", "deny"].filter { $0 != r.kind }, id: \.self) { k in
                         Button(k) { move(r, to: k) }
                     }
                 }
+                if let from = ScopeMove.target(ofSettings: r.sourceURL) {
+                    MoveToMenu(current: from) { t in model.moveScope(r.rule, to: t) { try ScopeMove.move(rule: r, to: t) } }
+                }
             }
+            let all = rules.filter { ids.contains($0.id) }
+            if !all.isEmpty { Button("Copy") { copy(all.map { "\($0.kind)\t\($0.rule)" }.joined(separator: "\n")) } }
+            if !rs.isEmpty { Divider() }
             if !rs.isEmpty { Button(rs.count == 1 ? "Delete" : "Delete \(rs.count) Rules", role: .destructive) { delete(rs) } }
         } primaryAction: { ids in
             if let r = rules.first(where: { ids.contains($0.id) && editable($0) }) { editing = RuleDraft(original: r, kind: r.kind, rule: r.rule, file: r.sourceURL) }
         }
         .toolbar {
             Toggle("Per-project approvals", isOn: $showProjectApprovals).help(Term.allowedTools.tooltip)
-            Button { editing = RuleDraft(original: nil, kind: "allow", rule: "", file: Paths.userSettings) } label: { Label("Add rule", systemImage: "plus") }
-            if picked.count == 1, let r = picked.first {
-                Button("Edit…") { editing = RuleDraft(original: r, kind: r.kind, rule: r.rule, file: r.sourceURL) }
-            }
-            if !picked.isEmpty { Button("Delete", role: .destructive) { delete(picked) } }
+            Button { editing = RuleDraft(original: nil, kind: "allow", rule: "", file: Paths.userSettings) } label: { Label("Add Rule", systemImage: "plus") }
+                .keyboardShortcut("n").help("Add a rule (⌘N)")
+        }
+        .onDeleteCommand {
+            let rs = rules.filter { sel.contains($0.id) && editable($0) }
+            if !rs.isEmpty { delete(rs) }
         }
         .sheet(item: $editing) { RuleSheet(draft: $0) }
         .onChange(of: sel.ids) {

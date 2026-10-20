@@ -1,0 +1,76 @@
+<!doctype html><meta charset="utf-8"><title>A · Ledger</title>
+<style>
+:root{--win:#ECECEE;--side:#E3E3E6;--pane:#FFFFFF;--ink:#1D1D1F;--ink2:#5E5E64;--ink3:#8A8A90;--rule:#E4E4E7;--sel:#3557C5;--selbg:#E6ECFA;
+--user:#7A7F8C;--proj:#3F8F7A;--local:#B5852F;--managed:#9B4A5C}
+*{box-sizing:border-box;margin:0}
+body{font:13px/1.35 -apple-system,"SF Pro Text",system-ui;color:var(--ink);background:#888;padding:0}
+.win{width:1440px;height:880px;background:var(--win);display:grid;grid-template-columns:220px 1fr 300px;grid-template-rows:52px 1fr 26px;border-radius:10px;overflow:hidden}
+.side{grid-row:1/4;background:var(--side);padding:12px 10px;border-right:1px solid #D4D4D8}
+.lights{display:flex;gap:8px;margin:6px 4px 22px}.lights i{width:12px;height:12px;border-radius:50%;background:#C9C9CD}
+.grp{font-size:11px;font-weight:600;color:var(--ink3);margin:14px 8px 4px}
+.it{padding:4px 8px;border-radius:5px;display:flex;justify-content:space-between;color:var(--ink)}
+.it.on{background:#D3D3D8}.it kbd{font:11px ui-monospace,"SF Mono",Menlo,monospace;color:var(--ink3)}
+.tb{grid-column:2/4;display:flex;align-items:center;gap:14px;padding:0 14px;border-bottom:1px solid #D4D4D8}
+.tb h1{font-size:13px;font-weight:600}.tb .file{font:12px ui-monospace,"SF Mono",Menlo,monospace;color:var(--ink2)}
+.tb .sp{flex:1}.seg{display:flex;border:1px solid #CFCFD4;border-radius:6px;overflow:hidden;font-size:12px}
+.seg span{padding:3px 10px;color:var(--ink2)}.seg .on{background:#fff;color:var(--ink);box-shadow:0 0 0 1px #CFCFD4}
+.search{width:200px;padding:4px 8px;border-radius:6px;background:#E0E0E4;color:var(--ink3);font-size:12px}
+.main{background:var(--pane);overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th{font-size:11px;font-weight:600;color:var(--ink2);text-align:left;padding:6px 12px;border-bottom:1px solid var(--rule);background:#FAFAFB}
+td{padding:0 12px;height:24px;border-bottom:1px solid #F2F2F4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:0}
+td.k{font-weight:500;position:relative;padding-left:16px}
+td.k::before{content:"";position:absolute;left:0;top:4px;bottom:4px;width:3px;border-radius:2px;background:var(--c)}
+td.v{font:12px ui-monospace,"SF Mono",Menlo,monospace;color:var(--ink)}td.v .n{color:var(--ink3)}
+td.s{color:var(--ink2);font-size:12px}td.o{color:var(--local);font-size:12px}
+tr.sel td{background:var(--selbg)}tr.sel td.k{color:var(--sel)}
+.insp{background:#F6F6F8;border-left:1px solid #D4D4D8;padding:16px;display:flex;flex-direction:column;gap:12px}
+.insp h2{font:600 15px ui-monospace,"SF Mono",Menlo,monospace}.insp p{color:var(--ink2);font-size:12px}
+.lay{font-size:12px}.lay div{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--rule)}
+.lay .w{font-weight:600}.lay .x{color:var(--ink3);text-decoration:line-through}
+pre{font:11.5px/1.5 ui-monospace,"SF Mono",Menlo,monospace;background:#fff;border:1px solid var(--rule);border-radius:6px;padding:10px;color:#333}
+.foot{grid-column:2/4;display:flex;gap:18px;align-items:center;padding:0 14px;font-size:11px;color:var(--ink3);border-top:1px solid #D4D4D8;background:var(--win)}
+.foot kbd{font:11px ui-monospace,"SF Mono",Menlo,monospace;color:var(--ink2)}
+.legend{display:flex;gap:12px;margin-left:auto}.legend b{display:inline-block;width:3px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+</style>
+<div class="win">
+<aside class="side"><div class="lights"><i></i><i></i><i></i></div>
+<div class="grp">Claude Code</div>
+<div class="it on">Settings<kbd>⌘1</kbd></div><div class="it">Memory<kbd>⌘2</kbd></div><div class="it">Skills<kbd>⌘3</kbd></div><div class="it">Agents &amp; Commands<kbd>⌘4</kbd></div><div class="it">MCP<kbd>⌘5</kbd></div><div class="it">Hooks<kbd>⌘6</kbd></div><div class="it">Permissions<kbd>⌘7</kbd></div>
+<div class="grp">Codex</div><div class="it">Settings</div><div class="it">Memory</div><div class="it">Skills</div><div class="it">MCP</div>
+<div class="grp">Gemini CLI</div><div class="it">Settings</div><div class="it">Memory</div>
+<div class="grp">Library</div><div class="it">Backups</div>
+</aside>
+<header class="tb"><h1>Settings</h1><span class="file">~/.claude/settings.json</span><span class="sp"></span>
+<div class="seg"><span>All</span><span class="on">User</span><span>Project</span><span>Local</span><span>Managed</span></div>
+<span class="search">Filter keys  ⌘F</span></header>
+<main class="main"><table>
+<tr><th style="width:26%">Key</th><th>Value</th><th style="width:11%">Scope</th><th style="width:16%">Overridden by</th></tr>
+<tr style="--c:var(--user)"><td class="k">agentPushNotifEnabled</td><td class="v">true</td><td class="s">User</td><td></td></tr>
+<tr style="--c:var(--user)"><td class="k">autoMode</td><td class="v">{ allow: [Bash(git *)] }</td><td class="s">User</td><td></td></tr>
+<tr style="--c:var(--user)"><td class="k">cleanupPeriodDays</td><td class="v">7</td><td class="s">User</td><td></td></tr>
+<tr style="--c:var(--user)"><td class="k">effortLevel</td><td class="v">"low"</td><td class="s">User</td><td></td></tr>
+<tr style="--c:var(--user)"><td class="k">enabledPlugins</td><td class="v">{ caveman@caveman, clangd-lsp@claude-plugins-official, commit-commands@claude-plugins-official, frontend-design@… } <span class="n">14</span></td><td class="s">User</td><td></td></tr>
+<tr style="--c:var(--user)"><td class="k">env</td><td class="v">{ CLAUDE_AUTOCOMPACT_PCT_OVERRIDE: ••• }</td><td class="s">User</td><td></td></tr>
+<tr style="--c:var(--user)"><td class="k">extraKnownMarketplaces</td><td class="v">{ accesslint, bencium-marketplace, caveman, … } <span class="n">12</span></td><td class="s">User</td><td></td></tr>
+<tr style="--c:var(--user)"><td class="k">hooks</td><td class="v">{ Notification, PreToolUse, SessionEnd, SessionStart, Stop, UserPromptSubmit }</td><td class="s">User</td><td></td></tr>
+<tr class="sel" style="--c:var(--user)"><td class="k">model</td><td class="v">"opus"</td><td class="s">User</td><td></td></tr>
+<tr style="--c:var(--user)"><td class="k">modelSettings</td><td class="v">{ claude-opus-5, claude-opus-5-5, claude-sonnet-5 }</td><td class="s">User</td><td></td></tr>
+<tr style="--c:var(--user)"><td class="k">permissions</td><td class="v">{ allow: 31, defaultMode: "acceptEdits", deny: 4 }</td><td class="s">User</td><td class="o">User (local)</td></tr>
+<tr style="--c:var(--user)"><td class="k">reasoningEffort</td><td class="v">"low"</td><td class="s">User</td><td></td></tr>
+<tr style="--c:var(--user)"><td class="k">remoteControlAtStartup</td><td class="v">false</td><td class="s">User</td><td></td></tr>
+<tr style="--c:var(--user)"><td class="k">skillOverrides</td><td class="v">{ anthropic-skills:chrome-browser: "off", anthropic-skills:computer-use: "off", … } <span class="n">9</span></td><td class="s">User</td><td></td></tr>
+<tr style="--c:var(--user)"><td class="k">skipDangerousModePermissionPrompt</td><td class="v">true</td><td class="s">User</td><td></td></tr>
+<tr style="--c:var(--user)"><td class="k">statusLine</td><td class="v">{ type: "command", command: "~/.claude/statusline.sh", padding: 0 }</td><td class="s">User</td><td></td></tr>
+<tr style="--c:var(--user)"><td class="k">switchModelsOnFlag</td><td class="v">true</td><td class="s">User</td><td></td></tr>
+<tr style="--c:var(--user)"><td class="k">theme</td><td class="v">"dark"</td><td class="s">User</td><td></td></tr>
+<tr style="--c:var(--user)"><td class="k">tui</td><td class="v">"fullscreen"</td><td class="s">User</td><td></td></tr>
+<tr style="--c:var(--user)"><td class="k">voice</td><td class="v">{ enabled: true, mode: "push" }</td><td class="s">User</td><td></td></tr>
+<tr style="--c:var(--user)"><td class="k">voiceEnabled</td><td class="v">true</td><td class="s">User</td><td></td></tr>
+</table></main>
+<aside class="insp"><h2>model</h2><p>Default model for new sessions. Overridden per session by <code>/model</code> or <code>--model</code>.</p>
+<div class="lay"><div class="w"><span>User</span><span>"opus"</span></div><div class="x"><span>Project · hermit</span><span>"sonnet"</span></div><div><span>Managed</span><span style="color:#8A8A90">not set</span></div></div>
+<pre>"model": "opus"</pre><p>↩ edit · ⌫ reset to default · ⌘⌥M move scope</p></aside>
+<footer class="foot"><span><kbd>↑↓</kbd> move</span><span><kbd>↩</kbd> edit</span><span><kbd>⌘N</kbd> add key</span><span><kbd>⌘K</kbd> ask</span><span><kbd>⌘Z</kbd> undo</span>
+<span class="legend"><span><b style="background:var(--user)"></b>User</span><span><b style="background:var(--proj)"></b>Project</span><span><b style="background:var(--local)"></b>Local</span><span><b style="background:var(--managed)"></b>Managed</span></span></footer>
+</div>

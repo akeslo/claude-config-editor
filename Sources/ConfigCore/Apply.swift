@@ -13,7 +13,6 @@ public enum Apply {
     public static func needsConfirm(_ fix: Fix) -> Bool {
         switch fix {
         case .cli(let args, _, _): inverse(args) == nil && !args.starts(with: ["mcp", "remove"])
-        case .installSkills: true
         case .many(let fs): fs.contains(where: needsConfirm)
         case .bulk(let ss): ss.contains { $0.fix.map(needsConfirm) ?? false }
         default: false
@@ -101,8 +100,6 @@ public enum Apply {
             }
             all.summary = "Changed \(ok)" + (failed > 0 ? ", \(failed) failed" : "") + (skipped > 0 ? ", \(skipped) skipped" : "")
             return all
-        case .installSkills:
-            return Outcome(summary: "Installs need the review sheet.", failed: true)
         }
     }
 

@@ -111,7 +111,7 @@ public func trashURL(_ c: Component) -> URL { c.kind == .skill && c.file.lastPat
 
 /// Plugin skills follow their plugin, and other agents' skills are not ours to change.
 public func skillBlock(_ c: Component) -> String? {
-    c.ownsFile ? nil : c.scope == .external ? "belong to another agent" : "are plugin skills (manage them in Plugins)"
+    c.ownsFile ? nil : c.scope == .external ? "belong to another agent" : "are plugin skills (manage them on the Plugins tab)"
 }
 
 /// Plan-preview skip reason for skills a bulk change leaves alone.
@@ -128,44 +128,4 @@ public func skillStatePlan(_ skills: [Component], to target: SkillState) -> [Bul
 
 public func skillUninstallPlan(_ skills: [Component]) -> [BulkStep] {
     bulkPlan(skills, label: { "/" + $0.name }, skip: skillSkip, fix: { .trash([trashURL($0)]) })
-}
-
-// MARK: Clean-up review
-
-/// The fix behind one finding's action, resolved against the current components.
-public func cleanupFix(_ a: CleanupFinding.Action, components: [Component], plugins: [Plugin] = []) -> Fix? {
-    let comp = { (id: String) in components.first { $0.id == id } }
-    switch a {
-    case .makeCallOnly(let id): return comp(id)?.fix(to: .onDemand)
-    case .turnOff(let id): return comp(id)?.fix(to: .off)
-    case .uninstall(let id): return comp(id).map { .trash([trashURL($0)]) }
-    case .keepOne(_, let remove):
-        let urls = remove.compactMap(comp).map(trashURL)
-        return urls.isEmpty ? nil : .trash(urls)
-    case .uninstallPlugin(let id): return plugins.first { $0.id == id }?.cli("uninstall") ?? .cli(args: ["plugin", "uninstall", id], dryRun: nil, cwd: nil)
-    }
-}
-
-public func cleanupPlan(_ findings: [CleanupFinding], components: [Component], plugins: [Plugin] = []) -> [BulkStep] {
-    bulkPlan(findings, label: { "\($0.kind.rawValue): \($0.title)" },
-             skip: { $0.action == nil ? "no automatic fix" : nil },
-             fix: { $0.action.flatMap { cleanupFix($0, components: components, plugins: plugins) } })
-}
-
-/// One CSV cell, quoted; a leading formula trigger gets a `'` so spreadsheets read it as text.
-public func csvCell(_ s: String) -> String {
-    let safe = s.first.map { "=+-@\t\r".contains($0) } == true ? "'" + s : s
-    return "\"" + safe.replacingOccurrences(of: "\"", with: "\"\"") + "\""
-}
-
-/// POSIX single-quoting: `'` becomes `'\''`.
-public func shellQuote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
-
-/// `cd <project> && claude --resume <id>`, or nil when the id isn't a UUID. A path under home keeps `"$HOME"` outside the quotes so it expands.
-public func resumeCommand(project: String, id: String, home: String = NSHomeDirectory()) -> String? {
-    guard UUID(uuidString: id) != nil else { return nil }
-    let dir = project == home ? "\"$HOME\""
-        : project.hasPrefix(home + "/") ? "\"$HOME\"/" + shellQuote(String(project.dropFirst(home.count + 1)))
-        : shellQuote(project)
-    return "cd \(dir) && claude --resume \(id)"
 }

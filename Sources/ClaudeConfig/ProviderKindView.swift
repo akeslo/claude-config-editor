@@ -7,10 +7,11 @@ struct ProviderKindView: View {
     let provider: any Provider
     let kind: ConfigKind
     @State private var editing: EditTarget?
+    @State private var selected: String?
 
     private var files: [URL] {
         let fm = FileManager.default
-        return provider.paths(for: kind, home: Paths.home, project: nil).flatMap { u -> [URL] in
+        return Screen.kinds(shownOn: kind).flatMap { provider.paths(for: $0, home: Paths.home, project: nil) }.flatMap { u -> [URL] in
             var dir: ObjCBool = false
             guard fm.fileExists(atPath: u.path, isDirectory: &dir) else { return [] }
             guard dir.boolValue else { return [u] }
@@ -24,19 +25,23 @@ struct ProviderKindView: View {
     var body: some View {
         let files = files
         if files.isEmpty {
-            ContentUnavailableView("No \(kind.rawValue) files", systemImage: "doc",
-                                   description: Text(provider.paths(for: kind, home: Paths.home, project: nil).map(\.path).joined(separator: "\n")))
+            ContentUnavailableView("No files yet", systemImage: "doc",
+                                   description: Text(Screen.kinds(shownOn: kind).flatMap { provider.paths(for: $0, home: Paths.home, project: nil) }.map(\.path).joined(separator: "\n")))
         } else {
-            List(files, id: \.self) { f in
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(f.pathComponents.suffix(2).joined(separator: "/")).lineLimit(1)
-                        Text(f.path).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                    }
-                    Spacer()
-                    Button("Edit") { editing = EditTarget(url: f) }.controlSize(.small)
-                    Button("Reveal") { reveal(f) }.controlSize(.small)
+            Table(files.map(EditTarget.init), selection: $selected) {
+                TableColumn("File") { (f: EditTarget) in Text(f.url.pathComponents.suffix(2).joined(separator: "/")).fontWeight(.medium).lineLimit(1) }
+                    .width(min: 160, ideal: 280)
+                TableColumn("Path") { (f: EditTarget) in Text(shortPath(f.url)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
+                TableColumn("Modified") { (f: EditTarget) in Text(relative(modificationDate(f.url))).foregroundStyle(.secondary) }.width(min: 90, ideal: 120)
+            }
+            .contextMenu(forSelectionType: String.self) { ids in
+                if let f = files.first(where: { ids.contains($0.path) }) {
+                    Button("Edit") { editing = EditTarget(url: f) }
+                    Button("Open in Text Editor") { openFile(f) }
+                    Button("Reveal in Finder") { reveal(f) }
                 }
+            } primaryAction: { ids in
+                if let f = files.first(where: { ids.contains($0.path) }) { editing = EditTarget(url: f) }
             }
             .sheet(item: $editing) { FileEditorSheet(url: $0.url) }
         }
