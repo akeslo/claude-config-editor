@@ -53,84 +53,40 @@ public func formatTokens(_ n: Int) -> String {
     n >= 1000 ? String(format: "≈%.1fk tok", Double(n) / 1000) : "≈\(n) tok"
 }
 
-// MARK: - Safe writes
+// MARK: - Safe writes (all through `ConfigWriter`)
 
-public enum SafeWriteError: LocalizedError, Equatable {
-    case changedOnDisk
-    public var errorDescription: String? {
-        "The file changed on disk after it was loaded (Claude Code may have written it). Reload and redo the change."
-    }
+/// Sets one key path in a JSON settings file, keeping every other key untouched. `nil` removes the key. Returns the backup.
+@discardableResult
+public func updateSettingsKey(_ url: URL, path: [String], value: Any?, home: URL = Paths.home) throws -> URL? {
+    try ConfigWriter.mutateJSON(url, home: home, expectedModified: modificationDate(url)) { ScopeMove.set(&$0, path[...], value) }
 }
 
-/// Writes `data` to `url` only if the file still has `expectedModified`; backs up first, writes atomically, keeps it owner-only.
-public func safeWrite(_ data: Data, to url: URL, expectedModified: Date?, backupDir: URL = Paths.appBackups) throws -> URL? {
-    let fm = FileManager.default
-    if exists(url), modificationDate(url) != expectedModified { throw SafeWriteError.changedOnDisk }
-
-    var backup: URL?
-    if exists(url) {
-        try fm.createDirectory(at: backupDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
-        // Many files share a name (every SKILL.md), so same-second backups need a counter.
-        var target = backupDir.appending(path: "\(url.lastPathComponent).\(stamp)")
-        var n = 1
-        while exists(target) { n += 1; target = backupDir.appending(path: "\(url.lastPathComponent).\(stamp)-\(n)") }
-        try fm.copyItem(at: url, to: target)
-        backup = target
-    }
-
-    let tmp = url.deletingLastPathComponent().appending(path: ".\(url.lastPathComponent).tmp")
-    fm.createFile(atPath: tmp.path, contents: data, attributes: [.posixPermissions: 0o600])
-    _ = try fm.replaceItemAt(url, withItemAt: tmp)
-    try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-    return backup
-}
-
-/// Sets one key path in a JSON settings file, keeping every other key untouched. `nil` removes the key.
-public func updateSettingsKey(_ url: URL, path: [String], value: Any?, backupDir: URL = Paths.appBackups) throws -> URL? {
-    let loadedAt = modificationDate(url)
-    var root = readJSON(url) ?? [:]
-    func set(_ dict: inout JSON, _ keys: ArraySlice<String>) {
-        guard let key = keys.first else { return }
-        if keys.count == 1 {
-            dict[key] = value
-        } else {
-            var child = dict[key] as? JSON ?? [:]
-            set(&child, keys.dropFirst())
-            dict[key] = child
-        }
-    }
-    set(&root, path[...])
-    let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-    return try safeWrite(data, to: url, expectedModified: loadedAt, backupDir: backupDir)
-}
-
-/// One hook entry in a settings file: its event and command.
+/// One hook entry in a settings file: its event, matcher group and command.
 public struct HookRef: Sendable, Hashable {
-    public let file: URL, event: String, command: String
-    public init(file: URL, event: String, command: String) { self.file = file; self.event = event; self.command = command }
+    public let file: URL, event: String, matcher: String?, command: String
+    public init(file: URL, event: String, matcher: String?, command: String) { self.file = file; self.event = event; self.matcher = matcher; self.command = command }
 }
 
-/// Removes the given hooks from one settings file, dropping matcher groups and events left empty. Returns the backup.
-public func removeHooks(_ url: URL, _ refs: [HookRef], backupDir: URL = Paths.appBackups) throws -> URL? {
-    let loadedAt = modificationDate(url)
-    var root = readJSON(url) ?? [:]
-    var hooks = root["hooks"] as? JSON ?? [:]
-    for (event, groups) in hooks {
-        let gone = Set(refs.filter { $0.event == event }.map(\.command))
-        guard !gone.isEmpty else { continue }
-        let kept: [JSON] = (groups as? [JSON] ?? []).compactMap { g in
-            var g = g
-            let hs = (g["hooks"] as? [JSON] ?? []).filter { !gone.contains($0["command"] as? String ?? $0["url"] as? String ?? $0["prompt"] as? String ?? "") }
-            if hs.isEmpty { return nil }
-            g["hooks"] = hs
-            return g
+/// Removes the given hooks from one settings file (matched by event, matcher and command), dropping groups and events left empty. Returns the backup.
+@discardableResult
+public func removeHooks(_ url: URL, _ refs: [HookRef], home: URL = Paths.home) throws -> URL? {
+    try ConfigWriter.mutateJSON(url, home: home, expectedModified: modificationDate(url)) { root in
+        var hooks = root["hooks"] as? JSON ?? [:]
+        for (event, groups) in hooks {
+            let mine = refs.filter { $0.event == event }
+            guard !mine.isEmpty else { continue }
+            let kept: [JSON] = (groups as? [JSON] ?? []).compactMap { g in
+                var g = g
+                let gone = Set(mine.filter { $0.matcher == g["matcher"] as? String }.map(\.command))
+                let hs = (g["hooks"] as? [JSON] ?? []).filter { !gone.contains($0["command"] as? String ?? $0["url"] as? String ?? $0["prompt"] as? String ?? "") }
+                if hs.isEmpty { return nil }
+                g["hooks"] = hs
+                return g
+            }
+            hooks[event] = kept.isEmpty ? nil : kept
         }
-        hooks[event] = kept.isEmpty ? nil : kept
+        root["hooks"] = hooks.isEmpty ? nil : hooks
     }
-    root["hooks"] = hooks.isEmpty ? nil : hooks
-    let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-    return try safeWrite(data, to: url, expectedModified: loadedAt, backupDir: backupDir)
 }
 
 // MARK: - Folder sizes

@@ -66,8 +66,9 @@ public enum Fix: Sendable {
     case cli(args: [String], dryRun: [String]?, cwd: String?)
     /// Moves files to the Trash.
     case trash([URL])
-    /// Deletes these exact lines from a text file (backed up first), e.g. MEMORY.md index entries.
-    case removeLines(file: URL, lines: [String])
+    /// Deletes the lines at these 0-based indices from a text file (backed up first), e.g. MEMORY.md index entries.
+    /// Refused if the file changed since `modified`.
+    case removeLines(file: URL, lines: IndexSet, modified: Date?)
     /// Sets (or removes, when nil) one key in a settings file.
     case settingsKey(file: URL, path: [String], value: String?)
     /// Removes hook entries from settings files.
@@ -103,7 +104,7 @@ public enum Fix: Sendable {
         case .removeHooks(let refs): "removes \(refs.count) hook entr\(refs.count == 1 ? "y" : "ies") from the settings file. The hook scripts stay on disk."
         case .frontmatter(_, let key, let value): value == nil ? "removes the \(key) line from the file's frontmatter; nothing else changes." : "sets \(key) in the file's frontmatter; nothing else changes."
         case .settingsKey(_, let path, let value): (value == nil ? "removes the key " : "sets the key ") + path.joined(separator: ".") + "; nothing else in the file changes."
-        case .removeLines(let file, let lines): "removes \(lines.count) line\(lines.count == 1 ? "" : "s") from \(shortPath(file)) (backed up first)."
+        case .removeLines(let file, let lines, _): "removes \(lines.count) line\(lines.count == 1 ? "" : "s") from \(shortPath(file)) (backed up first)."
         case .many, .bulk, .installSkills: summary.replacingOccurrences(of: "\n", with: "; ")
         }
     }
@@ -111,7 +112,7 @@ public enum Fix: Sendable {
     public var summary: String {
         switch self {
         case .cli(let args, _, _): "claude " + args.map { $0.contains(" ") ? "\"\($0)\"" : $0 }.joined(separator: " ")
-        case .removeLines(let file, let lines): "Remove \(lines.count) line\(lines.count == 1 ? "" : "s") from \(shortPath(file))"
+        case .removeLines(let file, let lines, _): "Remove \(lines.count) line\(lines.count == 1 ? "" : "s") from \(shortPath(file))"
         case .trash(let urls): "Move \(urls.count) item\(urls.count == 1 ? "" : "s") to the Trash"
         case .removeHooks(let refs): "Remove \(refs.count) hook\(refs.count == 1 ? "" : "s") from " + Set(refs.map { $0.file.path.replacingOccurrences(of: Paths.home.path, with: "~") }).sorted().joined(separator: ", ")
         case .frontmatter(let file, let key, let value): "Set \(key): \(value ?? "(removed)") in \(file.path.replacingOccurrences(of: Paths.home.path, with: "~"))"

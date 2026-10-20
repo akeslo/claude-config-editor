@@ -46,7 +46,6 @@ public enum ScopeMoveError: LocalizedError, Equatable {
 /// Moves items between User, Project and Local scope. Every write keeps a backup; every move returns its undo steps.
 public enum ScopeMove {
     static func claudeJSON(_ home: URL) -> URL { home.appending(path: ".claude.json") }
-    static func backups(_ home: URL) -> URL { home.appending(path: ".claude/config-editor-backups") }
 
     // MARK: Where things live
 
@@ -144,7 +143,7 @@ public enum ScopeMove {
         guard exists(src) else { throw ScopeMoveError.notFound(src.lastPathComponent) }
         if src.standardizedFileURL == dst.standardizedFileURL { return [] }
         if exists(dst) { throw ScopeMoveError.exists(shortPath(dst)) }
-        _ = try? Backup.snapshot(src, home: home)
+        do { try Backup.snapshot(src, home: home) } catch { throw WriteError.backupFailed(src) }
         try fm.createDirectory(at: dst.deletingLastPathComponent(), withIntermediateDirectories: true)
         try fm.moveItem(at: src, to: dst)
         return [.moveBack(from: dst, to: src)]
@@ -268,12 +267,7 @@ public enum ScopeMove {
 
     /// Sets one key path, keeping every other key; refuses if the file changed since it was read. Backs up first.
     public static func setJSON(_ url: URL, _ path: [String], _ value: Any?, home: URL = Paths.home) throws {
-        let loadedAt = modificationDate(url)
-        var root = readJSON(url) ?? [:]
-        set(&root, path[...], value)
-        let opts: JSONSerialization.WritingOptions = url.lastPathComponent == ".claude.json" ? [.prettyPrinted, .withoutEscapingSlashes] : [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        _ = try safeWrite(try JSONSerialization.data(withJSONObject: root, options: opts), to: url, expectedModified: loadedAt, backupDir: backups(home))
+        try ConfigWriter.mutateJSON(url, home: home, expectedModified: modificationDate(url)) { set(&$0, path[...], value) }
     }
 
     /// Applies key edits in order as one change: if one fails, the ones already made are put back.

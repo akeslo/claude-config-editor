@@ -33,7 +33,7 @@ extension AppModel {
     }
 }
 
-/// "Delete": one click. Items go to ~/.claude/backups/config-editor first, so the toast can undo it.
+/// "Delete": one click. Items go to ~/.claude/config-editor-backups/undo first, so the toast can undo it.
 struct ConfirmDeleteButton: View {
     @Environment(AppModel.self) private var model
     let urls: [URL]
@@ -48,7 +48,7 @@ struct ConfirmDeleteButton: View {
             Button(label.replacingOccurrences(of: "…", with: ""), role: .destructive) {
                 model.trashWithUndo(ok, title: "Deleted \(ok.count == 1 ? ok[0].lastPathComponent : "\(ok.count) items")")
             }
-            .help("A backup is kept in ~/.claude/backups/config-editor; undo from the message that appears")
+            .help("A backup is kept in ~/.claude/config-editor-backups/undo; undo from the message that appears")
         }
     }
 }
@@ -100,9 +100,10 @@ struct FileEditorSheet: View {
 
     private func save() {
         do {
-            if exists(url), modificationDate(url) != loadedAt { throw SafeWriteError.changedOnDisk }
-            let record = exists(url) ? try Backup.snapshot(url) : nil
-            try Data(text.utf8).write(to: url, options: .atomic)
+            if exists(url), modificationDate(url) != loadedAt { throw WriteError.changedOnDisk(url) }
+            let now = Date()
+            let record = try ConfigWriter.writeText(text, to: url, home: Paths.home, expectedModified: loadedAt)
+                .map { Backup.Record(original: url, copy: $0, date: now, removed: false) }
             model.didAct("Saved \(url.lastPathComponent)", record.map { [$0] } ?? [])
             dismiss()
         } catch { self.error = error.localizedDescription }

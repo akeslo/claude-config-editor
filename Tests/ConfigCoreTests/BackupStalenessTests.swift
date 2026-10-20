@@ -14,7 +14,7 @@ struct BackupTests {
         try Data("hi".utf8).write(to: f)
         let r = try Backup.trash(f, home: home)
         #expect(!exists(f))
-        #expect(r.copy.path.contains("backups/config-editor/"))
+        #expect(r.copy.path.contains("config-editor-backups/undo/"))
         #expect(r.copy.path.hasSuffix(".claude/skills/x/SKILL.md"))
         #expect(Backup.list(home: home).map(\.original.path) == [f.path])
         #expect(Backup.list(home: home).first?.removed == true)
@@ -34,8 +34,10 @@ struct BackupTests {
         #expect(readText(f) == "v1")
     }
 
-    @Test func refusesOutsideHome() {
-        #expect(throws: Backup.BackupError.self) { try Backup.snapshot(URL(filePath: "/etc/hosts"), home: home) }
+    @Test func outsideHomeGoesUnderAbs() throws {
+        let r = try Backup.snapshot(URL(filePath: "/etc/hosts"), home: home)
+        #expect(r.copy.path.hasSuffix("/abs/etc/hosts"))
+        #expect(Backup.list(home: home).contains { $0.original.path == "/etc/hosts" })
     }
 }
 

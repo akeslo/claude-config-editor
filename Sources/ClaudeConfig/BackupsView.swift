@@ -44,7 +44,7 @@ struct BackupsView: View {
         .confirmationDialog("Restore \(restoring?.original?.lastPathComponent ?? "")?", isPresented: Binding(get: { restoring != nil }, set: { if !$0 { restoring = nil } }), presenting: restoring) { b in
             Button("Restore", role: .destructive) { restore(b) }
         } message: { b in
-            Text("Overwrites \(b.original.map(shortPath) ?? "?") with \(b.url.lastPathComponent). The current file is backed up to ~/.claude/backups/config-editor first.")
+            Text("Overwrites \(b.original.map(shortPath) ?? "?") with \(b.url.lastPathComponent). The current file is backed up to ~/.claude/config-editor-backups/undo first.")
         }
     }
 

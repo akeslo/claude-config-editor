@@ -197,23 +197,24 @@ public enum Memory {
     }
 
     /// MEMORY.md lines that link a note, with the linked path as written.
-    public static func indexLinks(_ text: String) -> [(line: String, target: String)] {
-        text.split(separator: "\n").compactMap { l in
+    /// `index` counts every line (blank ones too), as `removeLines(at:)` does.
+    public static func indexLinks(_ text: String) -> [(index: Int, line: String, target: String)] {
+        text.split(separator: "\n", omittingEmptySubsequences: false).enumerated().compactMap { i, l in
             guard let r = l.range(of: #"\]\(([^)\s]+\.md)\)"#, options: .regularExpression) else { return nil }
-            return (String(l), String(l[r].dropFirst(2).dropLast()))
+            return (i, String(l), String(l[r].dropFirst(2).dropLast()))
         }
     }
 
     /// `@path` imports outside code fences: Claude expands them at launch, relative to the importing file.
-    public static func imports(_ text: String) -> [(line: String, path: String)] {
-        var fenced = false, out: [(String, String)] = []
-        for l in text.split(separator: "\n", omittingEmptySubsequences: false) {
+    public static func imports(_ text: String) -> [(index: Int, line: String, path: String)] {
+        var fenced = false, out: [(Int, String, String)] = []
+        for (i, l) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
             if l.trimmingCharacters(in: .whitespaces).hasPrefix("```") { fenced.toggle(); continue }
             guard !fenced else { continue }
             for m in l.matches(of: /(?:^|\s)@([~.\/\w][^\s`]*)/) {
                 let p = String(m.output.1)
                 // An import names a file: a path, or something.md. Bare @mentions (handles, @latest) are not imports.
-                if p.contains("/") || p.hasSuffix(".md") { out.append((String(l), p)) }
+                if p.contains("/") || p.hasSuffix(".md") { out.append((i, String(l), p)) }
             }
         }
         return out
@@ -231,8 +232,8 @@ public enum Memory {
             let index = dir.appending(path: "MEMORY.md")
             guard let text = readText(index) else { continue }
             let names = Set(us.map(\.lastPathComponent))
-            let lines = indexLinks(text).filter { names.contains(URL(filePath: $0.target).lastPathComponent) }.map(\.line)
-            if !lines.isEmpty, !urls.contains(index) { fixes.append(.removeLines(file: index, lines: lines)) }
+            let lines = IndexSet(indexLinks(text).filter { names.contains(URL(filePath: $0.target).lastPathComponent) }.map(\.index))
+            if !lines.isEmpty, !urls.contains(index) { fixes.append(.removeLines(file: index, lines: lines, modified: modificationDate(index))) }
         }
         return fixes.count == 1 ? fixes[0] : .many(fixes)
     }
@@ -255,11 +256,11 @@ public enum Memory {
                 let dir = e.url.deletingLastPathComponent()
                 let links = indexLinks(text)
                 for l in links { linked.insert(dir.appending(path: l.target).standardizedFileURL.path) }
-                let broken = links.filter { !exists(dir.appending(path: $0.target)) }.map(\.line)
+                let broken = IndexSet(links.filter { !exists(dir.appending(path: $0.target)) }.map(\.index))
                 if !broken.isEmpty {
                     add(i, "\(broken.count) index line\(broken.count == 1 ? "" : "s") point at notes that no longer exist.",
                         MemoryAction(button: "Drop broken lines…", title: "Drop \(broken.count) broken line\(broken.count == 1 ? "" : "s") from \(shortPath(e.url))",
-                                     fix: .removeLines(file: e.url, lines: broken)))
+                                     fix: .removeLines(file: e.url, lines: broken, modified: e.modified)))
                 }
             }
             if [.userClaudeMD, .projectClaudeMD, .localMD, .rule].contains(e.type) {
@@ -267,7 +268,7 @@ public enum Memory {
                 if !broken.isEmpty {
                     add(i, "Broken @import" + (broken.count == 1 ? "" : "s") + ": " + broken.map { "@" + $0.path }.joined(separator: ", ") + " (no such file).",
                         MemoryAction(button: "Remove broken imports…", title: "Remove \(broken.count) broken @import line\(broken.count == 1 ? "" : "s") from \(shortPath(e.url))",
-                                     fix: .removeLines(file: e.url, lines: Array(Set(broken.map(\.line))))))
+                                     fix: .removeLines(file: e.url, lines: IndexSet(broken.map(\.index)), modified: e.modified)))
                 }
             }
         }
@@ -307,22 +308,22 @@ public enum Memory {
         return nil
     }
 
-    /// Deletes exact lines from a file after backing it up; returns the backup.
+    /// Deletes the lines at these 0-based indices (duplicates elsewhere stay) after backing the file up; returns the backup.
     @discardableResult
-    public static func removeLines(_ file: URL, _ lines: [String], home: URL = Paths.home) throws -> Backup.Record {
-        let drop = Set(lines)
-        let text = try String(contentsOf: file, encoding: .utf8)
-        let record = try Backup.snapshot(file, home: home)
-        try Data(text.split(separator: "\n", omittingEmptySubsequences: false).filter { !drop.contains(String($0)) }.joined(separator: "\n").utf8).write(to: file, options: .atomic)
-        return record
+    public static func removeLines(at indices: IndexSet, in url: URL, expectedModified: Date?, home: URL = Paths.home) throws -> Backup.Record? {
+        if let e = expectedModified, modificationDate(url) != e { throw WriteError.changedOnDisk(url) }
+        let text = try String(contentsOf: url, encoding: .utf8)
+        let kept = text.split(separator: "\n", omittingEmptySubsequences: false).enumerated().filter { !indices.contains($0.offset) }.map(\.element)
+        let now = Date()
+        return try ConfigWriter.writeText(kept.joined(separator: "\n"), to: url, home: home, expectedModified: expectedModified)
+            .map { Backup.Record(original: url, copy: $0, date: now, removed: false) }
     }
 
     /// Writes the default template, backing up any existing file first.
     @discardableResult
     public static func reset(_ url: URL, type: MemoryType, home: URL = Paths.home) throws -> Backup.Record? {
-        let record = exists(url) ? try Backup.snapshot(url, home: home) : nil
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(type.template.utf8).write(to: url, options: .atomic)
-        return record
+        let now = Date()
+        return try ConfigWriter.writeText(type.template, to: url, home: home, expectedModified: nil)
+            .map { Backup.Record(original: url, copy: $0, date: now, removed: false) }
     }
 }

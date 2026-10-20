@@ -37,11 +37,10 @@ public enum Apply {
     }
 
     static func runThrowing(_ fix: Fix, home: URL) async throws -> Outcome {
-        let backups = ScopeMove.backups(home)
         switch fix {
         case .frontmatter(let file, let key, let value):
             let r = try Backup.snapshot(file, home: home)
-            _ = try setFrontmatterKey(file, key: key, value: value, backupDir: backups)
+            _ = try setFrontmatterKey(file, key: key, value: value, home: home)
             let name = file.lastPathComponent == "SKILL.md" ? file.deletingLastPathComponent().lastPathComponent : file.deletingPathExtension().lastPathComponent
             return Outcome(summary: "Updated \(name)", undo: [.restore(r)])
         case .settingsKey(let file, let path, let value):
@@ -52,13 +51,13 @@ public enum Apply {
             var undo: [UndoStep] = []
             for (file, rs) in Dictionary(grouping: refs, by: \.file) {
                 let old = ScopeMove.get(readJSON(file), ["hooks"])
-                _ = try removeHooks(file, rs, backupDir: backups)
+                _ = try removeHooks(file, rs, home: home)
                 undo.append(.json(file: file, path: ["hooks"], old: ScopeMove.encode(old)))
             }
             return Outcome(summary: refs.count == 1 ? "Removed 1 hook" : "Removed \(refs.count) hooks", undo: undo)
-        case .removeLines(let file, let lines):
-            let r = try Memory.removeLines(file, lines, home: home)
-            return Outcome(summary: "Removed \(lines.count) line\(lines.count == 1 ? "" : "s") from \(file.lastPathComponent)", undo: [.restore(r)])
+        case .removeLines(let file, let lines, let modified):
+            let r = try Memory.removeLines(at: lines, in: file, expectedModified: modified, home: home)
+            return Outcome(summary: "Removed \(lines.count) line\(lines.count == 1 ? "" : "s") from \(file.lastPathComponent)", undo: r.map { [.restore($0)] } ?? [])
         case .trash(let urls):
             var undo: [UndoStep] = []
             for u in urls where trashRefusal(u) == nil && exists(u) {

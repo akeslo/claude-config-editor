@@ -151,7 +151,7 @@ import Testing
 
     @Test func applyRemoveHooksThenUndo() async throws {
         try write(userSettings, #"{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"say done"}]}]}}"#)
-        let o = await Apply.run(.removeHooks([HookRef(file: userSettings, event: "Stop", command: "say done")]), home: home)
+        let o = await Apply.run(.removeHooks([HookRef(file: userSettings, event: "Stop", matcher: nil, command: "say done")]), home: home)
         #expect(json(userSettings)["hooks"] == nil)
         try await Apply.undo(o.undo, home: home)
         #expect((json(userSettings)["hooks"] as? JSON)?["Stop"] != nil)

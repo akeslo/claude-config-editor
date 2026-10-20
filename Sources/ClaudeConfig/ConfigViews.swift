@@ -295,7 +295,7 @@ struct HooksView: View {
             let removable = picked.filter { !$0.source.hasPrefix("Plugin") }
             if !removable.isEmpty {
                 Button(rowCommands.count == 1 ? "Remove Hook" : "Remove \(rowCommands.count) Hooks") {
-                    model.propose("Remove \(removable.count) hook entr\(removable.count == 1 ? "y" : "ies")", .removeHooks(removable.map { HookRef(file: $0.sourceURL, event: $0.event, command: $0.command) }))
+                    model.propose("Remove \(removable.count) hook entr\(removable.count == 1 ? "y" : "ies")", .removeHooks(removable.map { HookRef(file: $0.sourceURL, event: $0.event, matcher: $0.matcher, command: $0.command) }))
                 }
             }
             TrashButton(urls: Array(Set(picked.compactMap(\.scriptPath).filter(exists))), label: "Move Script to Trash")
@@ -304,7 +304,7 @@ struct HooksView: View {
         .bulkSelectable($sel, visible: visible, actions: [
             BulkAction(title: "Remove", icon: "trash", check: bulkCheck(pickedRows) { $0[0].source.hasPrefix("Plugin") ? "come from plugins (turn the plugin off in Plugins)" : nil }) {
                 model.proposeBulk("Remove \(pickedRows.count) hook\(pickedRows.count == 1 ? "" : "s")", bulkPlan(pickedRows, label: { ($0[0].scriptPath?.lastPathComponent ?? $0[0].command) + " · " + $0[0].source }) { same in
-                    .removeHooks(same.map { HookRef(file: $0.sourceURL, event: $0.event, command: $0.command) })
+                    .removeHooks(same.map { HookRef(file: $0.sourceURL, event: $0.event, matcher: $0.matcher, command: $0.command) })
                 })
             },
         ])

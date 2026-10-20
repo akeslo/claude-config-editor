@@ -7,14 +7,7 @@ public enum SettingsEdit {
     @discardableResult
     public static func setKey(_ url: URL, path: [String], value: Any?, expectedModified: Date?? = nil, home: URL = Paths.home) throws -> Backup.Record? {
         try mutate(url, expectedModified: expectedModified, home: home) { root in
-            func set(_ dict: inout JSON, _ keys: ArraySlice<String>) {
-                guard let key = keys.first else { return }
-                if keys.count == 1 { dict[key] = value; return }
-                var child = dict[key] as? JSON ?? [:]
-                set(&child, keys.dropFirst())
-                dict[key] = child.isEmpty && value == nil ? nil : child
-            }
-            set(&root, path[...])
+            ScopeMove.set(&root, path[...], value)
         }
     }
 
@@ -58,17 +51,10 @@ public enum SettingsEdit {
     }
 
     static func mutate(_ url: URL, expectedModified: Date??, home: URL, _ change: (inout JSON) -> Void) throws -> Backup.Record? {
-        let current = modificationDate(url)
-        if let expected = expectedModified, exists(url), current != expected { throw SafeWriteError.changedOnDisk }
-        if exists(url), readJSON(url) == nil { throw CocoaError(.fileReadCorruptFile, userInfo: [NSFilePathErrorKey: url.path]) }
-        var root = readJSON(url) ?? [:]
-        change(&root)
-        let record = exists(url) ? try Backup.snapshot(url, home: home) : nil
-        let data = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let tmp = url.deletingLastPathComponent().appending(path: ".\(url.lastPathComponent).tmp")
-        FileManager.default.createFile(atPath: tmp.path, contents: data, attributes: [.posixPermissions: 0o600])
-        if exists(url) { _ = try FileManager.default.replaceItemAt(url, withItemAt: tmp) } else { try FileManager.default.moveItem(at: tmp, to: url) }
-        return record
+        // .some(nil) means "expected no file": one appearing since is a change on disk.
+        if case .some(.none) = expectedModified, exists(url) { throw WriteError.changedOnDisk(url) }
+        let now = Date()
+        return try ConfigWriter.mutateJSON(url, home: home, expectedModified: expectedModified ?? nil, change)
+            .map { Backup.Record(original: url, copy: $0, date: now, removed: false) }
     }
 }

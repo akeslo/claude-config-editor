@@ -174,7 +174,7 @@ struct ProjectsView: View {
             let staleDirs = model.snapshot.projects.filter { stale($0).level == .stale }.map { Paths.projectDataDir(for: $0.path) }.filter(exists)
             if !staleDirs.isEmpty {
                 ConfirmDeleteButton(urls: staleDirs, label: "Clean up \(staleDirs.count) stale…")
-                    .help("Moves transcripts and memory of projects whose folder is gone or that have had no session in 90 days. A copy is kept in ~/.claude/backups/config-editor so you can undo.")
+                    .help("Moves transcripts and memory of projects whose folder is gone or that have had no session in 90 days. A copy is kept in ~/.claude/config-editor-backups/undo so you can undo.")
             }
             Button("Purge…") { purge(selection) }
                 .disabled(selection.count != 1)

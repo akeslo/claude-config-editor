@@ -5,40 +5,39 @@ import Testing
 struct SafeWriteTests {
     let dir: URL = {
         let d = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-        try! FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        try! FileManager.default.createDirectory(at: d.appending(path: ".claude"), withIntermediateDirectories: true)
         return d
     }()
 
-    @Test func backsUpAndKeepsOwnerOnly() throws {
-        let file = dir.appending(path: "settings.json")
+    @Test func backsUpAndKeepsMode() throws {
+        let file = dir.appending(path: ".claude/settings.json")
         try Data(#"{"a":1,"keep":{"x":true}}"#.utf8).write(to: file)
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
-        let backup = try updateSettingsKey(file, path: ["skillOverrides", "foo"], value: "user-invocable-only", backupDir: dir.appending(path: "b"))
+        let backup = try updateSettingsKey(file, path: ["skillOverrides", "foo"], value: "user-invocable-only", home: dir)
         let json = try #require(readJSON(file))
         #expect(json["a"] as? Int == 1)
         #expect((json["keep"] as? JSON)?["x"] as? Bool == true)
         #expect((json["skillOverrides"] as? JSON)?["foo"] as? String == "user-invocable-only")
         #expect(readJSON(try #require(backup))?["skillOverrides"] == nil)
         let perms = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int
-        #expect(perms == 0o600)
+        #expect(perms == 0o644)
     }
 
     @Test func refusesStaleWrite() throws {
-        let file = dir.appending(path: "c.json")
+        let file = dir.appending(path: ".claude/c.json")
         try Data("{}".utf8).write(to: file)
-        #expect(throws: SafeWriteError.changedOnDisk) {
-            try safeWrite(Data("[]".utf8), to: file, expectedModified: .distantPast, backupDir: dir)
+        #expect(throws: WriteError.changedOnDisk(file)) {
+            try ConfigWriter.writeText("[]", to: file, home: dir, expectedModified: .distantPast)
         }
         #expect(readText(file) == "{}")
     }
 
     @Test func removesKey() throws {
-        let file = dir.appending(path: "s.json")
+        let file = dir.appending(path: ".claude/s.json")
         try Data(#"{"enabledPlugins":{"a@b":true,"c@d":true}}"#.utf8).write(to: file)
-        _ = try updateSettingsKey(file, path: ["enabledPlugins", "a@b"], value: nil, backupDir: dir)
+        _ = try updateSettingsKey(file, path: ["enabledPlugins", "a@b"], value: nil, home: dir)
         #expect((readJSON(file)?["enabledPlugins"] as? JSON)?.keys.sorted() == ["c@d"])
     }
-
     @Test func pluginUpdates() throws {
         let m = dir.appending(path: "mkt")
         try FileManager.default.createDirectory(at: m.appending(path: ".claude-plugin"), withIntermediateDirectories: true)
@@ -55,9 +54,9 @@ struct SafeWriteTests {
     }
 
     @Test func removesHooks() throws {
-        let file = dir.appending(path: "h.json")
+        let file = dir.appending(path: ".claude/h.json")
         try Data(#"{"model":"x","hooks":{"Stop":[{"hooks":[{"type":"command","command":"a"},{"type":"command","command":"b"}]}],"SessionStart":[{"hooks":[{"type":"command","command":"a"}]}]}}"#.utf8).write(to: file)
-        _ = try removeHooks(file, [HookRef(file: file, event: "Stop", command: "a"), HookRef(file: file, event: "SessionStart", command: "a")], backupDir: dir)
+        _ = try removeHooks(file, [HookRef(file: file, event: "Stop", matcher: nil, command: "a"), HookRef(file: file, event: "SessionStart", matcher: nil, command: "a")], home: dir)
         let json = try #require(readJSON(file))
         #expect(json["model"] as? String == "x")
         let hooks = try #require(json["hooks"] as? JSON)
@@ -261,7 +260,7 @@ struct SkillStateTests {
     }()
 
     func skill(_ text: String, uses: Int = 0) throws -> Component {
-        let folder = dir.appending(path: "skills/demo")
+        let folder = dir.appending(path: ".claude/skills/demo")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let file = folder.appending(path: "SKILL.md")
         try Data(text.utf8).write(to: file)
@@ -275,14 +274,14 @@ struct SkillStateTests {
         #expect(c.state == .always && c.listingTokens > 0)
         #expect(skillSuggestions([c])[c.id]?.state == .onDemand)
         guard case .frontmatter(let file, let key, let value)? = c.fix(to: .onDemand) else { Issue.record("expected a frontmatter fix"); return }
-        let backup = try setFrontmatterKey(file, key: key, value: value, backupDir: dir.appending(path: "b"))
+        let backup = try setFrontmatterKey(file, key: key, value: value, home: dir)
         #expect(backup != nil)
         #expect(readText(file) == "---\nname: demo\ndescription: Does a demo thing for testing.\ndisable-model-invocation: true\n---\n\nBody\n")
         let after = Scanner.component(.skill, file, "demo", .user, nil, "")
         #expect(after.state == .onDemand && after.listingTokens == 0)
         // And back: the key is removed, nothing else changes.
         guard case .frontmatter(_, _, let v2)? = after.fix(to: .always) else { Issue.record("expected removal"); return }
-        _ = try setFrontmatterKey(file, key: "disable-model-invocation", value: v2, backupDir: dir)
+        _ = try setFrontmatterKey(file, key: "disable-model-invocation", value: v2, home: dir)
         #expect(readText(file) == "---\nname: demo\ndescription: Does a demo thing for testing.\n---\n\nBody\n")
     }
 

@@ -130,12 +130,12 @@ func descriptionOverlap(_ a: String, _ b: String) -> Double {
 private let stopWords: Set<String> = ["this", "that", "with", "when", "from", "your", "user", "skill", "skills", "claude", "code", "should", "these", "them", "then", "into", "also", "using", "used", "asks", "want", "wants", "like", "only", "will", "have", "about", "trigger", "triggers"]
 
 /// Sets (or with nil, removes) one top-level key in a Markdown file's YAML frontmatter, keeping everything else byte for byte.
-public func setFrontmatterKey(_ url: URL, key: String, value: String?, backupDir: URL = Paths.appBackups) throws -> URL? {
+public func setFrontmatterKey(_ url: URL, key: String, value: String?, home: URL = Paths.home) throws -> URL? {
     let loadedAt = modificationDate(url)
     let text = readText(url) ?? ""
     let updated = frontmatterSetting(text, key: key, value: value)
     guard updated != text else { return nil }
-    return try safeWrite(Data(updated.utf8), to: url, expectedModified: loadedAt, backupDir: backupDir)
+    return try ConfigWriter.writeText(updated, to: url, home: home, expectedModified: loadedAt)
 }
 
 func frontmatterSetting(_ text: String, key: String, value: String?) -> String {
