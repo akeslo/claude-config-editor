@@ -11,8 +11,8 @@ struct InfoItem: Equatable {
     var file: URL?
     var text: String?
     var link: URL?
-    /// Collapsible structured view for nested values (hooks, permissions, plugins), instead of a raw JSON wall.
-    var outline: [SettingsOutline.Section] = []
+    /// Collapsible structured tree for any nested value (hooks, permissions, plugins, or unknown objects/arrays), instead of a raw JSON wall.
+    var outline: [SettingsOutline.Node] = []
     /// Advice lines shown under the facts (e.g. memory-file recommendations).
     var notes: [String] = []
 
@@ -22,7 +22,7 @@ struct InfoItem: Equatable {
         let value: String
     }
 
-    init(_ title: String, term: Term, facts: [(String, String)] = [], file: URL? = nil, link: URL? = nil, text: String? = nil, outline: [SettingsOutline.Section] = [], notes: [String] = []) {
+    init(_ title: String, term: Term, facts: [(String, String)] = [], file: URL? = nil, link: URL? = nil, text: String? = nil, outline: [SettingsOutline.Node] = [], notes: [String] = []) {
         self.notes = notes
         self.title = title
         self.term = term

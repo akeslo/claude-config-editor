@@ -6,7 +6,7 @@ struct BackupsView: View {
     @Environment(AppModel.self) private var model
     @State private var files: [BackupFile] = []
     @State private var loading = true
-    @State private var search = ""
+    @Environment(\.screenFilter) private var search
     @State private var sel = Set<String>()
     @State private var sort = [KeyPathComparator(\BackupFile.modifiedSort, order: .reverse)]
     @State private var restoring: BackupFile?
@@ -43,7 +43,6 @@ struct BackupsView: View {
             if loading && files.isEmpty { ProgressView("Looking for backups…") }
             else if shown.isEmpty { ContentUnavailableView("No backups", systemImage: "clock.arrow.circlepath", description: Text("No *.bak, *-bak-*, *.orig or *~ files next to Claude config.")) }
         }
-        .searchable(text: $search, prompt: "Filter by path")
         .toolbar { Button("Scan Again", systemImage: "arrow.clockwise") { Task { await load() } }.help("Look for backup files again") }
         .task(id: model.snapshot.scannedAt) { await load() }
         .onChange(of: sel) {

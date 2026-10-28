@@ -6,7 +6,7 @@ struct AgentFilesView: View {
     @Environment(AppModel.self) private var model
     @State private var agentFiles: [URL] = []
     @State private var loading = true
-    @State private var search = ""
+    @Environment(\.screenFilter) private var search
     @State private var editing: URL?
     @State private var bulk = BulkSelection<String>()
     @State private var order = [KeyPathComparator(\MemRow.modified, order: .reverse)]
@@ -65,7 +65,6 @@ struct AgentFilesView: View {
             if let r = rows.first(where: { ids.contains($0.id) }), r.entry.exists { editing = r.entry.url }
         }
         .overlay { if loading && rows.isEmpty { ProgressView("Searching with Spotlight…") } }
-        .searchable(text: $search, prompt: "Filter memory")
         .toolbar {
             ToolbarItem {
                 Picker("Project", selection: $project) {

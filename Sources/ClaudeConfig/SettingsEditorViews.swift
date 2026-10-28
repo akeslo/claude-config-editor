@@ -52,7 +52,7 @@ private struct KeyRow: Identifiable { let key: String; var id: String { key } }
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
     @State private var fileID: String = Paths.userSettings.path
-    @State private var search = ""
+    @Environment(\.screenFilter) private var search
     @State private var adding = false
     @State private var selected: String?
     @State private var editingJSON: String?
@@ -101,7 +101,6 @@ struct SettingsView: View {
             }
         }
         .navigationSubtitle(shortPath(source.url))
-        .searchable(text: $search, prompt: "Filter keys")
         .toolbar {
             ToolbarItem {
                 Picker("File", selection: $fileID) {
@@ -132,7 +131,7 @@ struct SettingsView: View {
         let layers = sources.filter { $0.url != Paths.keybindings && $0.root[key] != nil }
         let value = source.root[key]
         // Structured keys get a collapsible outline; the "Edit Value…" sheet stays the raw-JSON escape hatch.
-        let outline = SettingsOutline.sections(key: key, value: value) ?? []
+        let outline = SettingsOutline.tree(key: key, value: value) ?? []
         let raw = outline.isEmpty ? "\"\(key)\": " + (value.map(SettingsEdit.render) ?? "null") : nil
         return InfoItem(key, term: settingTerm(key), facts: layers.map { (sourceLabel($0), SettingsEdit.render($0.root[key]!)) },
                         file: source.url, text: raw, outline: outline)
@@ -251,7 +250,7 @@ struct PermissionsView: View {
     @Environment(AppModel.self) private var model
     @State private var sel = BulkSelection<UUID>()
     @State private var showProjectApprovals = false
-    @State private var search = ""
+    @Environment(\.screenFilter) private var search
     @State private var sort = [KeyPathComparator(\PermissionRule.kind)]
     @State private var editing: RuleDraft?
 
@@ -273,7 +272,6 @@ struct PermissionsView: View {
                 .help(shortPath(r.sourceURL))
             }.width(min: 150, ideal: 200)
         }
-        .searchable(text: $search, prompt: "Filter rules")
         .contextMenu(forSelectionType: PermissionRule.ID.self) { ids in
             let rs = rules.filter { ids.contains($0.id) && editable($0) }
             if rs.count == 1, let r = rs.first {

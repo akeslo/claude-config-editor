@@ -4,7 +4,7 @@ import SwiftUI
 struct MCPView: View {
     @Environment(AppModel.self) private var model
     @State private var sel = BulkSelection<String>()
-    @State private var search = ""
+    @Environment(\.screenFilter) private var search
     @State private var scope: Scope?
     @State private var sort = [KeyPathComparator(\MCPServer.name)]
 
@@ -40,7 +40,6 @@ struct MCPView: View {
         } primaryAction: { ids in
             if let m = servers.first(where: { ids.contains($0.id) }) { openFile(m.source) }
         }
-        .searchable(text: $search, prompt: "Filter servers")
         .toolbar {
             Picker("Scope", selection: $scope) {
                 Text("All scopes").tag(Scope?.none)
@@ -99,7 +98,7 @@ struct ComponentsView: View {
     @Environment(AppModel.self) private var model
     @State private var sel = BulkSelection<String>()
     @State private var kind: ComponentKind?
-    @State private var search = ""
+    @Environment(\.screenFilter) private var search
     @State private var sort = [KeyPathComparator(\Row.tokens, order: .reverse)]
 
     struct Row: Identifiable {
@@ -151,7 +150,6 @@ struct ComponentsView: View {
             if let c = model.snapshot.components.first(where: { ids.contains($0.id) }) { openFile(c.file) }
         }
         .onDeleteCommand { trash(model.snapshot.components.filter { sel.contains($0.id) }) }
-        .searchable(text: $search, prompt: "Filter by name or description")
         .toolbar {
             Picker("Kind", selection: $kind) {
                 Text("All").tag(ComponentKind?.none)
@@ -189,7 +187,7 @@ struct ComponentsView: View {
 struct PluginsView: View {
     @Environment(AppModel.self) var model
     @State private var sel = BulkSelection<String>()
-    @State private var search = ""
+    @Environment(\.screenFilter) private var search
     @State private var sort = [KeyPathComparator(\Plugin.id)]
 
     var body: some View {
@@ -229,7 +227,6 @@ struct PluginsView: View {
                 ContentUnavailableView("No plugins installed", systemImage: "puzzlepiece.extension", description: Text("Install one with claude plugin install <name>@<marketplace>."))
             }
         }
-        .searchable(text: $search, prompt: "Filter plugins")
         .contextMenu(forSelectionType: Plugin.ID.self) { ids in
             let picked = plugins.filter { ids.contains($0.id) }
             if !picked.isEmpty {
@@ -265,7 +262,7 @@ extension PluginsView {
 struct HooksView: View {
     @Environment(AppModel.self) private var model
     @State private var sel = BulkSelection<UUID>()
-    @State private var search = ""
+    @Environment(\.screenFilter) private var search
 
     var body: some View {
         let hooks = model.snapshot.hooks
@@ -323,7 +320,6 @@ struct HooksView: View {
         } primaryAction: { ids in
             if let h = hooks.first(where: { ids.contains($0.id) }) { openFile(h.scriptPath.flatMap { exists($0) ? $0 : nil } ?? h.sourceURL) }
         }
-        .searchable(text: $search, prompt: "Filter hooks by command, event or source")
         .onChange(of: sel.ids) {
             guard let h = hooks.first(where: { sel.contains($0.id) }) else { return }
             model.info = InfoItem("\(h.event) hook", term: .hook, facts: [

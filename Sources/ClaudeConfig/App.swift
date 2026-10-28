@@ -34,9 +34,13 @@ struct ClaudeConfigApp: App {
     }
 }
 
+extension EnvironmentValues { @Entry var screenFilter = "" }
+
 struct RootView: View {
     @Environment(AppModel.self) private var model
     @State private var search = ""
+    /// The one per-screen filter; screens read it via \.screenFilter instead of owning a .searchable.
+    @State private var filter = ""
     /// Sidebar groups the user folded, by title; remembered across launches.
     @AppStorage("collapsedGroups") private var collapsed = ""
 
@@ -49,6 +53,10 @@ struct RootView: View {
                 }
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+            // Plain field, not .searchable: the window may hold only one toolbar search item (NSToolbar throws on a duplicate).
+            .safeAreaInset(edge: .top) {
+                TextField("Search everything", text: $search).textFieldStyle(.roundedBorder).padding(8)
+            }
         } detail: {
             Group {
                 if search.isEmpty {
@@ -56,6 +64,9 @@ struct RootView: View {
                 } else { SearchResultsView(query: search) { search = "" } }
             }
                 .appListStyle()
+                .environment(\.screenFilter, filter)
+                // Single .searchable for the window: per-screen ones swapped toolbar items on screen change and crashed NSToolbar.
+                .searchable(text: $filter, prompt: "Filter this screen")
                 .navigationTitle(search.isEmpty ? title(model.screen) : "Search")
                 .toolbar {
                     ToolbarItemGroup {
@@ -76,8 +87,7 @@ struct RootView: View {
                         .inspectorColumnWidth(min: 260, ideal: 320, max: 420)
                 }
         }
-        .searchable(text: $search, placement: .sidebar, prompt: "Search everything")
-        .onChange(of: model.screen) { model.info = nil }
+        .onChange(of: model.screen) { model.info = nil; filter = "" }
         .sheet(item: $model.pendingFix) { FixSheet(pending: $0) }
         .sheet(isPresented: $model.showAsk) { AskSheet(section: model.section) }
         .overlay(alignment: .bottom) { UndoToast() }
@@ -153,19 +163,8 @@ struct InfoPanel: View {
                         }
                     }
                 }
-                ForEach(item.outline) { section in
-                    DisclosureGroup {
-                        VStack(alignment: .leading, spacing: Gap.s1) {
-                            ForEach(Array(section.rows.enumerated()), id: \.offset) { _, row in
-                                Text(row).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-                        }
-                        .padding(.leading, Gap.s2).padding(.top, Gap.s1)
-                    } label: {
-                        Text(section.title).font(.callout.weight(.medium))
-                    }
+                ForEach(Array(item.outline.enumerated()), id: \.offset) { _, node in
+                    OutlineNodeView(node: node)
                 }
                 ForEach(item.notes, id: \.self) { Label($0, systemImage: "lightbulb").foregroundStyle(Ink.warning).font(.callout) }
                 if let file = item.file {
@@ -191,6 +190,48 @@ struct InfoPanel: View {
             .padding(Gap.s4)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+/// Renders one SettingsOutline node: a collapsible branch for objects/arrays, a clamp-to-expand row for scalars.
+struct OutlineNodeView: View {
+    let node: SettingsOutline.Node
+
+    var body: some View {
+        switch node {
+        case let .branch(title, children):
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: Gap.s1) {
+                    ForEach(Array(children.enumerated()), id: \.offset) { _, child in OutlineNodeView(node: child) }
+                }
+                .padding(.leading, Gap.s2).padding(.top, Gap.s1)
+            } label: {
+                Text(title).font(.callout.weight(.medium))
+            }
+        case let .leaf(label, value):
+            OutlineLeafRow(label: label, value: value)
+        }
+    }
+}
+
+/// A scalar row: wraps and clamps long values (no silent truncation), click to expand/collapse.
+private struct OutlineLeafRow: View {
+    let label: String?
+    let value: String
+    @State private var expanded = false
+
+    var body: some View {
+        let long = value.count > 80 || value.contains("\n")
+        HStack(alignment: .firstTextBaseline, spacing: Gap.s2) {
+            if let label { Text(label).font(.caption.weight(.medium)).foregroundStyle(.secondary) }
+            Text(value).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                .lineLimit(expanded ? nil : 3)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { if long { expanded.toggle() } }
+        .help(long ? (expanded ? "Click to collapse" : "Click to expand") : "")
     }
 }
 

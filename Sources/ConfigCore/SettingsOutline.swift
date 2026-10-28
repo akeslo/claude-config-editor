@@ -1,17 +1,17 @@
 import Foundation
 
-/// Turns a nested settings value (hooks, permissions, plugins…) into a scannable outline
-/// instead of a raw JSON wall. Pure/Foundation-only so it is unit-tested.
+/// Turns a nested settings value (hooks, permissions, plugins, or any object/array) into a
+/// scannable collapsible tree instead of a raw JSON wall. Pure/Foundation-only so it is unit-tested.
 public enum SettingsOutline {
-    public struct Section: Equatable, Identifiable {
-        public let title: String
-        public let rows: [String]
-        public var id: String { title }
-        public init(title: String, rows: [String]) { self.title = title; self.rows = rows }
+    public indirect enum Node: Equatable {
+        case leaf(label: String?, value: String)       // a scalar, optionally labelled by its key
+        case branch(title: String, children: [Node])   // an object/array, collapsible
     }
 
-    /// Sections for a key worth structuring, or nil to fall back to raw JSON.
-    public static func sections(key: String, value: Any?) -> [Section]? {
+    /// Top-level tree for a value, or nil when the value is a scalar (render it plainly).
+    /// Known keys get curated titles; everything else falls back to a generic tree, so new/unknown
+    /// keys (e.g. autoMode) are structured automatically with no per-key code.
+    public static func tree(key: String, value: Any?) -> [Node]? {
         switch key {
         case "hooks": return hooks(value)
         case "permissions": return permissions(value)
@@ -20,28 +20,37 @@ public enum SettingsOutline {
         }
     }
 
-    /// One-line summary for a table cell, e.g. "4 events · 9 hooks". Nil when nothing to summarise.
+    /// One-line summary for a table cell, e.g. "4 groups · 9 hooks". Nil when nothing to summarise.
     public static func summary(key: String, value: Any?) -> String? {
-        guard let secs = sections(key: key, value: value), !secs.isEmpty else { return nil }
-        let items = secs.reduce(0) { $0 + $1.rows.count }
+        guard let nodes = tree(key: key, value: value), !nodes.isEmpty else { return nil }
+        let groups = nodes.filter { if case .branch = $0 { return true } else { return false } }.count
+        let leaves = nodes.reduce(0) { $0 + leafCount($1) }
         let unit = key == "hooks" ? "hook" : key == "permissions" ? "rule" : "item"
-        return "\(secs.count) \(noun(secs.count, "group")) · \(items) \(noun(items, unit))"
+        if groups == 0 { return "\(leaves) \(noun(leaves, unit))" }
+        return "\(groups) \(noun(groups, "group")) · \(leaves) \(noun(leaves, unit))"
     }
 
-    // MARK: - Shapers
+    private static func leafCount(_ node: Node) -> Int {
+        switch node {
+        case .leaf: return 1
+        case .branch(_, let kids): return kids.reduce(0) { $0 + leafCount($1) }
+        }
+    }
 
-    private static func hooks(_ value: Any?) -> [Section]? {
+    // MARK: - Known shapers
+
+    private static func hooks(_ value: Any?) -> [Node]? {
         guard let events = value as? [String: Any] else { return nil }
         return events.keys.sorted().map { event in
-            var rows: [String] = []
+            var rows: [Node] = []
             for entry in (events[event] as? [Any] ?? []) {
                 guard let obj = entry as? [String: Any] else { continue }
                 let matcher = (obj["matcher"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 // Entry is either a matcher group {matcher, hooks:[...]} or a hook {command,...} directly.
                 let inner = (obj["hooks"] as? [Any])?.compactMap { $0 as? [String: Any] } ?? [obj]
-                for h in inner { rows.append(hookRow(matcher: matcher, h)) }
+                for h in inner { rows.append(.leaf(label: nil, value: hookRow(matcher: matcher, h))) }
             }
-            return Section(title: "\(event) (\(rows.count))", rows: rows)
+            return .branch(title: "\(event) (\(rows.count))", children: rows)
         }
     }
 
@@ -55,40 +64,56 @@ public enum SettingsOutline {
         return prefix + cmd + suffix
     }
 
-    private static func permissions(_ value: Any?) -> [Section]? {
+    private static func permissions(_ value: Any?) -> [Node]? {
         guard let perms = value as? [String: Any] else { return nil }
         let order = ["allow", "ask", "deny", "additionalDirectories"]
         let keys = order.filter { perms[$0] != nil } + perms.keys.filter { !order.contains($0) }.sorted()
         return keys.map { k in
-            let rows = (perms[k] as? [Any])?.map { "\($0)" } ?? ["\(perms[k]!)"]
-            return Section(title: "\(k) (\(rows.count))", rows: rows)
+            let rows = (perms[k] as? [Any])?.map { Node.leaf(label: nil, value: "\($0)") } ?? [.leaf(label: nil, value: "\(perms[k]!)")]
+            return .branch(title: "\(k) (\(rows.count))", children: rows)
         }
     }
 
-    private static func plugins(_ value: Any?) -> [Section]? {
+    private static func plugins(_ value: Any?) -> [Node]? {
         if let dict = value as? [String: Any] {
-            let rows = dict.keys.sorted().map { key -> String in
-                if let on = dict[key] as? Bool { return "\(key) — \(on ? "enabled" : "disabled")" }
-                return key
+            let rows = dict.keys.sorted().map { key -> Node in
+                if let on = dict[key] as? Bool { return .leaf(label: nil, value: "\(key) — \(on ? "enabled" : "disabled")") }
+                return .leaf(label: nil, value: key)
             }
-            return [Section(title: "entries (\(rows.count))", rows: rows)]
+            return [.branch(title: "entries (\(rows.count))", children: rows)]
         }
-        if let arr = value as? [Any] { return [Section(title: "entries (\(arr.count))", rows: arr.map { "\($0)" })] }
+        if let arr = value as? [Any] { return [.branch(title: "entries (\(arr.count))", children: arr.map { .leaf(label: nil, value: "\($0)") })] }
         return nil
     }
 
-    /// Fallback for any other object/array: one row per key/element; nil for scalars.
-    private static func generic(_ value: Any?) -> [Section]? {
-        if let dict = value as? [String: Any] {
-            return [Section(title: "keys (\(dict.count))", rows: dict.keys.sorted().map { "\($0): \(scalar(dict[$0]!))" })]
-        }
-        if let arr = value as? [Any] { return [Section(title: "items (\(arr.count))", rows: arr.map { scalar($0) })] }
-        return nil
+    // MARK: - Generic tree (default for any object/array)
+
+    private static func generic(_ value: Any?) -> [Node]? {
+        guard let v = value, isContainer(v) else { return nil }
+        return childNodes(of: v)
     }
 
-    private static func scalar(_ v: Any) -> String {
-        if let d = v as? [String: Any] { return "{\(d.count) \(noun(d.count, "key"))}" }
-        if let a = v as? [Any] { return "[\(a.count) \(noun(a.count, "item"))]" }
+    private static func isContainer(_ v: Any) -> Bool { v is [String: Any] || v is [Any] }
+
+    private static func childNodes(of v: Any) -> [Node] {
+        if let d = v as? [String: Any] { return d.keys.sorted().map { node(label: $0, value: d[$0]!) } }
+        if let a = v as? [Any] { return a.map { node(label: nil, value: $0) } }
+        return []
+    }
+
+    private static func node(label: String?, value: Any) -> Node {
+        if let d = value as? [String: Any] { return .branch(title: title(label, d.count, "key"), children: childNodes(of: value)) }
+        if let a = value as? [Any] { return .branch(title: title(label, a.count, "item"), children: childNodes(of: value)) }
+        return .leaf(label: label, value: scalarString(value))
+    }
+
+    private static func title(_ label: String?, _ count: Int, _ word: String) -> String {
+        let n = "\(count) \(noun(count, word))"
+        return label.map { "\($0) (\(n))" } ?? "(\(n))"
+    }
+
+    private static func scalarString(_ v: Any) -> String {
+        if v is NSNull { return "null" }
         if let s = v as? String { return s }
         return "\(v)"
     }
