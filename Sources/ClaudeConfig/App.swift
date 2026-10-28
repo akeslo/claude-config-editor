@@ -181,7 +181,7 @@ struct InfoPanel: View {
                 }
                 .font(.callout)
                 if let text = item.text {
-                    Text(text).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                    JSONText(source: text)
                         .padding(Gap.s2).frame(maxWidth: .infinity, alignment: .leading)
                         .background(.background, in: .rect(cornerRadius: 6))
                         .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.separator))
@@ -194,43 +194,69 @@ struct InfoPanel: View {
 }
 
 /// Renders one SettingsOutline node: a collapsible branch for objects/arrays, a clamp-to-expand row for scalars.
+/// Keys, strings, numbers, booleans and null are coloured like the raw JSON; a guide line marks each level.
 struct OutlineNodeView: View {
     let node: SettingsOutline.Node
 
     var body: some View {
         switch node {
-        case let .branch(title, children):
+        case let .branch(title, children, kind):
             DisclosureGroup {
                 VStack(alignment: .leading, spacing: Gap.s1) {
                     ForEach(Array(children.enumerated()), id: \.offset) { _, child in OutlineNodeView(node: child) }
                 }
-                .padding(.leading, Gap.s2).padding(.top, Gap.s1)
+                .padding(.leading, Gap.s3).padding(.top, Gap.s1)
+                .overlay(alignment: .leading) { Rectangle().fill(.separator).frame(width: 1).padding(.leading, Gap.s1) }
             } label: {
-                Text(title).font(.callout.weight(.medium))
+                BranchLabel(title: title, kind: kind)
             }
-        case let .leaf(label, value):
-            OutlineLeafRow(label: label, value: value)
+        case let .leaf(label, value, kind):
+            OutlineLeafRow(label: label, value: value, kind: kind)
         }
     }
 }
 
-/// A scalar row: wraps and clamps long values (no silent truncation), click to expand/collapse.
+/// "name (3 keys)" as a coloured key plus a dimmed {3} / [3] badge; curated titles render as before.
+private struct BranchLabel: View {
+    let title: String, kind: SettingsOutline.Kind
+
+    var body: some View {
+        if kind == .object || kind == .array, let paren = title.range(of: " (", options: .backwards) ?? (title.hasPrefix("(") ? title.range(of: "(") : nil) {
+            let name = String(title[..<paren.lowerBound])
+            let count = title[paren.upperBound...].prefix { $0.isNumber }
+            HStack(spacing: Gap.s1) {
+                if !name.isEmpty { Text(name).foregroundStyle(JSONInk.key) }
+                Text(kind == .object ? "{\(count)}" : "[\(count)]")
+                    .font(.system(.caption2, design: .monospaced)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 4).background(.quaternary, in: .rect(cornerRadius: 3))
+            }
+            .font(.system(.callout, design: .monospaced).weight(.medium))
+        } else {
+            Text(title).font(.callout.weight(.medium))
+        }
+    }
+}
+
+/// A scalar row: wraps and clamps long values (no silent truncation), click to expand/collapse, right-click to copy.
 private struct OutlineLeafRow: View {
     let label: String?
     let value: String
+    let kind: SettingsOutline.Kind
     @State private var expanded = false
 
     var body: some View {
         let long = value.count > 80 || value.contains("\n")
         HStack(alignment: .firstTextBaseline, spacing: Gap.s2) {
-            if let label { Text(label).font(.caption.weight(.medium)).foregroundStyle(.secondary) }
-            Text(value).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+            if let label { Text(label).font(.system(.caption, design: .monospaced).weight(.medium)).foregroundStyle(JSONInk.key) }
+            Text(kind == .string ? "\"\(value)\"" : value).font(.system(.caption, design: .monospaced))
+                .foregroundStyle(JSONInk.color(kind)).textSelection(.enabled)
                 .lineLimit(expanded ? nil : 3)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .contentShape(Rectangle())
         .onTapGesture { if long { expanded.toggle() } }
+        .contextMenu { Button("Copy Value") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(value, forType: .string) } }
         .help(long ? (expanded ? "Click to collapse" : "Click to expand") : "")
     }
 }

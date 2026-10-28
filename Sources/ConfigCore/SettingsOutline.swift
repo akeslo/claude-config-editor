@@ -4,9 +4,12 @@ import Foundation
 /// scannable collapsible tree instead of a raw JSON wall. Pure/Foundation-only so it is unit-tested.
 public enum SettingsOutline {
     public indirect enum Node: Equatable {
-        case leaf(label: String?, value: String)       // a scalar, optionally labelled by its key
-        case branch(title: String, children: [Node])   // an object/array, collapsible
+        case leaf(label: String?, value: String, kind: Kind = .text)          // a scalar, optionally labelled by its key
+        case branch(title: String, children: [Node], kind: Kind = .text)     // an object/array, collapsible
     }
+
+    /// The JSON type behind a node, so the view can colour it. Curated rows (hooks, rules) stay `.text`.
+    public enum Kind: Equatable, Sendable { case text, string, number, bool, null, object, array }
 
     /// Top-level tree for a value, or nil when the value is a scalar (render it plainly).
     /// Known keys get curated titles; everything else falls back to a generic tree, so new/unknown
@@ -33,7 +36,7 @@ public enum SettingsOutline {
     private static func leafCount(_ node: Node) -> Int {
         switch node {
         case .leaf: return 1
-        case .branch(_, let kids): return kids.reduce(0) { $0 + leafCount($1) }
+        case .branch(_, let kids, _): return kids.reduce(0) { $0 + leafCount($1) }
         }
     }
 
@@ -102,14 +105,21 @@ public enum SettingsOutline {
     }
 
     private static func node(label: String?, value: Any) -> Node {
-        if let d = value as? [String: Any] { return .branch(title: title(label, d.count, "key"), children: childNodes(of: value)) }
-        if let a = value as? [Any] { return .branch(title: title(label, a.count, "item"), children: childNodes(of: value)) }
-        return .leaf(label: label, value: scalarString(value))
+        if let d = value as? [String: Any] { return .branch(title: title(label, d.count, "key"), children: childNodes(of: value), kind: .object) }
+        if let a = value as? [Any] { return .branch(title: title(label, a.count, "item"), children: childNodes(of: value), kind: .array) }
+        return .leaf(label: label, value: scalarString(value), kind: kind(of: value))
     }
 
     private static func title(_ label: String?, _ count: Int, _ word: String) -> String {
         let n = "\(count) \(noun(count, word))"
         return label.map { "\($0) (\(n))" } ?? "(\(n))"
+    }
+
+    static func kind(of v: Any) -> Kind {
+        if v is NSNull { return .null }
+        if v is String { return .string }
+        if let n = v as? NSNumber { return CFGetTypeID(n) == CFBooleanGetTypeID() ? .bool : .number }
+        return .text
     }
 
     private static func scalarString(_ v: Any) -> String {
