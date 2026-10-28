@@ -153,6 +153,20 @@ struct InfoPanel: View {
                         }
                     }
                 }
+                ForEach(item.outline) { section in
+                    DisclosureGroup {
+                        VStack(alignment: .leading, spacing: Gap.s1) {
+                            ForEach(Array(section.rows.enumerated()), id: \.offset) { _, row in
+                                Text(row).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                        .padding(.leading, Gap.s2).padding(.top, Gap.s1)
+                    } label: {
+                        Text(section.title).font(.callout.weight(.medium))
+                    }
+                }
                 ForEach(item.notes, id: \.self) { Label($0, systemImage: "lightbulb").foregroundStyle(Ink.warning).font(.callout) }
                 if let file = item.file {
                     HStack {

@@ -130,9 +130,12 @@ struct SettingsView: View {
     /// Inspector: the key's value in every file that sets it, winner first, plus its raw JSON.
     private func info(_ key: String, _ source: SettingsSource, _ sources: [SettingsSource]) -> InfoItem {
         let layers = sources.filter { $0.url != Paths.keybindings && $0.root[key] != nil }
-        let raw = "\"\(key)\": " + (source.root[key].map(SettingsEdit.render) ?? "null")
+        let value = source.root[key]
+        // Structured keys get a collapsible outline; the "Edit Value…" sheet stays the raw-JSON escape hatch.
+        let outline = SettingsOutline.sections(key: key, value: value) ?? []
+        let raw = outline.isEmpty ? "\"\(key)\": " + (value.map(SettingsEdit.render) ?? "null") : nil
         return InfoItem(key, term: settingTerm(key), facts: layers.map { (sourceLabel($0), SettingsEdit.render($0.root[key]!)) },
-                        file: source.url, text: raw)
+                        file: source.url, text: raw, outline: outline)
     }
 
     private func write(_ source: SettingsSource, _ key: String, _ v: Any?, _ title: String) {
@@ -164,8 +167,9 @@ private struct ValueCell: View {
                 Toggle("", isOn: Binding(get: { n.boolValue }, set: { write($0, "Set \(key) to \($0)") }))
                     .labelsHidden().toggleStyle(.checkbox).accessibilityLabel(key)
             } else if value is JSON || value is [Any] {
-                Text(value.map(SettingsEdit.render)?.replacingOccurrences(of: #"\s*\n\s*"#, with: " ", options: .regularExpression) ?? "")
-                    .lineLimit(1).truncationMode(.tail).help("Double-click to edit")
+                // A scannable count ("4 groups · 9 hooks") beats a truncated JSON blob; full detail is in the inspector and edit sheet.
+                Text(SettingsOutline.summary(key: key, value: value) ?? value.map(SettingsEdit.render)?.replacingOccurrences(of: #"\s*\n\s*"#, with: " ", options: .regularExpression) ?? "")
+                    .foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail).help("Double-click to edit")
             } else {
                 TextField(key, text: $text).labelsHidden().textFieldStyle(.plain)
                     .onSubmit {
