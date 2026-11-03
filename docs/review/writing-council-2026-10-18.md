@@ -2,7 +2,7 @@
 
 Audience: Claude Code users who want a lean setup but don't know Claude Code internals.
 Method: writing-council skill (stranger test G0, lenses G1-G8). Report only; no source edited.
-All paths relative to `~/Scrypting/ai-dev-tools/claude-config-editor` (main checkout).
+All paths relative to `~/Scrypting/ai/claude-config-editor` (main checkout).
 
 ## Files covered
 
