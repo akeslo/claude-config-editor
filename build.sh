@@ -20,8 +20,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleShortVersionString</key><string>1.0</string>
   <key>CFBundleVersion</key><string>$(git rev-list --count HEAD)</string>
   <key>ClaudeConfigCommit</key><string>$(git rev-parse HEAD)</string>
-  <!-- the fork publishes only mac-app; the update check compares against it -->
-  <key>ClaudeConfigBranch</key><string>mac-app</string>
+  <!-- the update check compares against main on the fork -->
+  <key>ClaudeConfigBranch</key><string>main</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>NSHighResolutionCapable</key><true/>
