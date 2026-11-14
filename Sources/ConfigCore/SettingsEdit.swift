@@ -34,6 +34,16 @@ public enum SettingsEdit {
         return text
     }
 
+    /// Like `parse`, but the result keeps the old value's kind: a number or bool never turns into a string. Nil means the text does not fit.
+    public static func parseKeepingType(_ text: String, like old: Any?) -> Any? {
+        func isBool(_ v: Any) -> Bool { (v as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() } ?? false }
+        let v = parse(text)
+        if let old, isBool(old) { return isBool(v) ? v : nil }
+        if old is NSNumber { return (v is NSNumber && !isBool(v)) ? v : nil }
+        if old is String { return text }
+        return v
+    }
+
     /// Pretty JSON for any value (strings quoted), for the object/array editor.
     public static func render(_ v: Any) -> String {
         guard let d = try? JSONSerialization.data(withJSONObject: v, options: [.prettyPrinted, .sortedKeys, .fragmentsAllowed, .withoutEscapingSlashes]) else { return "\(v)" }

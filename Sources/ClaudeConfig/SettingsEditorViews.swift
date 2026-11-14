@@ -263,7 +263,15 @@ private struct SettingRow: View {
             Button("Edit JSON…", action: editJSON).controlSize(.small)
         } else {
             TextField(settingLabel(key), text: $text).frame(maxWidth: 320).font(.body.monospaced())
-                .onSubmit { if text != scalarText { writePath([], value is NSNumber ? SettingsEdit.parse(text) : text, "Set \(key)") } }
+                .onSubmit {
+                    guard text != scalarText else { return }
+                    if let v = SettingsEdit.parseKeepingType(text, like: value) {
+                        writePath([], v, "Set \(key)")
+                    } else {
+                        model?.actionError = "\(key) must stay a \(isBool(value) ? "true/false" : "number"); \"\(text)\" was not saved."
+                        text = scalarText
+                    }
+                }
                 .help("Press Return to save")
         }
     }
