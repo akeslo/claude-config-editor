@@ -59,12 +59,20 @@ public enum Apply {
             return Outcome(summary: "Removed \(lines.count) line\(lines.count == 1 ? "" : "s") from \(file.lastPathComponent)", undo: r.map { [.restore($0)] } ?? [])
         case .trash(let urls):
             var undo: [UndoStep] = []
+            var moved: [URL] = []
+            let refused = urls.compactMap { u in trashRefusal(u).map { (u, $0) } }
             for u in urls where trashRefusal(u) == nil && exists(u) {
                 var out: NSURL?
                 try FileManager.default.trashItem(at: u, resultingItemURL: &out)
+                moved.append(u)
                 if let t = out as URL? { undo.append(.untrash(original: u, trashed: t)) }
             }
-            return Outcome(summary: undo.count == 1 ? "Moved \(urls[0].lastPathComponent) to the Trash" : "Moved \(undo.count) items to the Trash", undo: undo)
+            if moved.isEmpty, !refused.isEmpty {
+                return Outcome(summary: "Skipped " + refused.map { "\($0.0.lastPathComponent) (\($0.1))" }.joined(separator: ", "), failed: true)
+            }
+            let head = moved.count == 1 ? "Moved \(moved[0].lastPathComponent) to the Trash" : "Moved \(moved.count) items to the Trash"
+            let skipped = refused.map { "skipped \($0.0.lastPathComponent) (\($0.1))" }
+            return Outcome(summary: skipped.isEmpty ? head : head + "; " + skipped.joined(separator: ", "), undo: undo)
         case .cli(let args, _, let cwd):
             var undo: [UndoStep] = []
             if args.starts(with: ["mcp", "remove"]), args.count >= 3 {
