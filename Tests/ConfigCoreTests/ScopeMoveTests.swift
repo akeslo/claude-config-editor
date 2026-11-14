@@ -175,6 +175,17 @@ import Testing
         #expect(readText(f) == "x")
     }
 
+    @Test func applyTrashNamesRefusals() async throws {
+        let s = home.appending(path: ".claude/settings.json")
+        let f = home.appending(path: ".claude/agents/old.md")
+        try write(s, "{}")
+        try write(f, "x")
+        let o = await Apply.run(.trash([s, f]), home: home)
+        #expect(o.summary == "Moved old.md to the Trash; skipped settings.json (live settings file)" && !o.failed && exists(s))
+        let o2 = await Apply.run(.trash([s]), home: home)
+        #expect(o2.failed && o2.summary == "Skipped settings.json (live settings file)")
+    }
+
     @Test func bulkApplyCollectsEveryUndo() async throws {
         try write(userSettings, #"{"a":1,"b":2}"#)
         let o = await Apply.run(.bulk([BulkStep(label: "a", fix: .settingsKey(file: userSettings, path: ["a"], value: nil)),
