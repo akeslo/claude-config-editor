@@ -21,6 +21,7 @@ private enum Redactor {
         (try! NSRegularExpression(pattern: #"(?i)(authorization:\s*)(?:(bearer|basic|token|digest|apikey)\s+)?[^\s"']+"#), "$1$2 ***"),
         (try! NSRegularExpression(pattern: #"(?i)\bbearer\s+[^\s"']+"#), "Bearer ***"),
         (try! NSRegularExpression(pattern: #"\?[^\s"']+"#), "?***"),
+        (try! NSRegularExpression(pattern: #"\b(sk-|ghp_|github_pat_)[A-Za-z0-9_-]+"#), "$1***"),
     ]
     static let anyKey = try! NSRegularExpression(pattern: #"([\w.-]+)[=:](?=((?i:(?:bearer|basic|token|digest|apikey)\s+))?("[^"]*"?|'[^']*'?|[^\s"']+))"#)
     static func post(_ s: String) -> String {
