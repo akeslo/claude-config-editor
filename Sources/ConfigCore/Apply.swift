@@ -9,6 +9,12 @@ public enum Apply {
         public var failed = false
     }
 
+    /// Scope named by `-s`, "local" when the flag is absent or has no value after it.
+    static func mcpRemoveScope(_ args: [String]) -> String {
+        guard let i = args.firstIndex(of: "-s"), i + 1 < args.count else { return "local" }
+        return args[i + 1]
+    }
+
     /// True when the change can't be taken back, so it keeps its confirm sheet.
     public static func needsConfirm(_ fix: Fix) -> Bool {
         switch fix {
@@ -77,7 +83,7 @@ public enum Apply {
             var undo: [UndoStep] = []
             if args.starts(with: ["mcp", "remove"]), args.count >= 3 {
                 // Keep the entry so Undo can write it back at key level (~/.claude.json changes too often to restore whole).
-                let scope = args.firstIndex(of: "-s").map { args[$0 + 1] } ?? "local"
+                let scope = mcpRemoveScope(args)
                 let t: Target? = scope == "user" ? .user : cwd.map { scope == "project" ? .project($0) : .local($0) }
                 if let t {
                     let (file, path) = ScopeMove.mcpLocation(t, home: home)
