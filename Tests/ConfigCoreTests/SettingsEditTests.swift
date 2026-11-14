@@ -45,6 +45,13 @@ final class SettingsEditTests: XCTestCase {
         XCTAssertEqual((readJSON(file)?["permissions"] as? JSON)?["deny"] as? [String], [])
     }
 
+    func testParseKeepingType() {
+        XCTAssertNil(SettingsEdit.parseKeepingType("yes", like: NSNumber(value: 0.5)))
+        XCTAssertEqual(SettingsEdit.parseKeepingType("0.7", like: NSNumber(value: 0.5)) as? Double, 0.7)
+        XCTAssertNil(SettingsEdit.parseKeepingType("1", like: true as NSNumber))
+        XCTAssertEqual(SettingsEdit.parseKeepingType("yes", like: "no") as? String, "yes")
+    }
+
     func testParseAndFallback() {
         XCTAssertEqual(SettingsEdit.parse("true") as? Bool, true)
         XCTAssertEqual(SettingsEdit.parse("7") as? Int, 7)
